@@ -271,3 +271,68 @@ describe("useCachedFetch: a 409 choice stays the answer until a fresh 200 or a n
     expect(result.current.choice).toBeNull()
   })
 })
+
+// ── the latch's response-order table (review of 63faba69, 2026-10-08): after a 409 choice, what each next answer does ──
+
+describe("useCachedFetch after a 409 choice: the response-order table", () => {
+  const KEY_T = "estate-dep-map:300:payments"
+  type Next = () => Response
+
+  async function afterChoice(next: Next) {
+    const { renderHook, waitFor, act } = await import("@testing-library/react")
+    const { status, body } = capture(AMBIGUOUS)
+    window.localStorage.setItem(`cyntro:swr:${KEY_T}`, JSON.stringify({ ts: Date.now(), data: { nodes: [{ id: "old-map" }] } }))
+    const answers: Next[] = [() => json(body, status), next]
+    vi.stubGlobal("fetch", vi.fn(async () => (answers.shift() ?? next)()))
+    const { useCachedFetch } = await import("@/lib/use-cached-fetch")
+    const hook = renderHook(({ key }) => useCachedFetch<{ nodes?: unknown[]; status?: string }>(
+      `/api/proxy/dependency-map/full?systemName=payments&k=${key}`, { cacheKey: key }), { initialProps: { key: KEY_T } })
+    await waitFor(() => expect(hook.result.current.choice).not.toBeNull())
+    await act(async () => { hook.result.current.retry() })
+    await waitFor(() => expect(hook.result.current.loading).toBe(false))
+    return hook
+  }
+
+  afterEach(() => window.localStorage.clear())
+
+  it("fresh 200 (one system answered): the choice ends and the fresh reading is shown", async () => {
+    const { result } = await afterChoice(() => json({ nodes: [{ id: "fresh" }] }))
+    await vi.waitFor(() => expect(result.current.data?.nodes).toEqual([{ id: "fresh" }]))
+    expect(result.current.choice).toBeNull()
+  })
+
+  it("pending 200 ({status: computing}): resolves no system -- the choice stays, nothing shown", async () => {
+    const { result } = await afterChoice(() => json({ status: "computing", system_kpis: null }))
+    expect(result.current.choice).not.toBeNull()
+    expect(result.current.data).toBeNull()
+  })
+
+  it("stale 200 (proxy fromStaleCache): resolves no system -- the choice stays, the stale map is not shown", async () => {
+    const { result } = await afterChoice(() => json({ nodes: [{ id: "stale" }], fromStaleCache: true }))
+    expect(result.current.choice).not.toBeNull()
+    expect(result.current.data).toBeNull()
+  })
+
+  it.each([401, 403])("%i (access denied): outranks the choice -- no candidates, no data, the refusal named", async (code) => {
+    const { result } = await afterChoice(() => json({ detail: "denied" }, code))
+    expect(result.current.choice).toBeNull()
+    expect(result.current.data).toBeNull()
+    expect(result.current.error).not.toBeNull()
+  })
+
+  it.each([
+    ["503", () => json({ error: "Backend returned 503" }, 503)],
+    ["network failure", () => { throw new TypeError("Failed to fetch") }],
+  ])("%s: says nothing new -- the choice stays and nothing earlier returns", async (_label, next) => {
+    const { result } = await afterChoice(next as Next)
+    expect(result.current.choice).not.toBeNull()
+    expect(result.current.data).toBeNull()
+  })
+
+  it("identity change (a new key): the choice belongs to the old key and is reset", async () => {
+    const { act } = await import("@testing-library/react")
+    const hook = await afterChoice(() => json({ error: "Backend returned 503" }, 503))
+    await act(async () => { hook.rerender({ key: `${KEY_T}:key=${KEY}:${ACCOUNT}` }) })
+    expect(hook.result.current.choice).toBeNull()
+  })
+})

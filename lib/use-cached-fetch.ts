@@ -555,6 +555,23 @@ export function useCachedFetch<T = unknown>(
           clearAutoRetry()
           return
         }
+        // A refusal of the CALLER (401 session / 403 permission) is never covered by data read
+        // earlier, for any caller: the key's cached reading is dropped, nothing is replayed. It is
+        // authoritative over an earlier system choice too (B5 review: access revoked after a 409 must
+        // not keep offering that 409's candidates).
+        if (res.status === 401 || res.status === 403) {
+          clearCachedFetch(cacheKey)
+          setData(null)
+          setIsStale(false)
+          setCachedAt(null)
+          setStaleReason(null)
+          setChoice(null)
+          choiceLatchRef.current = false
+          setError(callerRefusalMessage(res.status))
+          setLoading(false)
+          clearAutoRetry()
+          return
+        }
         if (choiceLatchRef.current) {
           // The ambiguity stays the answer: nothing earlier is restored by a failure that says nothing new about it.
           setLoading(false)
@@ -562,19 +579,6 @@ export function useCachedFetch<T = unknown>(
           return
         }
         setChoice(null)
-        // A refusal of the CALLER (401 session / 403 permission) is never covered by data read
-        // earlier, for any caller: the key's cached reading is dropped, nothing is replayed.
-        if (res.status === 401 || res.status === 403) {
-          clearCachedFetch(cacheKey)
-          setData(null)
-          setIsStale(false)
-          setCachedAt(null)
-          setStaleReason(null)
-          setError(callerRefusalMessage(res.status))
-          setLoading(false)
-          clearAutoRetry()
-          return
-        }
         // TRANSPORT vs SEMANTIC. A 502/504 says the backend is unreachable;
         // it says nothing about whether the cached reading is still true. A
         // 4xx is the backend answering authoritatively that it is not.
@@ -664,15 +668,22 @@ export function useCachedFetch<T = unknown>(
         return
       }
       setHold(null)
-      setChoice(null)
-      // A 200 answers for ONE system: the ambiguity, if any, is no longer the answer.
-      choiceLatchRef.current = false
       // Wave D computing envelopes are HTTP 200 with null payloads — never
       // write them into client cache or Estate Map sticks on "No system_kpis".
       const envelope = sanitized as { status?: string; system_kpis?: unknown }
       const isComputingEnvelope =
         envelope.status === "computing" &&
         (envelope.system_kpis == null || envelope.system_kpis === undefined)
+      if (choiceLatchRef.current && (isComputingEnvelope || proxyStale)) {
+        // B5 review: a PENDING (computing) or STALE (proxy fromStaleCache) 200 resolves no system -- the ambiguity stays
+        // the answer, nothing is shown in its place, and the page keeps asking.
+        setLoading(false)
+        scheduleAutoRetry()
+        return
+      }
+      // A FRESH accepted 200 answers for ONE system: the ambiguity, if any, is no longer the answer.
+      setChoice(null)
+      choiceLatchRef.current = false
       if (isComputingEnvelope) {
         // Keep last-good map on screen; only show the empty computing
         // envelope when we have nothing else to render.
