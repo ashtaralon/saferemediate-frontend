@@ -32,7 +32,9 @@ async function resolveActiveSystem(systemsUrl: string, customerId: string | null
     const res = await fetch(systemsUrl, { cache: "no-store" })
     if (!res.ok) return null
     const selection = selectCatalogSystem(
-      { system: params.get("system"), accountId: params.get("account_id"), region: params.get("region") },
+      // A7 B5: a v2 link's key names exactly one of the systems that share a name.
+      { system: params.get("system"), accountId: params.get("account_id"), region: params.get("region"),
+        systemKey: params.get("system_key") },
       catalogEntries(await res.json(), customerId),
     )
     return selection.kind === "SELECTED" ? selection.entry.name : null
