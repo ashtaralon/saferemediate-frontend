@@ -15,10 +15,12 @@
  */
 import type { InventoryModel } from "@/lib/account-inventory"
 
-/** What each onboarding state means for this account's data, as "Now: ..." (cyntro_data/consume/onboarding.py's ladder). */
+/** What each onboarding state means for this account's data, as "Now: ..." (cyntro_data/consume/onboarding.py's ladder).
+ *  The ladder is the DATA's: it never speaks for the connection, which is the connector's and is shown on Settings › Accounts.
+ *  An account Settings shows Connected reads INSTALLING here until a data stage is recorded for it (first-account QA, r41). */
 export const LIFECYCLE_NOW: Record<string, string> = {
-  INSTALLING: "registered; its connection is not verified yet",
-  PROVISIONING: "its connection is being verified",
+  INSTALLING: "no stage of its data has been recorded yet",
+  PROVISIONING: "the setup its data is collected through is being checked",
   BOOTSTRAPPING: "collecting its first inventory",
   BACKFILLING: "reading its recent activity history",
   SHADOW: "its first data is staged and being checked",

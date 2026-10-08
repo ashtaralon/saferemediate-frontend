@@ -22,6 +22,13 @@ describe("the readiness holds", () => {
     expect(heldCopy(holds.lifecycle_holds.OFFBOARDED)).toBe("This account was removed from Cyntro, so its inventory is not shown.")
   })
 
+  it("speaks for the account's data, never for its connection (Settings shows the connector's verified connection)", () => {
+    // First-account QA (2026-10-08): 376419027176 was Connected on Settings while this read "its connection is not verified yet".
+    for (const [state, words] of Object.entries(LIFECYCLE_NOW)) expect(words, state).not.toMatch(/connect|verif/i)
+    expect(heldCopy(holds.lifecycle_holds.INSTALLING)).toBe(
+      "Inventory appears once this account's data is active. Now: no stage of its data has been recorded yet.")
+  })
+
   it("words every pass lapse, with or without the verdict's detail", () => {
     expect(Object.keys(PASS_LAPSE_COPY).sort()).toEqual([...holds.pass_lapse_reasons].sort())
     for (const lapse of holds.pass_lapse_reasons) {
