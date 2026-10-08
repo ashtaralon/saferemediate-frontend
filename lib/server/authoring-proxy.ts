@@ -27,6 +27,8 @@ export const AUTHORING_PROXY_PREFIX = "/api/proxy/system-boundary/"
 /** The backend's MAX_BODY_BYTES (unified/system_boundary_save.py): exactly this many bytes pass, one more refuses. */
 export const AUTHORING_MAX_BODY_BYTES = 1024 * 1024
 export const AUTHORING_MAX_CURSOR = 1024
+/** The result route's system key, bounded as the backend bounds it (api/system_boundary.py _SYSTEM_KEY_MAX_BYTES). */
+export const AUTHORING_MAX_SYSTEM_KEY_BYTES = 512
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
@@ -82,6 +84,12 @@ function forwardedQuery(route: Route, params: URLSearchParams): URLSearchParams 
   if (accountId !== null) {
     if (!/^[0-9]{12}$/.test(accountId)) return null
     out.set("account_id", accountId)
+  }
+  // (A7 rev 4 C-D) the result route names ONE system: forwarded, or the result could never be asked for (400 upstream).
+  const systemKey = params.get("system_key")
+  if (systemKey !== null) {
+    if (!systemKey.trim() || new TextEncoder().encode(systemKey).length > AUTHORING_MAX_SYSTEM_KEY_BYTES) return null
+    out.set("system_key", systemKey)
   }
   return out
 }
