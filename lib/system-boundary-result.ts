@@ -150,16 +150,81 @@ export function parseResultResponse(status: number, body: unknown, accountId: st
   }
 }
 
-/** The proof a person reads for one member row. */
+/** How a claim's origin reads (the engine's ORIGIN_* names; an unknown one is shown as itself, never dropped). */
+const ORIGIN_WORDS: Record<string, string> = {
+  aws_tag: "AWS tag",
+  stack: "stack listing",
+  held: "claim held for review",
+  authored: "person's declaration",
+  decision: "person's decision",
+}
+
+function originWords(origin: unknown): string {
+  return typeof origin === "string" ? (ORIGIN_WORDS[origin] ?? origin) : "claim"
+}
+
+function systemWords(claim: Record<string, unknown>): string {
+  const name = typeof claim.system_name === "string" && claim.system_name !== "" ? claim.system_name : null
+  return name ?? String(claim.system_key ?? "another system")
+}
+
+/** The claims a member's root outranked (R9 display: kept and shown, never hidden): `overridden_claims` (system + origin),
+ * else the older `declared_by` (systems only). Empty when none. */
+export function overriddenSentence(proof: Record<string, unknown>): string {
+  const claims = Array.isArray(proof.overridden_claims) ? proof.overridden_claims.filter(isObject) : []
+  if (claims.length > 0) {
+    return `also claimed by ${claims.map((c) => `${systemWords(c)} (${originWords(c.origin)})`).join(", ")} -- `
+      + "kept and shown, not applied"
+  }
+  const systems = Array.isArray(proof.declared_by) ? proof.declared_by.filter((k) => typeof k === "string") : []
+  return systems.length > 0 ? `also claimed by ${systems.join(", ")} -- kept and shown, not applied` : ""
+}
+
+/** The proof a person reads for one member row: why it is a member, how its CURRENT identity is known (R4 / R5), whether
+ * its lifetime is proven (apart from identity), and the claims it outranked (R9). */
 export function proofSentence(row: ResultRow): string {
   const proof = isObject(row.proof) ? row.proof : {}
-  const unproven = proof.lineage_unproven ? " (its lifetime could not be proven)" : ""
+  let why: string
   if (proof.source === "stack") {
     const how = proof.proof === "stack_tag" ? "its stack-id tag names" : "is listed by"
-    return `${how} stack ${String(proof.stack_id ?? "?")} as ${String(proof.logical_id ?? "?")}${unproven}`
+    why = `${how} stack ${String(proof.stack_id ?? "?")} as ${String(proof.logical_id ?? "?")}`
+  } else if (proof.source === "decision") {
+    why = "included by a person's decision"
+  } else {
+    why = `found by Cyntro's rules (${String(proof.origin ?? "unknown")})`
   }
-  if (proof.source === "decision") return `included by a person's decision${unproven}`
-  return `found by Cyntro's rules (${String(proof.origin ?? "unknown")})${unproven}`
+  const parts = [why]
+  if (proof.identity === "stack_tag") parts.push("identity confirmed by this stack's own tag on the resource now")
+  else if (proof.identity === "marker") parts.push("identity confirmed by its creation marker")
+  else if (proof.identity_unconfirmed === true) parts.push("identity not independently confirmed (named by the stack only)")
+  if (proof.lineage_unproven === true) parts.push("continuity since it joined is not proven by a creation marker")
+  const overridden = overriddenSentence(proof)
+  if (overridden !== "") parts.push(overridden)
+  return parts.join("; ")
+}
+
+/** Why a not-a-member row is not a member, as a person reads it (R9 exclusion, R6 shared cluster, R1 shared foundation,
+ * retirements, listed-only and the other named outcomes). The backend's reason code stays visible. */
+export function notMemberSentence(row: ResultRow): string {
+  const reason = String(row.reason ?? row.state)
+  const suppressed = Array.isArray(row.suppressed) ? row.suppressed.map(originWords) : []
+  const setAside = suppressed.length > 0 ? `; this system's ${suppressed.join(" and ")} claim was set aside` : ""
+  if (reason === "SHARED_CLUSTER") {
+    const users = Array.isArray(row.consumer_systems) ? row.consumer_systems.map(String) : []
+    const held = typeof row.hold_reason === "string" ? ` (it had been held: ${row.hold_reason})` : ""
+    return `a member of no system: other systems' workloads run on this cluster${users.length ? ` (${users.join(", ")})` : ""}`
+      + `${setAside}${held}; only a person's decision can assign it [${reason}]`
+  }
+  if (reason === "EXCLUDED_BY_DECISION") {
+    const stopped = row.propagation_stopped === true ? "; it also stopped this system's propagation there" : ""
+    return `excluded by a person's decision${setAside}${stopped} [${reason}]`
+  }
+  if (reason === "SHARED_FOUNDATION") return `shared foundation: a member of no business system [${reason}]`
+  if (row.kind === "RETIRED") {
+    const sinceWhen = typeof row.valid_to === "string" ? ` on ${row.valid_to}` : ""
+    return `no longer a member${sinceWhen} [${reason}]`
+  }
+  return reason
 }
 
 export function resultSentence(answer: ParsedResult): string {
