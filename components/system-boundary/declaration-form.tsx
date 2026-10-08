@@ -8,6 +8,9 @@
  *
  * One reviewed declaration is ONE envelope (one request id): an unconfirmed save is resent unchanged, never re-minted,
  * and editing after a refusal makes a new request. A save is Saved -- Cyntro then prepares membership -- never Applied.
+ *
+ * (A7 rev 4 C-B) The stack wizard hands it the stacks to bind and the per-resource decisions as well; a save may then
+ * carry no root. A new Deployment covers the cells of everything picked.
  */
 import { useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -26,13 +29,18 @@ import {
   describeResult,
   reusableSystems,
   type DraftDeclaration,
+  type PickedDecision,
   type PickedRoot,
+  type PickedStack,
   type SaveOutcome,
 } from "@/lib/system-boundary-declaration"
 
 export interface DeclarationFormProps {
   view: DeclarationsView
   roots: PickedRoot[]
+  /** (A7 rev 4 C-B) stacks to bind and per-resource decisions, from the stack wizard; undefined: a roots-only save. */
+  stacks?: PickedStack[]
+  decisions?: PickedDecision[]
   onCancel: () => void
   /** A save was confirmed (committed now, or the replay of this request). */
   onSaved: (revision: number) => void
@@ -50,7 +58,8 @@ function recordLabel(body: Record<string, unknown>, field: string): string {
   return typeof body[field] === "string" ? (body[field] as string) : "(unnamed)"
 }
 
-export function DeclarationForm({ view, roots, onCancel, onSaved, save = saveDeclaration, onEnvelope, onOutcome }: DeclarationFormProps) {
+export function DeclarationForm({ view, roots, stacks, decisions, onCancel, onSaved, save = saveDeclaration, onEnvelope,
+                                  onOutcome }: DeclarationFormProps) {
   const systems = useMemo(() => reusableSystems(view), [view])
   const [systemMode, setSystemMode] = useState<"new" | "existing">("new")
   const [displayName, setDisplayName] = useState("")
@@ -68,10 +77,13 @@ export function DeclarationForm({ view, roots, onCancel, onSaved, save = saveDec
 
   const deployments = systemMode === "existing" ? deploymentsOf(view, systemKey) : []
   const chosenSystem = systems.find((s) => s.key === systemKey)
-  const cells = cellsOf(roots.map((picked) => picked.root))
+  const cells = cellsOf([...roots.map((picked) => picked.root), ...(stacks ?? []).map((picked) => picked.binding),
+                         ...(decisions ?? []).map((picked) => picked.decision)])
 
   const draft = (): DraftDeclaration => ({
     roots,
+    ...(stacks !== undefined ? { stacks } : {}),
+    ...(decisions !== undefined ? { decisions } : {}),
     system: systemMode === "new" ? { mode: "new", displayName, criticality: criticality || null } : { mode: "existing", systemKey },
     deployment: deploymentMode === "new" || systemMode === "new"
       ? { mode: "new", deploymentKey, environment, environmentRaw }
@@ -117,10 +129,18 @@ export function DeclarationForm({ view, roots, onCancel, onSaved, save = saveDec
     <section aria-label="Declare a system" className="space-y-4 rounded-md border border-slate-200 bg-white p-4">
       <header>
         <h2 className="text-base font-semibold text-slate-900">Declare a system</h2>
-        {step.kind === "edit" ? (
+        {step.kind === "edit" && stacks === undefined ? (
           <p className="text-xs text-slate-600">
             {roots.length} picked {roots.length === 1 ? "resource" : "resources"} become the system&apos;s roots. Cyntro derives
             the rest of its membership from them after the save.
+          </p>
+        ) : null}
+        {step.kind === "edit" && stacks !== undefined ? (
+          <p className="text-xs text-slate-600" data-testid="wizard-summary">
+            {stacks.length} {stacks.length === 1 ? "stack" : "stacks"} to bind, {(decisions ?? []).length} per-resource
+            {(decisions ?? []).length === 1 ? " decision" : " decisions"}
+            {roots.length ? `, ${roots.length} picked ${roots.length === 1 ? "root" : "roots"}` : ""}. Cyntro derives the
+            membership from them after the save.
           </p>
         ) : null}
       </header>
@@ -269,6 +289,35 @@ export function DeclarationForm({ view, roots, onCancel, onSaved, save = saveDec
               ))}
             </tbody>
           </table>
+          {step.declaration.bindings?.length ? (
+            <table className="w-full text-xs" data-testid="review-bindings">
+              <thead><tr className="text-left text-slate-500"><th>Stack</th><th>Account / Region</th><th>Binding</th></tr></thead>
+              <tbody>
+                {step.declaration.bindings.map((binding) => (
+                  <tr key={binding.stack_id}>
+                    <td className="font-mono">{stacks?.find((p) => p.binding.stack_id === binding.stack_id)?.label ?? binding.stack_id}</td>
+                    <td>{binding.account_id} / {binding.region}</td>
+                    <td>{binding.kind}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : null}
+          {step.declaration.resource_decisions?.length ? (
+            <table className="w-full text-xs" data-testid="review-decisions">
+              <thead><tr className="text-left text-slate-500"><th>Resource</th><th>Account / Region</th><th>Decision</th></tr></thead>
+              <tbody>
+                {step.declaration.resource_decisions.map((decision) => (
+                  <tr key={`${decision.account_id}|${decision.region}|${decision.resource_uid}`}>
+                    <td className="font-mono">{decisions?.find((p) => p.decision.resource_uid === decision.resource_uid)?.label
+                      ?? decision.resource_uid}</td>
+                    <td>{decision.account_id} / {decision.region}</td>
+                    <td>{decision.verdict}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : null}
           <div className="flex gap-2">
             <Button type="button" size="sm" onClick={() => void saveReviewed()}>Save</Button>
             <Button type="button" size="sm" variant="ghost" onClick={backToEdit}>Back</Button>

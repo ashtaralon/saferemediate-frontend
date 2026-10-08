@@ -14,11 +14,15 @@
  * verified person (the subject /authoring-grants/self names) and this account, until its outcome is definite; the
  * person's unresolved saves are reconciled by request id when this account's page opens (pending-saves.tsx). Without
  * a verified subject nothing is kept: the save still works, only its resume is unavailable.
+ *
+ * A7 rev 4: where the capability read says the stack wizard may write here (lib/system-boundary-capability.ts), the toolbar
+ * also offers "Bind CloudFormation stacks" (stack-binding-wizard.tsx); otherwise it says why, and nothing else changes.
  */
 import { useCallback, useEffect, useState, type ReactNode } from "react"
 import { DeclarationForm } from "@/components/system-boundary/declaration-form"
 import { DeclaredSystems } from "@/components/system-boundary/declared-systems"
 import { PendingSaves } from "@/components/system-boundary/pending-saves"
+import { StackBindingWizard } from "@/components/system-boundary/stack-binding-wizard"
 import { Button } from "@/components/ui/button"
 import { rowKey, type InventoryRow, type InventorySelection, type PublicationIdentity } from "@/lib/account-inventory"
 import {
@@ -32,6 +36,12 @@ import {
   type ReadResult,
   type SaveResult,
 } from "@/lib/system-boundary-authoring"
+import {
+  capabilitySentence,
+  fetchCapability,
+  parseCapabilityResponse,
+  type ParsedCapability,
+} from "@/lib/system-boundary-capability"
 import { pendingStore, type PendingStore } from "@/lib/system-boundary-pending"
 import { samePublication, type PickedRoot } from "@/lib/system-boundary-declaration"
 
@@ -47,6 +57,8 @@ export interface DeclareFromInventoryProps {
   onEnvelope?: (envelope: CreateEnvelope) => void
   /** Injectable for tests; default: this browser's localStorage. Created once per picker. */
   store?: PendingStore
+  /** Injectable for tests; default: the authoring proxy's capability read (A7 rev 4). */
+  readCapability?: () => Promise<{ status: number; body: unknown }>
 }
 
 type ViewState = { kind: "loading" } | ReadResult<DeclarationsView>
@@ -56,7 +68,7 @@ export function DeclareFromInventory(props: DeclareFromInventoryProps) {
 }
 
 function Declarer({ accountId, renderInventory, readDeclarations = readView, readGrant = readOwnGrant, save, onEnvelope,
-                    store: injected }: DeclareFromInventoryProps) {
+                    store: injected, readCapability = fetchCapability }: DeclareFromInventoryProps) {
   const [view, setView] = useState<ViewState>({ kind: "loading" })
   const [store] = useState<PendingStore>(() => injected ?? pendingStore())
   const [actor, setActor] = useState<string | null>(null)
@@ -64,6 +76,8 @@ function Declarer({ accountId, renderInventory, readDeclarations = readView, rea
   const [shown, setShown] = useState<PublicationIdentity | null>(null)
   const [declaring, setDeclaring] = useState(false)
   const [savedRevision, setSavedRevision] = useState<number | null>(null)
+  const [capability, setCapability] = useState<ParsedCapability | null>(null)
+  const [binding, setBinding] = useState(false)
 
   const load = useCallback(() => {
     let live = true
@@ -84,6 +98,15 @@ function Declarer({ accountId, renderInventory, readDeclarations = readView, rea
       live = false
     }
   }, [readGrant])
+  useEffect(() => {
+    let live = true
+    void readCapability().then(({ status, body }) => {
+      if (live) setCapability(parseCapabilityResponse(status, body))
+    })
+    return () => {
+      live = false
+    }
+  }, [readCapability])
 
   const keep = useCallback((envelope: CreateEnvelope) => {
     if (actor) store.put({ version: 1, actor, accountId, kind: "CREATE", envelope, startedAt: new Date().toISOString() })
@@ -131,7 +154,23 @@ function Declarer({ accountId, renderInventory, readDeclarations = readView, rea
             {picks.size ? (
               <Button type="button" size="sm" variant="ghost" onClick={() => setPicks(new Map())}>Clear picks</Button>
             ) : null}
+            {capability?.kind === "enabled" ? (
+              <Button type="button" size="sm" variant="outline" disabled={binding} onClick={() => setBinding(true)}>
+                Bind CloudFormation stacks
+              </Button>
+            ) : null}
           </div>
+          {capability !== null && capability.kind !== "enabled" && capabilitySentence(capability) ? (
+            <p className="text-xs text-slate-500" data-testid="wizard-capability">{capabilitySentence(capability)}</p>
+          ) : null}
+          {binding && view.kind === "OK" ? (
+            <StackBindingWizard accountId={accountId} view={view.value} onClose={() => setBinding(false)}
+              onEnvelope={keep} onOutcome={settled} save={save}
+              onSaved={(revision) => {
+                setSavedRevision(revision)
+                load()
+              }} />
+          ) : null}
           {earlier.length ? (
             <p className="text-xs text-amber-800" role="status">
               {earlier.length} {earlier.length === 1 ? "pick was" : "picks were"} made in an earlier publication of this inventory;

@@ -14,7 +14,9 @@ import type {
   DeclaredRoot,
   DeclarationsView,
   RefusedRoot,
+  ResourceDecision,
   SaveResult,
+  StackBinding,
 } from "@/lib/system-boundary-authoring"
 import { refusedRoots } from "@/lib/system-boundary-authoring"
 import type { PublicationIdentity } from "@/lib/account-inventory"
@@ -42,10 +44,24 @@ export type DeploymentChoice =
   | { mode: "new"; deploymentKey: string; environment: string; environmentRaw: string }
   | { mode: "existing"; deploymentKey: string }
 
+/** (A7 rev 4 C-B) A stack the person chose to bind, with the label they saw it under. */
+export interface PickedStack {
+  binding: StackBinding
+  label: string
+}
+
+/** (A7 rev 4 C-B) A per-resource verdict the person made, with the label they saw it under. */
+export interface PickedDecision {
+  decision: ResourceDecision
+  label: string
+}
+
 export interface DraftDeclaration {
   roots: PickedRoot[]
   system: SystemChoice
   deployment: DeploymentChoice
+  stacks?: PickedStack[]
+  decisions?: PickedDecision[]
 }
 
 export type BuildResult = { ok: true; declaration: CreateDeclaration } | { ok: false; problems: string[] }
@@ -72,9 +88,10 @@ export function deploymentsOf(view: DeclarationsView, systemKey: string): Bounda
     .sort((a, b) => String(a.body.deployment_key ?? "").localeCompare(String(b.body.deployment_key ?? "")))
 }
 
-/** The cells a NEW Deployment covers: the distinct (account, Region) of its roots, sorted -- a global root's own cell
- * (account, global) included, so it is inside by the backend's explicit-cell rule. */
-export function cellsOf(roots: DeclaredRoot[]): { account_id: string; region: string }[] {
+/** The cells a NEW Deployment covers: the distinct (account, Region) of its roots -- and of the stacks it binds and the
+ * resources it decides on -- sorted; a global root's own cell (account, global) included, so it is inside by the
+ * backend's explicit-cell rule. */
+export function cellsOf(roots: Array<{ account_id: string; region: string }>): { account_id: string; region: string }[] {
   const seen = new Map<string, { account_id: string; region: string }>()
   for (const root of roots) seen.set(`${root.account_id}|${root.region}`, { account_id: root.account_id, region: root.region })
   return [...seen.values()].sort((a, b) => a.account_id.localeCompare(b.account_id) || a.region.localeCompare(b.region))
@@ -82,7 +99,7 @@ export function cellsOf(roots: DeclaredRoot[]): { account_id: string; region: st
 
 /** Whether an existing Deployment covers a root's cell: listed, or a global root in an account with exactly one cell
  * (the backend's ``cell_in_deployment``). */
-export function deploymentCovers(deployment: BoundaryRecord, root: DeclaredRoot): boolean {
+export function deploymentCovers(deployment: BoundaryRecord, root: { account_id: string; region: string }): boolean {
   const scopes = Array.isArray(deployment.body.scopes) ? (deployment.body.scopes as { account_id?: unknown; region?: unknown }[]) : []
   if (scopes.some((s) => s.account_id === root.account_id && s.region === root.region)) return true
   return root.region === GLOBAL_REGION && scopes.filter((s) => s.account_id === root.account_id).length === 1
@@ -92,15 +109,49 @@ function collapse(text: string): string {
   return text.split(/\s+/).filter(Boolean).join(" ")
 }
 
+/** (A7 rev 4) Every problem the served wizard limits rule out for the stacks and decisions of one save. */
+function wizardProblems(stacks: StackBinding[], decisions: ResourceDecision[], roots: number, limits: AuthoringLimits): string[] {
+  const problems: string[] = []
+  if (!stacks.length && !decisions.length) return problems
+  if (limits.save_envelope_level !== 2 || limits.max_bindings === undefined || limits.max_resource_decisions === undefined
+    || limits.max_actions === undefined) {
+    return ["This installation does not take stack bindings or per-resource decisions."]
+  }
+  if (stacks.length > limits.max_bindings) problems.push(`Bind at most ${limits.max_bindings} stacks in one save.`)
+  if (decisions.length > limits.max_resource_decisions) {
+    problems.push(`Decide at most ${limits.max_resource_decisions} resources in one save.`)
+  }
+  // Each record is two transaction items; the protocol adds a handful of its own. Never split: the person saves in parts.
+  const items = 2 * (roots + stacks.length + decisions.length) + 12
+  if (items > limits.max_actions) {
+    problems.push("This save is too large for one transaction; save the stacks first, then the per-resource decisions.")
+  }
+  if (new Set(stacks.map((s) => s.stack_id)).size !== stacks.length) problems.push("A stack is chosen twice.")
+  if (new Set(decisions.map((d) => `${d.account_id}|${d.region}|${d.resource_uid}`)).size !== decisions.length) {
+    problems.push("A resource is decided twice.")
+  }
+  return problems
+}
+
 /** The exact request for a draft, or every problem the served limits and the view already rule out. */
 export function buildDeclaration(draft: DraftDeclaration, view: DeclarationsView): BuildResult {
   const limits: AuthoringLimits = view.limits
   const problems: string[] = []
   const roots = draft.roots.map((picked) => picked.root)
-  if (roots.length === 0) problems.push("Pick at least one resource as a root.")
+  const stacks = (draft.stacks ?? []).map((picked) => picked.binding)
+  const decisions = (draft.decisions ?? []).map((picked) => picked.decision)
+  const wizard = draft.stacks !== undefined || draft.decisions !== undefined
+  if (roots.length === 0 && stacks.length === 0) {
+    problems.push(wizard ? "Pick at least one resource as a root, or bind a stack." : "Pick at least one resource as a root.")
+  }
   if (roots.length > limits.max_roots) problems.push(`Pick at most ${limits.max_roots} roots in one save.`)
-  const accounts = new Set(roots.map((r) => r.account_id))
-  if (accounts.size > limits.max_write_accounts) problems.push(`Roots may span at most ${limits.max_write_accounts} accounts in one save.`)
+  problems.push(...wizardProblems(stacks, decisions, roots.length, limits))
+  const placed = [...roots, ...stacks, ...decisions]
+  const accounts = new Set(placed.map((r) => r.account_id))
+  if (accounts.size > limits.max_write_accounts) {
+    problems.push(wizard ? `A save may span at most ${limits.max_write_accounts} accounts.`
+      : `Roots may span at most ${limits.max_write_accounts} accounts in one save.`)
+  }
 
   let system: CreateDeclaration["system"] | null = null
   if (draft.system.mode === "new") {
@@ -123,7 +174,7 @@ export function buildDeclaration(draft: DraftDeclaration, view: DeclarationsView
     if (!limits.environments.includes(draft.deployment.environment)) problems.push("Choose the deployment's environment.")
     const raw = draft.deployment.environmentRaw.trim()
     if (raw.length > limits.max_environment_raw) problems.push(`Your own environment word is at most ${limits.max_environment_raw} characters.`)
-    const scopes = cellsOf(roots)
+    const scopes = cellsOf(placed)
     if (scopes.length > limits.max_new_cells) problems.push(`A new deployment covers at most ${limits.max_new_cells} account/Region cells.`)
     deployment = { mode: "new", deployment_key: key, environment: draft.deployment.environment,
                    ...(raw ? { environment_raw: raw } : {}), scopes }
@@ -132,13 +183,19 @@ export function buildDeclaration(draft: DraftDeclaration, view: DeclarationsView
     const record = live(view.deployments, draft.deployment.deploymentKey)
     if (!record) problems.push("The chosen deployment is no longer available; reload and choose again.")
     else {
-      const outside = roots.filter((root) => !deploymentCovers(record, root))
-      if (outside.length) problems.push(`${outside.length} picked root(s) are outside this deployment's accounts and Regions.`)
+      const outsideRoots = roots.filter((root) => !deploymentCovers(record, root))
+      if (outsideRoots.length) problems.push(`${outsideRoots.length} picked root(s) are outside this deployment's accounts and Regions.`)
+      const outsideOther = [...stacks, ...decisions].filter((item) => !deploymentCovers(record, item))
+      if (outsideOther.length) {
+        problems.push(`${outsideOther.length} chosen stack(s) or decision(s) are outside this deployment's accounts and Regions.`)
+      }
       deployment = { mode: "ref", deployment_id: String(record.body.deployment_id), expected_version: record.version }
     }
   }
   if (problems.length || system === null || deployment === null) return { ok: false, problems }
-  return { ok: true, declaration: { system, deployment, roots } }
+  // The new lists are sent only when present: a level-1 save stays byte-identical to what it always was.
+  return { ok: true, declaration: { system, deployment, roots, ...(stacks.length ? { bindings: stacks } : {}),
+                                    ...(decisions.length ? { resource_decisions: decisions } : {}) } }
 }
 
 /** Why the current-root resolver did not admit a root, in the person's words (its status and reason). */
@@ -190,6 +247,22 @@ const REFUSALS: Record<string, string> = {
   PROTOCOL_NOT_INITIALIZED: "Saving declarations is not available on this installation yet.",
   PROTOCOL_SUSPENDED: "Saving declarations is paused on this installation.",
   ROOT_ADMISSION_UNAVAILABLE: "The account inventory could not be checked right now. Nothing was saved; try again.",
+  // A7 rev 4 C-B: stack bindings and per-resource decisions
+  WIZARD_DISABLED: "Binding stacks is not turned on for this installation. Nothing was saved.",
+  STACK_ALREADY_BOUND: "A chosen stack is already bound to a system. Nothing was saved; remove that binding first.",
+  STACK_NOT_IN_CENSUS: "A chosen stack is not in the account's latest census. Nothing was saved; reload the stacks.",
+  STACK_ACCOUNT_NOT_IN_DEPLOYMENT: "A chosen stack is outside the deployment's accounts and Regions.",
+  BINDINGS_MAX: "Too many stacks in one save.",
+  DECISIONS_MAX: "Too many per-resource decisions in one save.",
+  BINDING_DUPLICATE: "A stack is chosen twice.",
+  DECISION_DUPLICATE: "A resource is decided twice.",
+  DECISION_TARGET_NOT_FROM_BOUND_SOURCE: "A resource can be included only when a stack bound to this system names it. Nothing was saved.",
+  DECISION_ALREADY_RECORDED: "A decision for this resource already exists in this system; change it instead.",
+  DECISION_SOURCE_CHANGED: "The stack a decision rests on changed while saving. Nothing was saved; reload and try again.",
+  CENSUS_NOT_SERVED: "The account's census is not available right now. Nothing was saved; try again later.",
+  CENSUS_UNAVAILABLE: "The account's census could not be read right now. Nothing was saved; try again.",
+  CENSUS_ADMISSION_UNAVAILABLE: "The account's census could not be checked right now. Nothing was saved; try again.",
+  REQUEST_TOO_LARGE: "This save is too large for one transaction; save it in parts.",
   ACCOUNT_REGISTRY_UNAVAILABLE: "The account registry could not be read right now. Nothing was saved; try again.",
 }
 

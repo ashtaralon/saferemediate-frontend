@@ -32,6 +32,14 @@ export interface AuthoringLimits {
   /** The allowed values, served by the backend: never hardcoded here. */
   criticalities: string[]
   environments: string[]
+  /** (A7 rev 4, save envelope level 2) served by a backend that takes stack bindings and per-resource decisions. */
+  max_bindings?: number
+  max_resource_decisions?: number
+  /** Transaction items in ONE save: each record is two (head + revision), so this bounds a save before the counts do. */
+  max_actions?: number
+  binding_kinds?: string[]
+  decision_verdicts?: string[]
+  save_envelope_level?: number
 }
 
 export interface BoundaryRecord {
@@ -52,6 +60,9 @@ export interface DeclarationsView {
   systems: BoundaryRecord[]
   deployments: BoundaryRecord[]
   roots: BoundaryRecord[]
+  /** (A7 rev 4) present on a backend at save envelope level 2; inside the person's accounts only. */
+  stack_bindings?: BoundaryRecord[]
+  resource_decisions?: BoundaryRecord[]
   limits: AuthoringLimits
 }
 
@@ -107,10 +118,41 @@ export type NewDeployment = {
 }
 export type DeploymentRef = { mode: "ref"; deployment_id: string; expected_version: number }
 
+/** (A7 rev 4 C-B) What the person saw of a stack when they bound it: never authority, the census is read again at save. */
+export interface StackSelection {
+  census: { generation: number; source_identity: string }
+  stack_status: string | null
+}
+
+/** A CloudFormation stack bound to the save's Deployment. */
+export interface StackBinding {
+  account_id: string
+  region: string
+  stack_id: string
+  kind: "exclusive" | "several_systems" | "shared_foundation"
+  selection: StackSelection
+}
+
+/** A person's verdict on ONE resource for the save's System: "include" only for a resource a stack bound to it names. */
+export interface ResourceDecision {
+  account_id: string
+  region: string
+  resource_uid: string
+  verdict: "include" | "exclude"
+  selection: { row_key: string; stack_id: string | null; census: { generation: number } }
+}
+
+export type StackAtVersion = Pick<StackBinding, "account_id" | "region" | "stack_id"> & { expected_version: number }
+export type DecisionAtVersion = Pick<ResourceDecision, "account_id" | "region" | "resource_uid"> & { expected_version: number }
+export type DecisionChange = DecisionAtVersion & Pick<ResourceDecision, "verdict" | "selection">
+
 export interface CreateDeclaration {
   system: NewSystem | SystemRef
   deployment: NewDeployment | DeploymentRef
+  /** May be empty when the save binds stacks (C-B). */
   roots: DeclaredRoot[]
+  bindings?: StackBinding[]
+  resource_decisions?: ResourceDecision[]
 }
 
 export type RootAtVersion = SeedIdentity & { expected_version: number }
@@ -130,6 +172,9 @@ export interface Correction {
     set?: { environment?: string; environment_raw?: string | null }
   }
   roots?: { add?: DeclaredRoot[]; remove?: RootAtVersion[]; move?: RootMove[] }
+  /** (A7 rev 4 C-B) a binding moves to another system as remove, then add (two corrections). */
+  bindings?: { add?: StackBinding[]; remove?: StackAtVersion[] }
+  resource_decisions?: { add?: ResourceDecision[]; remove?: DecisionAtVersion[]; change?: DecisionChange[] }
 }
 
 type DeepReadonly<T> = T extends (infer U)[] ? ReadonlyArray<DeepReadonly<U>> : T extends object ? { readonly [K in keyof T]: DeepReadonly<T[K]> } : T
