@@ -210,10 +210,13 @@ export function notMemberSentence(row: ResultRow): string {
   const suppressed = Array.isArray(row.suppressed) ? row.suppressed.map(originWords) : []
   const setAside = suppressed.length > 0 ? `; this system's ${suppressed.join(" and ")} claim was set aside` : ""
   if (reason === "SHARED_CLUSTER") {
+    // Scoped to THIS system and its claims: a person's explicit decision may still have assigned the cluster to another
+    // system (that system's result shows it as a member), so this row never says "a member of no system".
     const users = Array.isArray(row.consumer_systems) ? row.consumer_systems.map(String) : []
     const held = typeof row.hold_reason === "string" ? ` (it had been held: ${row.hold_reason})` : ""
-    return `a member of no system: other systems' workloads run on this cluster${users.length ? ` (${users.join(", ")})` : ""}`
-      + `${setAside}${held}; only a person's decision can assign it [${reason}]`
+    return `not this system's member: a shared cluster other systems' workloads run on`
+      + `${users.length ? ` (${users.join(", ")})` : ""}${setAside}${held}; a shared cluster belongs to a system only by `
+      + `a person's explicit decision [${reason}]`
   }
   if (reason === "EXCLUDED_BY_DECISION") {
     const stopped = row.propagation_stopped === true ? "; it also stopped this system's propagation there" : ""

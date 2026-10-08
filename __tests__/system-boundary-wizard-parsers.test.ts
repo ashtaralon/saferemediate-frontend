@@ -237,9 +237,13 @@ describe("the result reader (C-D)", () => {
     expect(notMemberSentence({ resource_uid: "uid:eks", state: "APPLIED", kind: "BINDING_OUTCOME", reason: "SHARED_CLUSTER",
                                consumer_systems: ["Ledger"], suppressed: ["stack"],
                                hold_reason: "SEVERAL_SYSTEMS_DECIDE_PER_RESOURCE" })).toBe(
-      "a member of no system: other systems' workloads run on this cluster (Ledger); this system's stack listing claim "
-      + "was set aside (it had been held: SEVERAL_SYSTEMS_DECIDE_PER_RESOURCE); only a person's decision can assign it "
-      + "[SHARED_CLUSTER]")
+      "not this system's member: a shared cluster other systems' workloads run on (Ledger); this system's stack listing "
+      + "claim was set aside (it had been held: SEVERAL_SYSTEMS_DECIDE_PER_RESOURCE); a shared cluster belongs to a "
+      + "system only by a person's explicit decision [SHARED_CLUSTER]")
+    // A person's decision may have assigned the cluster to ANOTHER system (it is ACTIVE there, R6's exception): this
+    // system's row never claims the cluster is nobody's.
+    expect(notMemberSentence({ resource_uid: "uid:eks", state: "APPLIED", kind: "BINDING_OUTCOME", reason: "SHARED_CLUSTER" }))
+      .not.toContain("no system")
     expect(notMemberSentence({ resource_uid: "uid:x", state: "APPLIED", kind: "DECISION_OUTCOME",
                                reason: "EXCLUDED_BY_DECISION", suppressed: ["aws_tag", "stack"], propagation_stopped: true }))
       .toBe("excluded by a person's decision; this system's AWS tag and stack listing claim was set aside; it also stopped "
