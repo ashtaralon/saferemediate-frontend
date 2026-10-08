@@ -240,12 +240,16 @@ export function EstateMapView({ systemName, systemKey = null, systemAccountId = 
 
   const scopedVpc = selectedVpcId === "all" ? null : selectedVpcId
   const urlScope = typeof window !== "undefined" ? scopeFromSearch(window.location.search) : {}
-  // B5: the identity the caller names wins over the URL's; either names ONE system for every read below.
-  const openingScope = systemKey ? { ...urlScope, systemKey } : urlScope
-  const identityKey = openingScope.systemKey ?? null
+  // B5 (review of 7b8de86e): ONE identity -- key AND account -- for every read below: the caller's (props), else the page
+  // URL's (systemDetailHref writes both). A tag / source key is one system PER ACCOUNT, so its account is pinned for the
+  // topology read too: a remembered or picked account must never pair this key's topology with another account's
+  // (the dependency read already carries the same pair).
+  const identityKey = systemKey ?? urlScope.systemKey ?? null
+  const identityAccount = systemKey ? (systemAccountId ?? null) : (urlScope.systemKey ? (urlScope.accountId ?? null) : null)
+  const openingScope = identityKey ? { ...urlScope, systemKey: identityKey } : urlScope
   const scopeParams = useMemo(
-    () =>
-      resolveTopologyScopeParams(
+    () => {
+      const resolved = resolveTopologyScopeParams(
         { accountId: selectedAccountId, regionId: selectedRegionId, vpcId: scopedVpc },
         {
           customerId: productScope.customerId,
@@ -253,7 +257,12 @@ export function EstateMapView({ systemName, systemKey = null, systemAccountId = 
           region: productScope.region,
         },
         openingScope,
-      ),
+      )
+      return identityKey
+        ? { ...resolved, systemKey: identityKey, ...(identityAccount ? { accountId: identityAccount } : {}) }
+        : resolved
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- openingScope is derived from identityKey + the URL
     [
       productScope.customerId,
       productScope.accountId,
@@ -261,6 +270,8 @@ export function EstateMapView({ systemName, systemKey = null, systemAccountId = 
       selectedAccountId,
       selectedRegionId,
       scopedVpc,
+      identityKey,
+      identityAccount,
     ],
   )
   const azScopeKey = `${scopeParams.accountId ?? "all"}:${scopeParams.region ?? "all"}:${scopedVpc ?? "all"}`
@@ -488,7 +499,7 @@ export function EstateMapView({ systemName, systemKey = null, systemAccountId = 
 
   // Cap at 300 — matches Traffic map; 500 routinely timed out the proxy.
   const depMapUrl = `/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}&maxNodes=300${systemScopeQuery(
-    identityKey, systemAccountId)}`
+    identityKey, identityAccount)}`
   const {
     data: depMapData,
     isStale: depMapIsStale,
@@ -503,7 +514,7 @@ export function EstateMapView({ systemName, systemKey = null, systemAccountId = 
     staleReason?: string | null
   }>(depMapUrl, {
     // B5: another key / account is another system's map -- never combined with this one (by name: the key is as before).
-    cacheKey: identityKey ? `estate-dep-map:300:${systemName}:key=${identityKey}:${systemAccountId ?? ""}`
+    cacheKey: identityKey ? `estate-dep-map:300:${systemName}:key=${identityKey}:${identityAccount ?? ""}`
       : `estate-dep-map:300:${systemName}`,
     maxStaleMs: 10 * 60 * 1000,
     fetchInit: { cache: "no-store" },

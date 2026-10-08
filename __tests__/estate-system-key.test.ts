@@ -192,3 +192,82 @@ describe("the Estate / dependency-map views show the choice, never a map of one 
     expect(screen.queryByText(/Topology risk unavailable/)).not.toBeInTheDocument()
   })
 })
+
+// ── S8 edge blockers (review of 7b8de86e, 2026-10-08) ─────────────────────────────────────────────────────────────
+
+describe("EstateMapView pins ONE key + account for both of its reads", () => {
+  const OTHER = "333333333333"
+
+  async function readsOf(props: Record<string, unknown>, search = "") {
+    const React = await import("react")
+    const { render, waitFor } = await import("@testing-library/react")
+    window.history.pushState({}, "", `/systems${search}`)
+    // estate-map-view's ACCOUNT_STORAGE_PREFIX ("topology-account:"): the operator's remembered account B.
+    window.localStorage.setItem("topology-account:payments", OTHER)
+    const urls: string[] = []
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => { urls.push(String(input)); return json({}, 404) }))
+    const { EstateMapView } = await import("@/components/topology-v0-2/estate-map-view")
+    render(React.createElement(EstateMapView, { systemName: "payments", embedded: true, ...props }))
+    await waitFor(() => expect(urls.some((u) => u.includes("/api/proxy/dependency-map/full"))).toBe(true))
+    await waitFor(() => expect(urls.some((u) => u.includes("/api/proxy/topology-risk/"))).toBe(true))
+    const params = (part: string) => new URL(`https://x${urls.find((u) => u.includes(part))!}`).searchParams
+    return { topology: params("/api/proxy/topology-risk/"), dependency: params("/api/proxy/dependency-map/full") }
+  }
+
+  afterEach(() => {
+    window.localStorage.clear()
+    window.history.pushState({}, "", "/")
+  })
+
+  it("from props: a remembered other account never wins over the key's account", async () => {
+    const { topology, dependency } = await readsOf({ systemKey: KEY, systemAccountId: ACCOUNT })
+    expect([topology.get("system_key"), topology.get("account_id")]).toEqual([KEY, ACCOUNT])
+    expect([dependency.get("system_key"), dependency.get("account_id")]).toEqual([KEY, ACCOUNT])
+  })
+
+  it("from the page URL when no props name it: the same pair on both reads", async () => {
+    const { topology, dependency } = await readsOf({}, `?systemName=payments&system_key=${encodeURIComponent(KEY)}&account_id=${ACCOUNT}`)
+    expect([topology.get("system_key"), topology.get("account_id")]).toEqual([KEY, ACCOUNT])
+    expect([dependency.get("system_key"), dependency.get("account_id")]).toEqual([KEY, ACCOUNT])
+  })
+})
+
+describe("useCachedFetch: a 409 choice stays the answer until a fresh 200 or a new key", () => {
+  const KEY_C = "estate-dep-map:300:payments"
+  const warm = () => window.localStorage.setItem(`cyntro:swr:${KEY_C}`,
+    JSON.stringify({ ts: Date.now(), data: { nodes: [{ id: "old-map" }] } }))
+
+  it.each([
+    ["503", () => json({ error: "Backend returned 503" }, 503)],
+    ["network failure", () => { throw new TypeError("Failed to fetch") }],
+  ])("cached map -> 409 -> %s: the old map never comes back and the choice stays", async (_label, failure) => {
+    const { renderHook, waitFor, act } = await import("@testing-library/react")
+    const { status, body } = capture(AMBIGUOUS)
+    warm()
+    const answers: Array<() => Response> = [() => json(body, status), failure as () => Response]
+    vi.stubGlobal("fetch", vi.fn(async () => (answers.shift() ?? (() => json(body, status)))()))
+    const { useCachedFetch } = await import("@/lib/use-cached-fetch")
+    const { result } = renderHook(() => useCachedFetch<{ nodes?: unknown[] }>(
+      "/api/proxy/dependency-map/full?systemName=payments", { cacheKey: KEY_C }))
+    await waitFor(() => expect(result.current.choice).not.toBeNull())
+    await act(async () => { result.current.retry() })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.data).toBeNull()
+    expect(result.current.choice).not.toBeNull()
+    expect(window.localStorage.getItem(`cyntro:swr:${KEY_C}`)).toBeNull()
+  })
+
+  it("a fresh 200 for one system ends the ambiguity", async () => {
+    const { renderHook, waitFor, act } = await import("@testing-library/react")
+    const { status, body } = capture(AMBIGUOUS)
+    const answers: Array<() => Response> = [() => json(body, status), () => json({ nodes: [{ id: "fresh" }] })]
+    vi.stubGlobal("fetch", vi.fn(async () => (answers.shift() ?? (() => json({ nodes: [] })))()))
+    const { useCachedFetch } = await import("@/lib/use-cached-fetch")
+    const { result } = renderHook(() => useCachedFetch<{ nodes?: unknown[] }>(
+      "/api/proxy/dependency-map/full?systemName=payments", { cacheKey: KEY_C }))
+    await waitFor(() => expect(result.current.choice).not.toBeNull())
+    await act(async () => { result.current.retry() })
+    await waitFor(() => expect(result.current.data?.nodes).toEqual([{ id: "fresh" }]))
+    expect(result.current.choice).toBeNull()
+  })
+})

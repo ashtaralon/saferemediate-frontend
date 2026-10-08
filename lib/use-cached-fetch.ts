@@ -384,6 +384,15 @@ export function useCachedFetch<T = unknown>(
   const [error, setError] = useState<string | null>(null)
   const [hold, setHold] = useState<SemanticHold | null>(null)
   const [choice, setChoice] = useState<SystemCandidate[] | null>(null)
+  // The CURRENT accepted reading, read through refs: fetchFresh is memoized without `data` / `cachedAt`, so a closure
+  // would hand back the reading from when it was created (B5 review, 2026-10-08). And the ambiguity LATCH: once the
+  // server answered with a system choice, no earlier reading of this key comes back -- not on a later transport failure,
+  // a network error or a computing envelope -- until a fresh accepted (200) response or a new key.
+  const dataRef = useRef<T | null>(null)
+  dataRef.current = data
+  const cachedAtRef = useRef<number | null>(null)
+  cachedAtRef.current = cachedAt
+  const choiceLatchRef = useRef(false)
   const [staleReason, setStaleReason] = useState<string | null>(
     initial !== null && fresh === null ? STALE_AGED_OUT : null,
   )
@@ -461,6 +470,7 @@ export function useCachedFetch<T = unknown>(
     setError(null)
     setHold(null)
     setChoice(null)
+    choiceLatchRef.current = false
     // The new key is a different question; any retry pending for the old one
     // must not fire against it.
     clearAutoRetry()
@@ -498,6 +508,7 @@ export function useCachedFetch<T = unknown>(
       setIsComputing(false)
       setHold(h)
       setChoice(null)
+      choiceLatchRef.current = false
       setError(semanticHoldMessage(h, { accountSelection }))
       setLoading(false)
       clearAutoRetry()
@@ -538,9 +549,16 @@ export function useCachedFetch<T = unknown>(
           setStaleReason(null)
           setIsComputing(false)
           setChoice(candidates)
+          choiceLatchRef.current = true
           setError("SYSTEM_NAME_AMBIGUOUS")
           setLoading(false)
           clearAutoRetry()
+          return
+        }
+        if (choiceLatchRef.current) {
+          // The ambiguity stays the answer: nothing earlier is restored by a failure that says nothing new about it.
+          setLoading(false)
+          if (TRANSIENT.has(res.status)) scheduleAutoRetry()
           return
         }
         setChoice(null)
@@ -581,8 +599,9 @@ export function useCachedFetch<T = unknown>(
         if (transport) {
           // Keep the cache. Keep the data. Say why it's stale, and schedule a
           // retry so the page heals itself when the deploy finishes.
+          const current = dataRef.current
           const kept =
-            (data != null ? { data, ts: cachedAt ?? Date.now() } : null) ??
+            (current != null ? { data: current, ts: cachedAtRef.current ?? Date.now() } : null) ??
             readCacheAny<T>(cacheKey, isCacheable)
           if (kept) {
             setData(kept.data)
@@ -605,7 +624,7 @@ export function useCachedFetch<T = unknown>(
         // last-resort fallback. Better to show 6h-old data with a
         // clear "as of 6h ago, refreshing" pill than to block the
         // operator with a 504 error message.
-        if (data === null) {
+        if (dataRef.current === null) {
           const fallback = readCacheAny<T>(cacheKey, isCacheable)
           if (fallback) {
             setData(fallback.data)
@@ -646,6 +665,8 @@ export function useCachedFetch<T = unknown>(
       }
       setHold(null)
       setChoice(null)
+      // A 200 answers for ONE system: the ambiguity, if any, is no longer the answer.
+      choiceLatchRef.current = false
       // Wave D computing envelopes are HTTP 200 with null payloads — never
       // write them into client cache or Estate Map sticks on "No system_kpis".
       const envelope = sanitized as { status?: string; system_kpis?: unknown }
@@ -655,9 +676,10 @@ export function useCachedFetch<T = unknown>(
       if (isComputingEnvelope) {
         // Keep last-good map on screen; only show the empty computing
         // envelope when we have nothing else to render.
+        const current = dataRef.current
         const fallback =
-          (data != null && (!isCacheable || isCacheable(data))
-            ? { data, ts: cachedAt ?? Date.now() }
+          (current != null && (!isCacheable || isCacheable(current))
+            ? { data: current, ts: cachedAtRef.current ?? Date.now() }
             : null) ?? readCacheAny<T>(cacheKey, isCacheable)
         if (fallback?.data) {
           setData(fallback.data)
@@ -709,7 +731,7 @@ export function useCachedFetch<T = unknown>(
       setIsComputing(false)
       if (proxyStale) {
         setIsStale(true)
-        setCachedAt(cachedAt ?? Date.now())
+        setCachedAt(cachedAtRef.current ?? Date.now())
       } else {
         setIsStale(false)
         setCachedAt(null)
@@ -730,13 +752,20 @@ export function useCachedFetch<T = unknown>(
       setLoading(false)
     } catch (err) {
       if (myEpoch !== epochRef.current) return
+      if (choiceLatchRef.current) {
+        // A network failure says nothing about the ambiguity: it stays the answer, nothing earlier is restored.
+        setLoading(false)
+        scheduleAutoRetry()
+        return
+      }
       // A thrown fetch is network/abort/timeout — TRANSPORT, by definition.
       // We never reached an origin that could tell us the data is wrong, so
       // this is the case that most clearly must not erase the last-known-good.
       // (A JSON parse failure also lands here; treating it as transport costs
       // one extra retry cycle, versus wiping a good reading if we guess wrong.)
+      const current = dataRef.current
       const kept =
-        (data != null ? { data, ts: cachedAt ?? Date.now() } : null) ??
+        (current != null ? { data: current, ts: cachedAtRef.current ?? Date.now() } : null) ??
         readCacheAny<T>(cacheKey, isCacheable)
       if (kept) {
         setData(kept.data)
@@ -758,7 +787,7 @@ export function useCachedFetch<T = unknown>(
         scheduleAutoRetry()
         return
       }
-      if (data === null) {
+      if (dataRef.current === null) {
         // Same fallback as the !res.ok path — try last-resort cache
         // first before erroring. Keeps the operator's screen populated
         // with usable data rather than a 504 message.
