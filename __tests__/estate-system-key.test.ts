@@ -54,7 +54,12 @@ beforeEach(() => {
   vi.restoreAllMocks()
   vi.resetModules()
 })
-afterEach(() => vi.unstubAllGlobals())
+afterEach(async () => {
+  // Testing Library is imported inside each test, so its automatic cleanup never registers: unmount here, BEFORE the
+  // fetch stub goes, or one view's screen (e.g. an earlier "Topology risk unavailable") leaks into the next case.
+  ;(await import("@testing-library/react")).cleanup()
+  vi.unstubAllGlobals()
+})
 
 describe("the topology scope carries the key from the page URL", () => {
   it("reads system_key from the URL, keeps it through resolution, and sends it", () => {
