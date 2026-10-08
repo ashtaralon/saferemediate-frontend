@@ -328,6 +328,15 @@ export function systemDetailHref(systemName: string, systemKey?: string | null, 
   return `/systems?systemName=${encodeURIComponent(systemName)}${key}${account}`
 }
 
+/** The query a per-system read adds to name ONE system (B5): ``&system_key=...`` and, for a tag / source key (one system per
+ *  account), ``&account_id=...`` -- the same rule as ``systemDetailHref``. Empty without a key, so a v1 request (or a page
+ *  opened by name) is byte-identical to before. Append it to a URL that already has a query string. */
+export function systemScopeQuery(systemKey?: string | null, accountId?: string | null): string {
+  if (!systemKey) return ""
+  const account = accountId ? `&account_id=${encodeURIComponent(accountId)}` : ""
+  return `&system_key=${encodeURIComponent(systemKey)}${account}`
+}
+
 /** The scope a with-families answer says it was computed for (its own ``scope`` block). */
 export type FamilyResponseScope = { customer_id?: string | null; account_id?: string | null; region?: string | null }
 

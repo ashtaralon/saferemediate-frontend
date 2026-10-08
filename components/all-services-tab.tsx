@@ -31,8 +31,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ResourceConfigTab } from "@/components/inventory/resource-config-tab"
 import { ResourceDossier } from "@/components/inventory/resource-dossier"
 import { canonicalInventoryResourceId } from "@/lib/inventory-resource-identity"
-import { ambiguousSystemCandidates, systemDetailHref, type SystemCandidate } from "@/lib/scoped-system-catalog"
-import Link from "next/link"
+import { ambiguousSystemCandidates, type SystemCandidate } from "@/lib/scoped-system-catalog"
+import { SystemNameChoice } from "@/components/system-name-choice"
 import { ServiceTypeBadge, getServiceMeta } from "@/lib/service-type"
 
 export interface ServiceNode {
@@ -750,32 +750,7 @@ export function AllServicesTab({ systemName, systemKey = null, systemAccountId =
         </div>
       )}
 
-      {ambiguous && (
-        <div
-          role="alert"
-          data-testid="system-name-ambiguous"
-          className="rounded-md border border-[var(--border,#374151)] px-4 py-3 text-sm"
-        >
-          <p className="mb-2">
-            &ldquo;{systemName}&rdquo; stands for {ambiguous.length} systems. Choose one to see its services:
-          </p>
-          <ul className="list-disc pl-5 space-y-1">
-            {ambiguous.map((candidate) => (
-              <li key={`${candidate.systemKey}|${candidate.accountId ?? ""}`}>
-                <Link
-                  className="underline"
-                  href={systemDetailHref(candidate.systemName || systemName, candidate.systemKey, candidate.accountId)}
-                >
-                  {candidate.systemName || systemName}
-                </Link>{" "}
-                <span className="text-[var(--muted-foreground,#9ca3af)]">
-                  ({candidate.accountId ? `account ${candidate.accountId}` : candidate.systemKey})
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {ambiguous && <SystemNameChoice systemName={systemName} candidates={ambiguous} purpose="services" />}
 
       {/* Search */}
       <div className="flex items-center gap-4">

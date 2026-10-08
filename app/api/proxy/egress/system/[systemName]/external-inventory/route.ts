@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { systemChoiceDetail } from "@/lib/server/proxy-error"
 
 // Proxy for the External Egress Inventory endpoint — chunk #1 of the
 // alert-only egress inventory MVP. Forwards filter/pagination params
@@ -39,6 +40,13 @@ export async function GET(
   if (summary) qs.set("summary", summary)
   if (direction) qs.set("direction", direction)
   if (includeInternal) qs.set("include_internal", includeInternal)
+  // A7 B5: a page opened by key names ONE system (backend ?system_key=, with the account for a tag / source key).
+  const systemKey = searchParams.get("system_key")
+  const accountId = searchParams.get("account_id")
+  if (systemKey) {
+    qs.set("system_key", systemKey)
+    if (accountId) qs.set("account_id", accountId)
+  }
 
   try {
     const url = `${BACKEND_URL}/api/egress/system/${encodeURIComponent(
@@ -49,8 +57,10 @@ export async function GET(
       signal: AbortSignal.timeout(55000),
     })
     if (!res.ok) {
+      // A7 B5: the 409 system choice is relayed (typed) so the page can offer it; every other refusal answers as before.
+      const choice = systemChoiceDetail(await res.text().catch(() => ""))
       return NextResponse.json(
-        { error: `Backend returned ${res.status}` },
+        { error: `Backend returned ${res.status}`, ...(choice ? { detail: choice } : {}) },
         { status: res.status },
       )
     }

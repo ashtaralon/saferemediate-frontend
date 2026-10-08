@@ -357,11 +357,16 @@ const LivePipelineModal = dynamic(
 
 function EgressTabContainer({
   systemName,
+  systemKey = null,
+  systemAccountId = null,
   deepLink,
   onDeepLinkConsumed,
   onNavigateToSection,
 }: {
   systemName: string
+  /** A7 B5: the system's KEY (+ a tag / source key's account) when opened by key; every egress read names ONE system. */
+  systemKey?: string | null
+  systemAccountId?: string | null
   deepLink: TrafficDeepLink | null
   onDeepLinkConsumed: () => void
   onNavigateToSection?: (section: string) => void
@@ -479,6 +484,8 @@ function EgressTabContainer({
         <EgressExternalInventory
           key={deepLink ? `dl-${deepLink.workloadId}-${deepLink.direction}` : "default"}
           systemName={systemName}
+          systemKey={systemKey}
+          systemAccountId={systemAccountId}
           initialWorkloadId={deepLink?.workloadId ?? null}
           initialDirection={deepLink?.direction}
           onSelectWorkload={(id, name) => {
@@ -487,9 +494,9 @@ function EgressTabContainer({
           }}
         />
       ) : view === "by-workload" ? (
-        <EgressVisibilityPanel systemName={systemName} />
+        <EgressVisibilityPanel systemName={systemName} systemKey={systemKey} systemAccountId={systemAccountId} />
       ) : (
-        <EgressFlowMap systemName={systemName} />
+        <EgressFlowMap systemName={systemName} systemKey={systemKey} systemAccountId={systemAccountId} />
       )}
     </div>
   )
@@ -2889,8 +2896,10 @@ export function SystemDetailDashboard({ systemName, systemKey = null, systemAcco
       {activeTab === "egress" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
           <EgressTabContainer
-            key={`${systemName}-${refreshKey}`}
+            key={`${systemName}-${systemKey ?? ""}-${systemAccountId ?? ""}-${refreshKey}`}
             systemName={systemName}
+            systemKey={systemKey}
+            systemAccountId={systemAccountId}
             deepLink={trafficDeepLink}
             onDeepLinkConsumed={() => setTrafficDeepLink(null)}
             onNavigateToSection={onNavigateToSection}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { systemChoiceDetail } from "@/lib/server/proxy-error"
 
 // Proxy for the system-wide egress visibility endpoint. Mirrors the
 // identity-attack-paths proxy pattern (nodejs runtime, no static
@@ -35,7 +36,15 @@ export async function GET(
   const { searchParams } = new URL(req.url)
   const days = searchParams.get("days") || "30"
   const topN = searchParams.get("top_n") || "20"
-  const cacheKey = `egress|${systemName}|${days}|${topN}`
+  // A7 B5: on a v2 install a page opened by key names ONE system (backend ?system_key=, with the account for a tag / source
+  // key). Absent, the request -- and its cache key -- is byte-identical to before.
+  const systemKey = searchParams.get("system_key")
+  const accountId = searchParams.get("account_id")
+  const scope = systemKey ? `&system_key=${encodeURIComponent(systemKey)}${
+    accountId ? `&account_id=${encodeURIComponent(accountId)}` : ""}` : ""
+  const cacheKey = systemKey
+    ? `egress|${systemName}|${days}|${topN}|key=${systemKey}|${accountId ?? ""}`
+    : `egress|${systemName}|${days}|${topN}`
 
   // Vercel-side cache hit — instant response, never touches Render.
   const cached = getCached(cacheKey)
@@ -46,14 +55,17 @@ export async function GET(
   try {
     const url = `${BACKEND_URL}/api/egress/system/${encodeURIComponent(
       systemName,
-    )}?days=${days}&top_n=${topN}`
+    )}?days=${days}&top_n=${topN}${scope}`
     const res = await fetch(url, {
       headers: { "Content-Type": "application/json" },
       signal: AbortSignal.timeout(55000),
     })
     if (!res.ok) {
+      // A7 B5: the 409 system choice is relayed (typed, lib/server/proxy-error systemChoiceDetail) so the page can offer it;
+      // every other refusal answers as before. Never cached.
+      const choice = systemChoiceDetail(await res.text().catch(() => ""))
       return NextResponse.json(
-        { error: `Backend returned ${res.status}` },
+        { error: `Backend returned ${res.status}`, ...(choice ? { detail: choice } : {}) },
         { status: res.status },
       )
     }

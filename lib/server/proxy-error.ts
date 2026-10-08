@@ -121,6 +121,54 @@ export function allowlistedBackendDetail(rawBody: string): AllowlistedBackendDet
   return Object.keys(out).length ? out : undefined
 }
 
+/** A7 B5: the backend's 409 system choice, reduced to what a page needs to offer it. */
+export type SystemChoiceDetail = {
+  code: "SYSTEM_NAME_AMBIGUOUS" | "SYSTEM_KEY_NEEDS_ACCOUNT"
+  system_name?: string
+  reason?: string
+  candidate_keys: { system_key: string; system_name?: string; account_id: string | null }[]
+}
+
+const SYSTEM_CHOICE = new Set(["SYSTEM_NAME_AMBIGUOUS", "SYSTEM_KEY_NEEDS_ACCOUNT"])
+const CHOICE_ACCOUNT = /^[0-9]{12}$/
+const MAX_CHOICES = 64
+
+/**
+ * The 409 SYSTEM_NAME_AMBIGUOUS / SYSTEM_KEY_NEEDS_ACCOUNT answer (system_identity.resolve, the same body on every v2 route)
+ * reduced to its code, the name and each candidate's key / name / account -- the allowlist above drops candidate_keys, and
+ * the page cannot offer the choice without them. Any other body, or a malformed candidate, is undefined: nothing raw is
+ * echoed (lib/scoped-system-catalog ambiguousSystemCandidates reads exactly these fields).
+ */
+export function systemChoiceDetail(rawBody: string): SystemChoiceDetail | undefined {
+  let parsed: unknown
+  try {
+    parsed = rawBody ? JSON.parse(rawBody) : undefined
+  } catch {
+    return undefined
+  }
+  const detail = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>).detail : undefined
+  if (!detail || typeof detail !== "object" || Array.isArray(detail)) return undefined
+  const d = detail as Record<string, unknown>
+  if (typeof d.code !== "string" || !SYSTEM_CHOICE.has(d.code) || !Array.isArray(d.candidate_keys)) return undefined
+  const candidates: SystemChoiceDetail["candidate_keys"] = []
+  for (const raw of d.candidate_keys.slice(0, MAX_CHOICES)) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined
+    const c = raw as Record<string, unknown>
+    const key = typedText(c.system_key, 512)
+    const account = c.account_id
+    if (!key || !(account === undefined || account === null || (typeof account === "string" && CHOICE_ACCOUNT.test(account)))) {
+      return undefined
+    }
+    candidates.push({ system_key: key, system_name: typedText(c.system_name), account_id: typeof account === "string" ? account : null })
+  }
+  return {
+    code: d.code as SystemChoiceDetail["code"],
+    system_name: typedText(d.system_name),
+    reason: typedText(d.reason),
+    candidate_keys: candidates,
+  }
+}
+
 export function backendError(opts: {
   status: number
   message: string
