@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
   fetchResult,
+  notMemberSentence,
   parseResultResponse,
   proofSentence,
   resultSentence,
@@ -39,6 +40,7 @@ function rowLine(list: ResultList, row: ResultRow): string {
     return `${proofSentence(row)}${stale}`
   }
   if (list === "dependencies") return `owned by ${String(row.owner_system_key ?? "no system")}`
+  if (list === "not_members") return notMemberSentence(row)
   return String(row.reason ?? row.state)
 }
 

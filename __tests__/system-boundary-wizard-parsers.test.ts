@@ -21,6 +21,7 @@ import {
   MEMBERSHIP_V2_NOT_SERVED,
   RESULT_CONTRACT,
   parseResultResponse,
+  notMemberSentence,
   proofSentence,
   savedSystemKey,
 } from "@/lib/system-boundary-result"
@@ -209,6 +210,45 @@ describe("the result reader (C-D)", () => {
     if (parsed.kind !== "served") return
     expect([parsed.generation, parsed.counts.members, parsed.lists.members.length, parsed.omitted.members]).toEqual([41, 3, 2, 1])
     expect(proofSentence(parsed.lists.members[0])).toBe(`is listed by stack ${PARENT} as Web`)
+  })
+
+  it("says how a member's identity is known apart from its lifetime, and the claims it outranked (R4 / R5 / R9)", () => {
+    const row = (proof: Record<string, unknown>) => ({ resource_uid: "uid:x", state: "ACTIVE", proof })
+    const stack = { source: "stack", stack_id: PARENT, logical_id: "Bucket", proof: "stack_listing" }
+    expect(proofSentence(row({ ...stack, identity: "stack_tag", lineage_unproven: true }))).toBe(
+      `is listed by stack ${PARENT} as Bucket; identity confirmed by this stack's own tag on the resource now; `
+      + "continuity since it joined is not proven by a creation marker")
+    const named = proofSentence(row({ ...stack, identity_unconfirmed: true }))
+    expect(named).toContain("identity not independently confirmed (named by the stack only)")
+    expect(proofSentence(row({ ...stack, identity: "stack_tag", identity_unconfirmed: true })))
+      .not.toContain("not independently confirmed")                                    // a proven identity is never undercut
+    expect(proofSentence(row({ source: "rule", origin: "root:aws_tag", identity: "marker" }))).toBe(
+      "found by Cyntro's rules (root:aws_tag); identity confirmed by its creation marker")
+    expect(proofSentence(row({ source: "decision", version: 3, overridden_claims: [
+      { system_key: "authored_system:1", system_name: null, origin: "stack" },
+      { system_key: "ledger", system_name: "Ledger", origin: "aws_tag" }] }))).toBe(
+      "included by a person's decision; also claimed by authored_system:1 (stack listing), Ledger (AWS tag) -- "
+      + "kept and shown, not applied")
+    expect(proofSentence(row({ source: "decision", declared_by: ["tag:ledger"] }))).toContain(
+      "also claimed by tag:ledger -- kept and shown, not applied")
+  })
+
+  it("says why a not-a-member row is not one, with what was set aside (R6 / R9 / R1)", () => {
+    expect(notMemberSentence({ resource_uid: "uid:eks", state: "APPLIED", kind: "BINDING_OUTCOME", reason: "SHARED_CLUSTER",
+                               consumer_systems: ["Ledger"], suppressed: ["stack"],
+                               hold_reason: "SEVERAL_SYSTEMS_DECIDE_PER_RESOURCE" })).toBe(
+      "a member of no system: other systems' workloads run on this cluster (Ledger); this system's stack listing claim "
+      + "was set aside (it had been held: SEVERAL_SYSTEMS_DECIDE_PER_RESOURCE); only a person's decision can assign it "
+      + "[SHARED_CLUSTER]")
+    expect(notMemberSentence({ resource_uid: "uid:x", state: "APPLIED", kind: "DECISION_OUTCOME",
+                               reason: "EXCLUDED_BY_DECISION", suppressed: ["aws_tag", "stack"], propagation_stopped: true }))
+      .toBe("excluded by a person's decision; this system's AWS tag and stack listing claim was set aside; it also stopped "
+            + "this system's propagation there [EXCLUDED_BY_DECISION]")
+    expect(notMemberSentence({ resource_uid: "uid:x", state: "RETIRED", kind: "RETIRED",
+                               reason: "SHARED_CLUSTER_MEMBER_OF_NONE", valid_to: "2026-10-08T00:00:00+00:00" }))
+      .toBe("no longer a member on 2026-10-08T00:00:00+00:00 [SHARED_CLUSTER_MEMBER_OF_NONE]")
+    expect(notMemberSentence({ resource_uid: "arn:q", state: "TARGET_UNAVAILABLE", reason: "cannot be a member yet (listed only)" }))
+      .toBe("cannot be a member yet (listed only)")
   })
 
   it("refuses a list that disagrees with its count, another account's answer, and a served answer without a generation", () => {
