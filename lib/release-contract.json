@@ -2,10 +2,17 @@
   "schema": "cyntro-release-contract/v1",
   "requires": {
     "account_census_read": 1,
-    "account_registration": 5
+    "account_census_stacks_read": 1,
+    "account_registration": 5,
+    "declarations_applied": 1,
+    "system_boundary_save": 2,
+    "system_boundary_wizard_capability": 1
   },
   "accepts": {
     "account_census_read": 1,
-    "account_inventory_rows": 3
+    "account_census_stacks_read": 1,
+    "account_inventory_rows": 3,
+    "declarations_applied": 1,
+    "system_boundary_wizard_capability": 1
   }
 }

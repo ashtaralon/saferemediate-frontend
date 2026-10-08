@@ -9,6 +9,9 @@ import { describe, expect, it } from "vitest"
 
 import declaration from "@/lib/release-contract.json"
 import { CENSUS_CONTRACT, censusPath, parseCensusResponse } from "@/lib/account-census"
+import { STACKS_CONTRACT, parseStacksResponse } from "@/lib/system-boundary-stacks"
+import { APPLIED_CONTRACT, parseAppliedResponse } from "@/lib/system-boundary-applied"
+import { CAPABILITY_CONTRACT, REQUIRED_SAVE_ENVELOPE_LEVEL, parseCapabilityResponse } from "@/lib/system-boundary-capability"
 import { parseInventoryResponse, RESPONSE_MALFORMED } from "@/lib/account-inventory"
 import {
   ORGANIZATION_DISCOVERY_TEMPLATE_PATH,
@@ -19,12 +22,29 @@ import {
 } from "@/lib/account-admin"
 
 describe("the release contract this frontend requires", () => {
-  it("is exactly the shape the backend's bundle builder reads: account registration at level 5, the census read at 1", () => {
+  it("is exactly the shape the backend's bundle builder reads: account registration at level 5, the census read at 1, the wizard's", () => {
     expect(declaration).toEqual({ schema: "cyntro-release-contract/v1",
-      requires: { account_census_read: 1, account_registration: 5 },
-      accepts: { account_census_read: 1, account_inventory_rows: 3 } })
+      requires: { account_census_read: 1, account_census_stacks_read: 1, account_registration: 5, declarations_applied: 1,
+                  system_boundary_save: 2, system_boundary_wizard_capability: 1 },
+      accepts: { account_census_read: 1, account_census_stacks_read: 1, account_inventory_rows: 3, declarations_applied: 1,
+                 system_boundary_wizard_capability: 1 } })
     expect(REQUIRED_ACCOUNT_REGISTRATION_CONTRACT).toBe(5)
     expect(CENSUS_CONTRACT).toBe("account_census_read/v1")
+  })
+
+  it("requires the wizard's three reads at the level its own code reads (A7 rev-4, 2026-10-08)", () => {
+    // C-A GET /api/accounts/{id}/census/stacks, C-C GET /api/system-boundary/declarations/applied and the capability read the
+    // page makes before it offers the wizard at all. A backend without them answers 404; the bundle builder refuses that pair.
+    expect(STACKS_CONTRACT).toBe(`account_census_stacks_read/v${declaration.requires.account_census_stacks_read}`)
+    expect(APPLIED_CONTRACT).toBe(`declarations_applied/v${declaration.requires.declarations_applied}`)
+    expect(CAPABILITY_CONTRACT).toBe(`system_boundary_wizard_capability/v${declaration.requires.system_boundary_wizard_capability}`)
+  })
+
+  it("requires save envelope level 2 because the wizard saves stack bindings and resource decisions", () => {
+    // Level 1 = roots only; level 2 = + bindings / resource_decisions (backend unified/system_boundary_plan.SAVE_ENVELOPE_LEVEL).
+    // A level-1 backend would drop the lists the wizard sends; the bundle builder refuses that pair instead.
+    expect(REQUIRED_SAVE_ENVELOPE_LEVEL).toBe(2)
+    expect(declaration.requires.system_boundary_save).toBe(REQUIRED_SAVE_ENVELOPE_LEVEL)
   })
 
   it("requires the census read at level 1 because the account inventory page reads GET /api/accounts/{id}/census", () => {
@@ -103,4 +123,21 @@ describe("what this frontend can read (accepts)", () => {
     expect(at(n).state).not.toBe("unavailable")
     expect(at(n + 1).state).toBe("unavailable")
   })
+
+  // The wizard's reads (A7 rev-4). Their captures come from Phase 2's generator (scripts/generate_system_boundary_captures.py,
+  // the real route handlers): at the time this was written (2026-10-08, build-only phase) the generator had not run, so these
+  // read files that exist only once it has -- run it first in the test phase.
+  /* eslint-disable @typescript-eslint/no-explicit-any -- a capture's body is untyped JSON, as in `capture` above */
+  it.each([
+    ["account_census_stacks_read", "stacks", (status: number, body: any) => parseStacksResponse(status, body, body.account_id)],
+    ["declarations_applied", "applied", (status: number, body: any) => parseAppliedResponse(status, body)],
+    ["system_boundary_wizard_capability", "capability", (status: number, body: any) => parseCapabilityResponse(status, body)],
+  ] as const)("reads %s at exactly its declared level: that contract parses, the next one is not read", (name, file, parse) => {
+    const n = declaration.accepts[name]
+    const page = capture("system-boundary-captures", file)
+    const at = (level: number) => parse(page.status, { ...structuredClone(page.body), contract: `${name}/v${level}` })
+    expect(at(n).kind).not.toBe("unavailable")
+    expect(at(n + 1).kind).toBe("unavailable")
+  })
+  /* eslint-enable @typescript-eslint/no-explicit-any */
 })
