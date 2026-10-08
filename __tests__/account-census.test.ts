@@ -118,7 +118,12 @@ describe("the census client on the real route's answers", () => {
       "Census has stopped (last dispatched 2027-01-12T08:00:00+00:00).")
     expect(outcomeSentence(outcome("held_authority_changed"))).toContain("registered again")
     expect(outcomeSentence(outcome("held_no_census_rows"))).toBe("The census for this account is not ready to be shown yet.")
-    expect(outcomeSentence(outcome("refused_not_authorized_403"))).toBe("You are not authorized to read this account's census.")
+    // The backend names this capture refused_not_authorized_403, but the route's answer is the gate's INVENTORY_SCOPE_MISMATCH
+    // (an account outside the serving scope), not a person refusal: it is never worded "not authorized", and never guesses why
+    // the account is outside (r41).
+    expect(outcome("refused_not_authorized_403").reasonCode).toBe("INVENTORY_SCOPE_MISMATCH")
+    expect(outcomeSentence(outcome("refused_not_authorized_403"))).toBe(
+      "This account is not currently in this installation's serving scope, so its census is not shown.")
     expect(outcomeSentence(outcome("unavailable_store_503"))).toBe("The census could not be read (store_unavailable).")
     expect(outcome("refused_cursor_restart_409").reasonCode).toBe("CURSOR_RESTART_REQUIRED:publication_moved")
   })

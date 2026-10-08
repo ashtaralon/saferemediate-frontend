@@ -432,6 +432,11 @@ export function outcomeSentence(outcome: CensusOutcome): string {
   if (outcome.state === "invalid") return `The census publication did not validate and is not shown (${code || "invalid"}).`
   if (outcome.state === "refused") {
     if (outcome.status === 401) return "Sign in again to read this account's census."
+    // INVENTORY_SCOPE_MISMATCH is the gate refusing an account outside the serving scope, not the person (r41): never
+    // "not authorized", and never a guess at why the account is outside.
+    if (outcome.status === 403 && code === "INVENTORY_SCOPE_MISMATCH") {
+      return "This account is not currently in this installation's serving scope, so its census is not shown."
+    }
     if (outcome.status === 403) return "You are not authorized to read this account's census."
     return `The census request was refused (${code || "refused"}).`
   }

@@ -137,9 +137,38 @@ export function accountLabel(account: Pick<ManagedAccount, "account_id" | "displ
   return account.display_name || account.account_id
 }
 
+/**
+ * An option-C registration that has not been activated: the current registration carries no activation marker (the connector
+ * writes it when activation starts). Cyntro has read nothing in the account and has not started collecting it, so there is no
+ * inventory or census to read yet -- the page says so from this row instead of asking for one (r41, Alon 2026-10-08).
+ * A legacy row (no registration) and the platform account are never this.
+ */
+export function collectionNotStarted(account: Pick<ManagedAccount, "registration" | "is_platform_account">): boolean {
+  if (account.is_platform_account) return false
+  const registration = account.registration
+  return Boolean(registration?.registration_id) && !registration?.activation
+}
+
+/** Before activation: what the CURRENT registration's access check knows of the AWS name. The name a check returns is that
+ *  check's evidence only -- a label set in AWS, never the account's durable name (accountLabel does not read it). */
+function preActivationNameNote(registration: RegistrationProgress): string {
+  const check = registration.access_check
+  if (check?.outcome === "REACHED") {
+    if (check.name_in_aws) {
+      return `AWS name returned by the access check: ${check.name_in_aws}. It is a label set in AWS, not proof of who owns the account. Collection has not started.`
+    }
+    return `The access check reached the account but did not read its AWS name: ${nameUnreadableText(check.name_unreadable)}. Collection has not started.`
+  }
+  if (check?.outcome) return "AWS name not read: the access check did not reach the account."
+  return "AWS name not read yet: Cyntro tries to read it during the access check."
+}
+
 /** Why a member account has no AWS name yet, in words; null when it has one (backend connector._read_account_name). */
-export function accountNameNote(account: Pick<ManagedAccount, "aws_account_name" | "aws_account_name_error" | "onboarding_status">): string | null {
+export function accountNameNote(
+  account: Pick<ManagedAccount, "aws_account_name" | "aws_account_name_error" | "registration" | "is_platform_account">,
+): string | null {
   if (account.aws_account_name) return null
+  if (collectionNotStarted(account) && account.registration) return preActivationNameNote(account.registration)
   const error = account.aws_account_name_error || ""
   if (error === "NOT_PERMITTED") {
     return "Name not readable from AWS: AWS denied permission to read it. A connection stack deployed before this release may need updating (account:GetAccountInformation)."
@@ -147,9 +176,7 @@ export function accountNameNote(account: Pick<ManagedAccount, "aws_account_name"
   if (error.startsWith("UNREACHABLE")) return "Name not readable from AWS: Cyntro could not reach the AWS account API."
   if (error === "NO_NAME") return "Name not readable from AWS: AWS did not return a name."
   if (error) return `Name not readable from AWS (${error}).`
-  return account.onboarding_status === "CONNECTED" || account.onboarding_status === "READY"
-    ? "Name not read from AWS yet."
-    : "Its name is read from AWS once it connects."
+  return "Name not read from AWS yet."
 }
 
 export interface FailedAccountRequest {

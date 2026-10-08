@@ -8,26 +8,20 @@
  * The PATH account is authoritative; the tab is in the URL (?tab=inventory) so a link or reload opens the same view.
  * A removed account is no longer listed; the listing's removed audit (level 5) says who removed it and when. Its Inventory
  * tab says the same instead of reading an inventory this installation no longer serves (QA-04: that read is refused as
- * INVENTORY_SCOPE_MISMATCH, which is not "you are not authorized"). Only that positive record hides the read: an account
- * merely absent from the listing is still read, and a refusal is worded by its own code (lib/inventory-copy.ts).
+ * INVENTORY_SCOPE_MISMATCH, which is not "you are not authorized"). An account whose option-C registration is not activated
+ * yet says collection has not started, and reads nothing either (r41). Both decisions are the shared AccountInventoryGate's,
+ * which /accounts/{id}/inventory uses too. Only those positive records hide the read: an account merely absent from the
+ * listing is still read, and a refusal is worded by its own code (lib/inventory-copy.ts).
  * Nothing is fetched for the platform account's own collection here: the page reads the same listing Settings reads.
  */
-import { Suspense, use, useCallback, useEffect, useState } from "react"
+import { Suspense, use, useCallback } from "react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { ArrowLeft, Loader2 } from "lucide-react"
 import { LeftSidebarNav } from "@/components/left-sidebar-nav"
-import { DeclarableAccountInventory } from "@/components/system-boundary/declarable-account-inventory"
+import { AccountInventoryGate, RemovedAccountNotice, useAccountListing } from "@/components/accounts/account-inventory-gate"
 import { AccountOverview } from "@/components/accounts/account-overview"
-import { useAccountScope } from "@/lib/account-scope-context"
-import {
-  accountAdminFailure,
-  accountLabel,
-  removedAccountSentence,
-  type AccountListResponse,
-  type ManagedAccount,
-  type RemovedAccount,
-} from "@/lib/account-admin"
+import { accountLabel } from "@/lib/account-admin"
 
 const TABS = [["overview", "Overview"], ["inventory", "Inventory"]] as const
 type Tab = (typeof TABS)[number][0]
@@ -36,38 +30,12 @@ interface Props {
   params: Promise<{ accountId: string }>
 }
 
-type Listing =
-  | { state: "loading" }
-  | { state: "error"; message: string }
-  | { state: "ready"; account: ManagedAccount | null; removed: RemovedAccount | null }
-
 function AccountPage({ accountId }: { accountId: string }) {
-  const scope = useAccountScope()
-  const customerId = scope.customerId
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const tab: Tab = searchParams.get("tab") === "inventory" ? "inventory" : "overview"
-  const [listing, setListing] = useState<Listing>({ state: "loading" })
-
-  const load = useCallback(async () => {
-    if (!customerId) return
-    try {
-      const response = await fetch(`/api/proxy/admin/accounts?customer_id=${encodeURIComponent(customerId)}`)
-      if (!response.ok) throw await accountAdminFailure(response, "Accounts")
-      const body = (await response.json()) as AccountListResponse
-      setListing({
-        state: "ready",
-        account: (body.accounts || []).find((a) => a.account_id === accountId) ?? null,
-        // Newest first: the latest removal of this account, when it is not listed again.
-        removed: (body.removed || []).find((r) => r.account_id === accountId) ?? null,
-      })
-    } catch (reason) {
-      setListing({ state: "error", message: reason instanceof Error ? reason.message : String(reason) })
-    }
-  }, [customerId, accountId])
-
-  useEffect(() => { void load() }, [load])
+  const { listing } = useAccountListing(accountId)
 
   const select = useCallback((next: Tab) => {
     const query = new URLSearchParams(searchParams.toString())
@@ -111,20 +79,16 @@ function AccountPage({ accountId }: { accountId: string }) {
         </div>
         <div className="px-8 py-6">
           {tab === "inventory" && listing.state !== "loading" && removed === null ? (
-            <DeclarableAccountInventory accountId={accountId} />
+            <AccountInventoryGate accountId={accountId} listing={listing} />
           ) : listing.state === "loading" ? (
             <p className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading the account…</p>
           ) : listing.state === "error" ? (
             <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{listing.message}</p>
           ) : removed ? (
-            <div data-testid="account-removed" className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">
-              <p className="font-semibold text-slate-800">This account was removed from Cyntro.</p>
-              <p className="mt-1">{removedAccountSentence(removed)}</p>
-              <p className="mt-1">Adding it again in Settings › Accounts starts a new registration that collects afresh.</p>
-            </div>
+            <RemovedAccountNotice removed={removed} />
           ) : account === null ? (
             <p data-testid="account-not-listed" className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">
-              Account {accountId} is not in this installation&apos;s account list. It may have been removed; Settings › Accounts lists the accounts this installation reads.
+              Account {accountId} is not in this installation&apos;s account list. Settings › Accounts lists the accounts this installation reads.
             </p>
           ) : (
             <AccountOverview account={account} />

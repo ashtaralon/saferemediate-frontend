@@ -105,3 +105,15 @@ GET that the step made. Regenerate them; do not edit them.
     it replaced (QA-11: carried on the new row).
   - 46: an Add of the removed account refused by the installation gate (INSTALLATION_GATE_CLOSED): the account is not
     listed, its removal is, and the banner names the account as the removal does.
+
+## 47-48 (r41: pre-Confirm honesty)
+
+- Producer: saferemediate-backend `ceb6a14815e530aa2d7d69e90e8492378536842e` (rehearsal.40, the installed backend), from a clean detached tree.
+- Generator: `agent-coordinator/claude-settings-r41-evidence-2026-10-08/test_r41_name_captures.py` (sha256 in
+  `generator-sha256.txt` beside it), copied into that tree's `tests/` and run with pytest there: the same harness as
+  01-13 (the real router, the real repository on moto DynamoDB, the real person verification, the real connector on moto STS),
+  with the installation as the installer leaves it verified (`tests/cyntro_data/registration_listing.ready_installation`).
+  moto has no Account Management, so GetAccountInformation is answered at botocore's call site, as 01-13 answer it.
+- Files (the only first-account states 01-46 lack: a check that REACHED the account but could not read its name):
+  - 47: GetAccountInformation answered AccessDenied, so the check records `name_unreadable` NOT_PERMITTED.
+  - 48: GetAccountInformation answered an empty AccountName, so the check records `name_unreadable` NO_NAME.

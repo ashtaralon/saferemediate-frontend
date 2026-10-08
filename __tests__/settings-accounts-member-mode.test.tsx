@@ -420,8 +420,9 @@ describe("Settings > Accounts — member-account mode", () => {
     expect(within(dialog).getByLabelText(/Read role ARN/)).toBeInTheDocument()
     expect(within(dialog).queryAllByRole("combobox")).toHaveLength(0)
     expect(within(dialog).queryByText("The name your team uses for this account.")).toBeNull()
-    // A grey hint right under the account ID says where the name comes from (Alon, 2026-10-03).
-    const hint = within(dialog).getByText("The account's name is read from AWS once it connects.")
+    // A grey hint right under the account ID says where the name comes from (Alon, 2026-10-03): the access check reads it
+    // (r41: not "once it connects").
+    const hint = within(dialog).getByText("Cyntro reads the account's name from AWS during the access check.")
     expect(within(dialog).getByLabelText("AWS account ID")).toHaveAttribute("aria-describedby", hint.id)
     expect(hint).toHaveClass("text-slate-500")
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "222233334444" } })
@@ -740,8 +741,10 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
 
     const waiting = await row(AWAITING.account_id)
     expect(occurrences(waiting, AWAITING.account_id)).toBe(1)           // shown by its ID, once
+    // A legacy row (no option-C registration) with no name: said plainly, never "once it connects" (r41).
     expect(within(waiting).getByTestId(`account-name-note-${AWAITING.account_id}`)).toHaveTextContent(
-      "Its name is read from AWS once it connects.")
+      "Name not read from AWS yet.")
+    expect(waiting).not.toHaveTextContent("once it connects")
     expect(within(await row("123412341234")).getByTestId("account-name-note-123412341234")).toHaveTextContent(
       "Name not readable from AWS: AWS denied permission to read it. A connection stack deployed before this release may need updating (account:GetAccountInformation).")
     expect(within(await row("246824682468")).getByTestId("account-name-note-246824682468")).toHaveTextContent(

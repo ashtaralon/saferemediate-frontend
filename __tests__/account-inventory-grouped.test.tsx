@@ -252,11 +252,13 @@ describe("holds and refusals in words (QA-13, QA-04)", () => {
     expect(screen.queryByText(/CONSUMER_NOT_READY/)).toBeNull()
   })
 
-  it("QA-04: the scope refusal (a removed account) says it is outside this installation, not 'not authorized'", async () => {
+  it("QA-04 / r41: the scope refusal says the account is outside the serving scope -- not 'not authorized', and no guess why", async () => {
     const { fetchPage, release } = controllable()
     view(fetchPage)
     await release(0, answer("refused_scope_mismatch_403"))
-    expect(screen.getByRole("status")).toHaveTextContent("This account is not in this installation's scope")
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "This account is not currently in this installation's serving scope, so its inventory is not shown.")
     expect(screen.queryByText(/not authorized/)).toBeNull()
+    expect(screen.queryByText(/removed/)).toBeNull()
   })
 })

@@ -40,6 +40,7 @@ import {
   accountLabel,
   accountNameNote,
   accountNeedsPolling,
+  collectionNotStarted,
   checkAccountId,
   checkReadRoleArn,
   connectionCheckOutcome,
@@ -811,7 +812,13 @@ function MemberAccountRow({
         {platform || account.aws_account_name ? <p className="mt-1 font-mono text-xs text-slate-500">{account.account_id}</p> : null}
         {!platform && accountNameNote(account) ? <p data-testid={`account-name-note-${account.account_id}`} className="mt-1 text-[11px] text-slate-500">{accountNameNote(account)}</p> : null}
         <p className="mt-1 truncate text-[11px] text-slate-400">{account.regions?.length ? account.regions.join(", ") : "No regions recorded"}</p>
-        {!platform ? (
+        {/* Before activation there is no inventory to open: say what is true (collection has not started), not a link that
+            implies one (r41, Alon 2026-10-08). */}
+        {!platform && collectionNotStarted(account) ? (
+          <p data-testid={`inventory-not-collected-${account.account_id}`} className="mt-1 text-[11px] text-slate-500">
+            Inventory: not collected yet
+          </p>
+        ) : !platform ? (
           <Link
             href={`/accounts/${encodeURIComponent(account.account_id)}?tab=inventory`}
             aria-label={`Inventory of ${account.account_id}`}
@@ -1262,7 +1269,7 @@ function MemberAddAccountDialog({
             /></label>
             <AccountIdFeedback check={check} />
             {/* The account's name is AWS's, never typed (Alon, 2026-10-03). */}
-            <p id="add-account-name-from-aws" className="mt-1.5 text-xs text-slate-500">The account&apos;s name is read from AWS once it connects.</p>
+            <p id="add-account-name-from-aws" className="mt-1.5 text-xs text-slate-500">Cyntro reads the account&apos;s name from AWS during the access check.</p>
           </div>
         </div>
         ) : reviewed === "LISTED" && accountIdReviewable(check) ? (

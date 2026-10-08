@@ -8,8 +8,9 @@
  *   (semantic_onboarding.PASS_LAPSE_REASONS); both are captured by executing the backend
  *   (__tests__/fixtures/account-inventory-types/hold-reasons.json), and a test fails when one has no words here;
  * - 403 INVENTORY_SCOPE_MISMATCH is the gate refusing an account outside this installation's serving scope
- *   (estate_read._refuse_http(CLAIM_OUTSIDE_SERVER_SCOPE)) -- a removed account, or one never connected. It is not
- *   "you are not authorized" (QA-04).
+ *   (estate_read._refuse_http(CLAIM_OUTSIDE_SERVER_SCOPE)). It is not "you are not authorized" (QA-04), and on its own it does
+ *   not say why the account is outside: the account page names the reason when it knows one (removed, or not confirmed yet --
+ *   components/accounts/account-inventory-gate.tsx); this generic sentence never guesses one (r41).
  * A code this table does not know is shown with its own spelling, never guessed into words.
  */
 import type { InventoryModel } from "@/lib/account-inventory"
@@ -44,8 +45,7 @@ const HELD_COPY: Record<string, string> = {
 const READINESS_HOLD = /^[0-9]{12}:CONSUMER_NOT_READY:(.+)$/
 
 export const SCOPE_MISMATCH_COPY =
-  "This account is not in this installation's scope, so its inventory is not shown. It may have been removed; " +
-  "Settings › Accounts lists the accounts this installation reads."
+  "This account is not currently in this installation's serving scope, so its inventory is not shown."
 
 function readinessCopy(reason: string): string | null {
   const [head, ...rest] = reason.split(":")
