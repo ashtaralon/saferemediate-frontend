@@ -29,7 +29,7 @@ import { RefreshEvidenceButton } from "@/components/RefreshEvidenceButton"
 import Link from "next/link"
 import { ObservationChip } from "@/components/coverage/observation-chip"
 import { coveragePageHref, readObservation, type Observation } from "@/lib/observation-coverage"
-import { systemRowIdentity, systemsListLevel, type SystemDeployment } from "@/lib/scoped-system-catalog"
+import { deploymentIdentity, systemRowIdentity, systemsListLevel, type SystemDeployment } from "@/lib/scoped-system-catalog"
 
 interface System {
   name: string
@@ -1058,8 +1058,13 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
                       {system.deployments && system.deployments.length > 0 && (
                         <ul className="mt-1 space-y-0.5" data-testid="system-deployments">
                           {system.deployments.map((deployment) => (
-                            <li key={deployment.key} className="text-xs" style={{ color: "var(--text-secondary)" }}>
-                              {deployment.kind === "deployment" ? "Deployment" : "Cell"} · {deployment.accountId} ·{" "}
+                            <li key={deploymentIdentity(deployment)} className="text-xs" style={{ color: "var(--text-secondary)" }}
+                                data-part-kind={deployment.kind}>
+                              {deployment.kind === "deployment"
+                                ? `Deployment ${deployment.key}`
+                                : deployment.kind === "cell"
+                                  ? "Cell"
+                                  : "Not in a deployment"} · {deployment.accountId} ·{" "}
                               {deployment.region} · {deployment.memberCount} member{deployment.memberCount === 1 ? "" : "s"}
                             </li>
                           ))}

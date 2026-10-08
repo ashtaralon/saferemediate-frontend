@@ -218,13 +218,24 @@ export function systemsListLevel(body: unknown): 1 | 2 | null {
   return contract === SYSTEMS_LIST_CONTRACT ? 2 : null
 }
 
-/** One deployment (an authored system's deployment) or cell (a tag-only system's account + Region) of a v2 system. */
+/** One PART of a v2 system (Phase 2's part contract, enforced at publication by system_identity.is_part):
+ *  - "deployment": an authored system's deployment (key = deployment_id);
+ *  - "cell": a tag / source system's cell in one account (key = region = the projector's cell, a Region or "global");
+ *  - "system": members placed in no deployment -- a split alias's one part, or an authored system's members no applied
+ *    declaration places in a deployment (key = the system key itself).
+ *  Every part is of the publishing account and has at least one ACTIVE member. One authored row aggregates parts from every
+ *  account, so the same deployment key can appear once per account: a part is identified by (accountId, kind, key). */
 export type SystemDeployment = {
   key: string
-  kind: "deployment" | "cell"
+  kind: "deployment" | "cell" | "system"
   accountId: string
   region: string
   memberCount: number
+}
+
+/** A part's identity within its row (the list key the page renders it under). */
+export function deploymentIdentity(part: SystemDeployment): string {
+  return `${part.accountId}|${part.kind}|${part.key}`
 }
 
 /** One v2 Systems row's identity (Phase 2 M3): an AUTHORED key is one row across accounts (accountId null); a tag / source
@@ -256,10 +267,15 @@ export function systemRowIdentity(row: unknown): SystemRowIdentity | null {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null
     const d = raw as Record<string, unknown>
     if (typeof d.key !== "string" || !d.key.trim()) return null
-    if (d.kind !== "deployment" && d.kind !== "cell") return null
+    if (d.kind !== "deployment" && d.kind !== "cell" && d.kind !== "system") return null
     if (typeof d.account_id !== "string" || !ACCOUNT_ID.test(d.account_id)) return null
+    // A tag / source row is ONE account's system: every part is that account's.
+    if (identityAccount !== null && d.account_id !== identityAccount) return null
     if (typeof d.region !== "string" || !(AWS_REGION.test(d.region) || d.region === "global")) return null
-    if (typeof d.member_count !== "number" || !Number.isInteger(d.member_count) || d.member_count < 0) return null
+    // A part exists only for ACTIVE members (never an empty part).
+    if (typeof d.member_count !== "number" || !Number.isInteger(d.member_count) || d.member_count < 1) return null
+    if (d.kind === "cell" && d.key !== d.region) return null
+    if (d.kind === "system" && d.key !== record.system_key) return null
     deployments.push({ key: d.key, kind: d.kind, accountId: d.account_id, region: d.region, memberCount: d.member_count })
   }
   return { systemKey: record.system_key, rowKey: expectedRowKey, accountId: identityAccount as string | null, deployments }

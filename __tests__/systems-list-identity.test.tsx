@@ -4,7 +4,8 @@
  *
  * Every v2 body here is the backend's REAL answer, captured by Phase 2's harness in the M3 backend commit and copied to
  * __tests__/fixtures/systems-list-captures/ pinned to that SHA ({_provenance, status, cache_control, body}):
- *   systems_list_v2_two_identities_one_name, systems_list_v2_deployments, system_resources_name_ambiguous_409.
+ *   systems_list_v2_two_identities_one_name, systems_list_v2_deployments, system_resources_name_ambiguous_409, and (Phase 2
+ *   5e70932f, the part contract with kind "system") systems_list_v2_split_and_system_level.
  * Written 2026-10-08 in the build-only phase: those files do not exist until the harness has run, so these cases are red until
  * then, by design. Malformed variants are edits of a real capture, never hand-written rows.
  */
@@ -18,6 +19,7 @@ import {
   ambiguousSystemCandidates,
   catalogEntries,
   catalogEntryHref,
+  deploymentIdentity,
   selectCatalogSystem,
   systemDetailHref,
   systemRowIdentity,
@@ -55,9 +57,28 @@ describe("the v2 Systems list answer", () => {
     const withDeployments = body.systems.map((row: any) => systemRowIdentity(row)!).find((i: any) => i.deployments.length > 1)
     expect(withDeployments).toBeTruthy()
     for (const deployment of withDeployments.deployments) {
-      expect(["deployment", "cell"]).toContain(deployment.kind)
+      expect(["deployment", "cell", "system"]).toContain(deployment.kind)
       expect(deployment.accountId).toMatch(/^[0-9]{12}$/)
-      expect(Number.isInteger(deployment.memberCount) && deployment.memberCount >= 0).toBe(true)
+      expect(Number.isInteger(deployment.memberCount) && deployment.memberCount >= 1).toBe(true)
+    }
+  })
+
+  // Phase 2's part contract (2026-10-08): a split alias's one part and an authored system's members placed in no deployment
+  // are kind "system", keyed by the system key; they are shown, never dropped. Capture from Phase 2's harness (T2).
+  it("keeps a row whose parts include kind \"system\" -- a split alias and an authored system's undeployed members", () => {
+    const { body } = capture("systems_list_v2_split_and_system_level")
+    const identities = body.systems.map((row: any) => systemRowIdentity(row))
+    expect(identities.every((identity: any) => identity !== null)).toBe(true)
+    const parts = identities.flatMap((identity: any) => identity.deployments.map((part: any) => [identity, part]))
+    const systemLevel = parts.filter(([, part]: any) => part.kind === "system")
+    expect(systemLevel.length).toBeGreaterThanOrEqual(2)
+    for (const [identity, part] of systemLevel) expect(part.key).toBe(identity.systemKey)
+    // An authored row beside its deployment parts: the same row carries both kinds.
+    expect(identities.some((identity: any) => new Set(identity.deployments.map((p: any) => p.kind)).size > 1)).toBe(true)
+    // Parts are identified by (account, kind, key): never two with one identity in a row.
+    for (const identity of identities) {
+      const keys = identity.deployments.map((p: any) => deploymentIdentity(p))
+      expect(new Set(keys).size).toBe(keys.length)
     }
   })
 
@@ -68,7 +89,16 @@ describe("the v2 Systems list answer", () => {
     ["an identity account that is not 12 digits", (row: any) => { row.identity = { ...row.identity, account_id: "abc" } }],
     ["no deployments", (row: any) => { delete row.deployments }],
     ["a negative member count", (row: any) => { row.deployments = [{ ...row.deployments[0], member_count: -1 }] }],
+    ["an empty part (no ACTIVE member)", (row: any) => { row.deployments = [{ ...row.deployments[0], member_count: 0 }] }],
     ["an unknown deployment kind", (row: any) => { row.deployments = [{ ...row.deployments[0], kind: "region" }] }],
+    ["a cell keyed other than its Region", (row: any) => {
+      row.deployments = [{ ...row.deployments[0], kind: "cell", key: "cell-x", region: "eu-west-1" }] }],
+    ["a system-level part keyed other than the row's system", (row: any) => {
+      row.deployments = [{ ...row.deployments[0], kind: "system", key: `${row.system_key}x` }] }],
+    ["a tag row's part in another account", (row: any) => {
+      row.identity = { ...row.identity, account_id: "111111111111" }
+      row.row_key = `${row.system_key}|111111111111`
+      row.deployments = [{ ...row.deployments[0], account_id: "222222222222" }] }],
   ])("refuses a row with %s: never listed, never read as a v1 row", (_label, tamper) => {
     const { body } = capture("systems_list_v2_deployments")
     const row = structuredClone(body.systems.find((r: any) => Array.isArray(r.deployments) && r.deployments.length > 0))
@@ -192,6 +222,19 @@ describe("SystemsView on a v2 answer", () => {
     const lists = await screen.findAllByTestId("system-deployments")
     const deployments = body.systems.reduce((n: number, row: any) => n + row.deployments.length, 0)
     expect(lists.flatMap((list) => Array.from(list.querySelectorAll("li"))).length).toBe(deployments)
+  })
+
+  it("shows every part of a split / system-level row, the \"system\" ones included, and keeps the system", async () => {
+    const { body } = capture("systems_list_v2_split_and_system_level")
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) =>
+      String(input).startsWith("/api/proxy/systems") ? json(body) : json({})))
+    const { SystemsView } = await import("@/components/systems-view")
+    render(<SystemsView />)
+    const items = (await screen.findAllByTestId("system-deployments")).flatMap((list) => Array.from(list.querySelectorAll("li")))
+    expect(items.length).toBe(body.systems.reduce((n: number, row: any) => n + row.deployments.length, 0))
+    expect(items.filter((li) => li.getAttribute("data-part-kind") === "system").length)
+      .toBe(body.systems.reduce((n: number, row: any) => n + row.deployments.filter((p: any) => p.kind === "system").length, 0))
+    for (const row of body.systems) expect(screen.getAllByText(row.name).length).toBeGreaterThanOrEqual(1)
   })
 
   it("says a newer list contract cannot be read, and lists nothing", async () => {
