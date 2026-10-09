@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 // The 2026-08-23 incident, at the component level: a narrowing region filter
 // excludes every system, the scoped read legitimately returns an empty list,
 // and the page must say "hidden by your filters" with a way out — never the
-// generic "No Tagged Systems Found" that reads as data loss.
+// generic "No systems in this scope yet" that reads as data loss.
 
 const setGroupId = vi.fn()
 const accountScope = {
@@ -92,7 +92,7 @@ describe("SystemsView filtered-empty state", () => {
 
     render(<SystemsView />)
 
-    expect(await screen.findByText("No Tagged Systems Found")).toBeInTheDocument()
+    expect(await screen.findByText("No systems in this scope yet")).toBeInTheDocument()
     expect(screen.queryByText("Systems hidden by scope filters")).not.toBeInTheDocument()
   })
 
@@ -114,7 +114,7 @@ describe("SystemsView filtered-empty state", () => {
       expect(
         screen.getByText("The testbed-webshop organization has no AWS accounts in scope. Connect a workload account in Settings › Accounts."),
       ).toBeInTheDocument()
-      expect(screen.queryByText("No Tagged Systems Found")).not.toBeInTheDocument()
+      expect(screen.queryByText("No systems in this scope yet")).not.toBeInTheDocument()
     } finally {
       accountScope.options.accounts = connected
       accountScope.region = narrowed

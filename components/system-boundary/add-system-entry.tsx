@@ -4,7 +4,9 @@
  * "Add System" (D2/D4/D17). The one way to add a system is the System Boundary wizard on an account's inventory
  * (declare-from-inventory.tsx); this control only leads there. With one served account in the current scope it opens
  * that account's inventory with the declare flow asked for; with several it lists them to choose from first. It saves
- * nothing and adds no row: a system is listed once its declaration is saved and served.
+ * nothing and adds no row: a system is listed once its declaration is saved and served. Accounts are offered only from a
+ * resolved, settled scope whose options belong to the selected customer (lib/system-boundary-entry.ts addSystemTargets);
+ * while the scope loads, after it failed, or before the new customer's options arrive, the control is disabled with why.
  *
  * It replaced a dropdown of "Available systems from AWS" that inserted a row with invented Production / criticality
  * defaults and toasted "System Added" before a POST to a route the backend never had.
@@ -14,14 +16,14 @@ import Link from "next/link"
 import { ChevronDown, Plus } from "lucide-react"
 import { useAccountScope } from "@/lib/account-scope-context"
 import { accountOptionText } from "@/lib/account-scope"
-import { accountsInScope, declareFlowHref } from "@/lib/system-boundary-entry"
+import { addSystemTargets, declareFlowHref } from "@/lib/system-boundary-entry"
 
 const BUTTON =
   "inline-flex items-center gap-1.5 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-90"
 
 export function AddSystemEntry({ menuAlign = "right" }: { menuAlign?: "right" | "center" }) {
   const scope = useAccountScope()
-  const accounts = accountsInScope(scope)
+  const targets = addSystemTargets(scope)
   const [choosing, setChoosing] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -33,15 +35,14 @@ export function AddSystemEntry({ menuAlign = "right" }: { menuAlign?: "right" | 
     document.addEventListener("mousedown", close)
     return () => document.removeEventListener("mousedown", close)
   }, [choosing])
+  // A chooser open over a scope that then stops being current closes; a recovered scope never reopens it by itself.
+  useEffect(() => {
+    if (targets.kind === "unavailable") setChoosing(false)
+  }, [targets.kind])
 
-  if (accounts.length === 0) {
-    const reason = scope.loading
-      ? "Loading the accounts in scope…"
-      : scope.error || !scope.options
-        ? "The accounts in scope could not be read, so no account can be opened to declare a system."
-        : "No AWS account is in the selected scope. Systems are declared from an account's inventory."
+  if (targets.kind === "unavailable") {
     return (
-      <button type="button" disabled title={reason} data-testid="add-system"
+      <button type="button" disabled title={targets.reason} data-testid="add-system"
         className={`${BUTTON} cursor-not-allowed opacity-50`} style={{ background: "#8b5cf6" }}>
         <Plus className="w-3.5 h-3.5" />
         Add System
@@ -49,6 +50,7 @@ export function AddSystemEntry({ menuAlign = "right" }: { menuAlign?: "right" | 
     )
   }
 
+  const accounts = targets.accounts
   if (accounts.length === 1) {
     return (
       <Link href={declareFlowHref(accounts[0].account_id)} data-testid="add-system" className={BUTTON}

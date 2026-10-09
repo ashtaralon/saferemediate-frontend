@@ -99,6 +99,15 @@ const CACHE_KEYS = {
 
 const CACHE_TTL = 5 * 60 * 1000 // 5 minutes - show cached data but refresh if older
 
+// D11: two reads this page makes feed ONLY the pre-V3 Home branch below (the security-findings rows -> its findings
+// cards and list; the per-system gap analysis -> its Gap Analysis card and "Updated" label). With the V3 Home nothing
+// renders them, so they are not made: on a multi-account install each was a 422 ACCOUNT_SCOPE_REQUIRED nobody shows.
+// fetchInfrastructure's issues-summary read is KEPT: the sidebar Issues badge (rendered on every section, V3 Home
+// included) reads its total, and the page's first paint waits on it.
+function preV3HomeReads(): boolean {
+  return !DASHBOARD_V3_ENABLED
+}
+
 // Load cached data immediately for instant UI (stale-while-revalidate)
 function getCachedData<T>(key: string): T | null {
   if (typeof window === 'undefined') return null
@@ -163,6 +172,7 @@ export default function HomePage() {
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
 
   const fetchGapAnalysis = useCallback(() => {
+    if (!preV3HomeReads()) return // D11: only the pre-V3 Home renders gapData
     // Fetch from issues-summary which has aggregated permission data from all roles
     // Match the proxy's 55s cold-build budget.  The old 30s client timeout
     // aborted a request the server was still legitimately computing and left
@@ -283,9 +293,10 @@ export default function HomePage() {
     }
 
     try {
+      const readFindings = preV3HomeReads() // D11: only the pre-V3 Home renders securityFindings
       const [infrastructureData, findings] = await Promise.allSettled([
         fetchInfrastructure(),
-        fetchSecurityFindings(),
+        readFindings ? fetchSecurityFindings() : Promise.resolve<SecurityFinding[]>([]),
       ])
 
       // Handle infrastructure data
@@ -304,7 +315,9 @@ export default function HomePage() {
       }
 
       // Handle findings - only use real data, no fallback
-      if (findings.status === 'fulfilled' && findings.value && findings.value.length > 0) {
+      if (!readFindings) {
+        // Not read (V3 Home): nothing to keep or cache.
+      } else if (findings.status === 'fulfilled' && findings.value && findings.value.length > 0) {
         setSecurityFindings(findings.value)
         setCachedData(CACHE_KEYS.FINDINGS, findings.value) // Cache for instant load
         console.log("[page] Loaded and cached", findings.value.length, "security findings")

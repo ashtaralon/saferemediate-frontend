@@ -5,9 +5,12 @@
  *
  * - ``declareFlowHref``: the account page's Inventory tab with the declare flow asked for (``?declare=1``). The wizard
  *   honours the flag only where its own checks pass; otherwise it says why, as it does without the flag.
- * - ``accountsInScope``: the served accounts the current product scope covers, narrowed the way the scope bar narrows
- *   them (group, then account, then Region). The scope options name only data accounts (the control plane's own account
- *   is never one), so every account listed here is one the wizard can be opened for.
+ * - ``addSystemTargets``: the served accounts the CURRENT product scope covers, narrowed the way the scope bar narrows
+ *   them (group, then account, then Region) -- or why none can be offered. The scope options name only data accounts (the
+ *   control plane's own account is never one), so every account offered is one the wizard can be opened for. The provider
+ *   KEEPS its previous options while a reload is in flight and after one fails, and a customer switch names the new
+ *   customer before its options arrive: options are trusted only for a resolved, settled scope whose options name that
+ *   same customer, so a stale list (another customer's accounts among them) is never offered.
  */
 import type { AccountScopeOption, AccountScopeOptions, ProductScope } from "@/lib/account-scope"
 
@@ -24,16 +27,41 @@ export function wantsDeclareFlow(params: { get(name: string): string | null } | 
   return params?.get(DECLARE_FLOW_PARAM) === "1"
 }
 
+export type AddSystemTargets =
+  | { kind: "accounts"; accounts: AccountScopeOption[] }
+  | { kind: "unavailable"; reason: string }
+
+export const SCOPE_LOADING = "Loading the accounts in scope…"
+export const SCOPE_UNREADABLE = "The accounts in scope could not be read, so no account can be opened to declare a system."
+export const SCOPE_NO_CUSTOMER = "No organization is selected, so no account can be opened to declare a system."
+export const SCOPE_NOT_CURRENT =
+  "The accounts of the selected organization have not been read yet, so no account can be opened to declare a system."
+export const SCOPE_NO_ACCOUNT = "No AWS account is in the selected scope. Systems are declared from an account's inventory."
+
 /**
- * The served accounts in the current scope. Unknown options (still loading, or unreadable) are none: the caller says
- * why rather than offering an account it cannot vouch for.
+ * The accounts "Add System" may offer, or why it offers none. Gated BEFORE any account is derived: a resolved current
+ * customer, a settled scope (not loading, no error), and options naming that customer.
  */
-export function accountsInScope(
-  scope: Pick<ProductScope, "groupId" | "accountId" | "region"> & { options: AccountScopeOptions | null },
-): AccountScopeOption[] {
-  const all = Array.isArray(scope.options?.accounts) ? scope.options.accounts : []
-  const inGroup = scope.groupId === "all" ? all : all.filter((account) => account.group_ids.includes(scope.groupId))
-  if (scope.accountId !== "all") return inGroup.filter((account) => account.account_id === scope.accountId)
-  if (scope.region !== "all") return inGroup.filter((account) => account.regions.includes(scope.region))
-  return inGroup
+export function addSystemTargets(
+  scope: Pick<ProductScope, "customerId" | "groupId" | "accountId" | "region"> & {
+    options: AccountScopeOptions | null
+    loading: boolean
+    error: string | null
+  },
+): AddSystemTargets {
+  if (scope.loading) return { kind: "unavailable", reason: SCOPE_LOADING }
+  if (scope.error) return { kind: "unavailable", reason: SCOPE_UNREADABLE }
+  if (!scope.customerId) return { kind: "unavailable", reason: SCOPE_NO_CUSTOMER }
+  const options = scope.options
+  if (!options || !Array.isArray(options.accounts)) return { kind: "unavailable", reason: SCOPE_UNREADABLE }
+  if (options.customer_id !== scope.customerId) return { kind: "unavailable", reason: SCOPE_NOT_CURRENT }
+  const inGroup = scope.groupId === "all"
+    ? options.accounts
+    : options.accounts.filter((account) => account.group_ids.includes(scope.groupId))
+  const accounts = scope.accountId !== "all"
+    ? inGroup.filter((account) => account.account_id === scope.accountId)
+    : scope.region !== "all"
+      ? inGroup.filter((account) => account.regions.includes(scope.region))
+      : inGroup
+  return accounts.length > 0 ? { kind: "accounts", accounts } : { kind: "unavailable", reason: SCOPE_NO_ACCOUNT }
 }

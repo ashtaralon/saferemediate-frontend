@@ -527,7 +527,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
           ? NO_ACCOUNTS_TITLE
           : systemsHold
             ? "Systems not recorded yet"
-            : "No Tagged Systems Found"
+            : "No systems in this scope yet"
     const description = accountScope.error
       ? "Cyntro could not verify the organization scope. Existing systems have not been deleted. Retry the scope metadata request."
       : systemsError === NEWER_SYSTEMS_LIST
@@ -541,7 +541,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
             ? noAccountsDescription(accountScope.customerId)
             : systemsHold
               ? systemsHold
-              : "No resources tagged with SystemName were found in the selected organization, account group, account, and region."
+              // A valid empty list says no system is listed here -- not that AWS holds no tags (systems are declared,
+              // v2): the way to add one is named instead.
+              : "No systems are listed for the selected organization, account group, account, and Region. Systems are declared from an account's inventory: choose Add System."
     const isUnavailable = Boolean(accountScope.error || systemsError)
     return (
       <div className="space-y-4">
