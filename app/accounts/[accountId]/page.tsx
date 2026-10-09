@@ -22,6 +22,7 @@ import { LeftSidebarNav } from "@/components/left-sidebar-nav"
 import { AccountInventoryGate, RemovedAccountNotice, useAccountListing } from "@/components/accounts/account-inventory-gate"
 import { AccountOverview } from "@/components/accounts/account-overview"
 import { accountLabel } from "@/lib/account-admin"
+import { DECLARE_FLOW_PARAM } from "@/lib/system-boundary-entry"
 
 const TABS = [["overview", "Overview"], ["inventory", "Inventory"]] as const
 type Tab = (typeof TABS)[number][0]
@@ -41,7 +42,10 @@ function AccountPage({ accountId }: { accountId: string }) {
     const query = new URLSearchParams(searchParams.toString())
     if (next === "overview") query.delete("tab")
     else query.set("tab", next)
-    if (next !== "inventory") query.delete("resource_type")
+    if (next !== "inventory") {
+      query.delete("resource_type")
+      query.delete(DECLARE_FLOW_PARAM)
+    }
     const suffix = query.toString()
     router.replace(suffix ? `${pathname}?${suffix}` : pathname)
   }, [router, pathname, searchParams])

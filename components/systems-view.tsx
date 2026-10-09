@@ -1,12 +1,10 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { coerceProxyErrorMessage } from "@/lib/proxy-error-message"
 import { healthLabel } from "@/lib/utils"
 import {
   Download,
-  Plus,
-  ChevronDown,
   Loader2,
   Search,
   Filter,
@@ -17,8 +15,7 @@ import {
   RefreshCw,
   RotateCcw,
 } from "lucide-react"
-import { useToast } from "@/hooks/use-toast"
-import { NewSystemsModal } from "./new-systems-modal"
+import { AddSystemEntry } from "@/components/system-boundary/add-system-entry"
 import { PageHeader } from "@/components/ui/page-header"
 import { BackToDashboard } from "@/components/back-to-dashboard"
 import { useAccountScope } from "@/lib/account-scope-context"
@@ -98,15 +95,6 @@ function systemIdentityKey(system: Pick<System, "name" | "rowKey" | "accountId" 
   return `name:${system.name}`
 }
 
-interface AvailableSystem {
-  SystemName?: string  // Only SystemName format (capital S, capital N)
-  resourceCount?: number
-  resource_count?: number
-  criticality?: number
-  environment?: string
-  owner?: string
-}
-
 interface SystemsViewProps {
   systems?: System[]
   onSystemSelect?: (systemName: string, systemKey?: string | null, accountId?: string | null) => void
@@ -119,14 +107,6 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
   const [selectedSystem, setSelectedSystem] = useState<string | null>(null)
   const [isScanning, setIsScanning] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
-  const [newSystems, setNewSystems] = useState<Array<{ SystemName: string; resourceCount: number; resources?: any[] }>>(
-    [],
-  )
-  const [showNewSystemsModal, setShowNewSystemsModal] = useState(false)
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
-  const [availableSystems, setAvailableSystems] = useState<AvailableSystem[]>([])
-  const [isLoadingAvailable, setIsLoadingAvailable] = useState(false)
-  const [backendStatus, setBackendStatus] = useState<"connected" | "offline" | "checking">("checking")
   const [systemsError, setSystemsError] = useState<string | null>(null)
   // The backend's own "not recorded" answer (NO_DATA_ACCOUNTS, REGION_NOT_SERVED, ...): a state,
   // not an empty list. And what a served answer did NOT cover (held / unrecorded accounts,
@@ -150,9 +130,6 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
   const [secondsUntilRefresh, setSecondsUntilRefresh] = useState(30)
   const [lastScanTime, setLastScanTime] = useState<Date | null>(null)
   const [isReingesting, setIsReingesting] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
-  const emptyDropdownRef = useRef<HTMLDivElement>(null)
-  const { toast } = useToast()
   const systemsCacheKey = `cyntro-systems:v2:${accountScope.customerId || "unresolved"}:${accountScope.groupId}:${accountScope.accountId}:${accountScope.region}`
 
   // Fetch gap-analysis from real CloudTrail data
@@ -230,7 +207,6 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
           setSystemsError(NEWER_SYSTEMS_LIST)
           setLocalSystems([])
           setObservation(readObservation(systemsData))
-          setBackendStatus("connected")
           return
         }
         const servedSystems = Array.isArray(systemsData.systems) ? systemsData.systems : []
@@ -247,7 +223,6 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
         }
         setObservation(readObservation(systemsData))
         setSystemsError(null)
-        setBackendStatus("connected")
         
         console.log("[systems-view] Loaded", backendSystems.length, "systems from backend")
 
@@ -357,7 +332,6 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
         console.warn(`[systems-view] Systems API returned ${systemsRes.status}`)
         setSystemsError(`Systems data is unavailable (${systemsRes.status})`)
         setObservation((current) => current ?? null)
-        setBackendStatus("offline")
       }
     } catch (fetchErr: any) {
       // Ignore abort errors (timeout or unmount) - they're expected
@@ -368,7 +342,6 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
       }
       setSystemsError("Systems data is temporarily unavailable")
       setObservation((current) => current ?? null)
-      setBackendStatus("offline")
     } finally {
       setIsLoadingData(false)
       setIsScanning(false)
@@ -388,11 +361,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
     if (!accountScope.customerId) {
       setLocalSystems([])
       setIsLoadingData(false)
-      setBackendStatus("offline")
       return
     }
     let hasCache = false
-    setBackendStatus("checking")
     setSystemsError(null)
 
     // Step 1: Try to load from cache immediately
@@ -449,133 +420,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
     }
   }, [propSystems])
 
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsDropdownOpen(false)
-      }
-      if (emptyDropdownRef.current && !emptyDropdownRef.current.contains(event.target as Node)) {
-        setIsDropdownOpen(false)
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside)
-    return () => document.removeEventListener("mousedown", handleClickOutside)
-  }, [])
-
-  const checkBackendStatus = async () => {
-    setBackendStatus("checking")
-    try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 10000)
-      
-      const response = await fetch("/api/proxy/test", {
-        signal: controller.signal,
-      })
-      
-      clearTimeout(timeoutId)
-      
-      if (response.ok) {
-        setBackendStatus("connected")
-        return true
-      } else {
-        setBackendStatus("offline")
-        return false
-      }
-    } catch {
-      setBackendStatus("offline")
-      return false
-    }
-  }
-
-  const fetchAvailableSystems = async () => {
-    setIsLoadingAvailable(true)
-    try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 25000)
-      
-      const response = await fetch(withAccountScope("/api/proxy/systems", accountScope), {
-        signal: controller.signal,
-      })
-      
-      clearTimeout(timeoutId)
-      
-      if (response.ok) {
-        const data = await response.json()
-        const systems = Array.isArray(data?.systems) ? data.systems : []
-        const existingNames = new Set(localSystems.map((s) => s.name.toLowerCase()))
-        const filtered = systems.filter((sys: AvailableSystem) => {
-          const name = sys.SystemName || ""  // Only SystemName format (capital S, capital N)
-          return name && !existingNames.has(name.toLowerCase())
-        })
-        setAvailableSystems(filtered)
-        setBackendStatus("connected")
-      } else {
-        setBackendStatus("offline")
-      }
-    } catch (error) {
-      console.error("[systems-view] Failed to fetch available systems:", error)
-      setBackendStatus("offline")
-    } finally {
-      setIsLoadingAvailable(false)
-    }
-  }
-
   const handleInventoryRefreshed = useCallback(() => {
     void fetchSystemsData()
   }, [fetchSystemsData])
-
-  const handleAddSystemClick = async () => {
-    setIsDropdownOpen(!isDropdownOpen)
-    if (!isDropdownOpen) {
-      await fetchAvailableSystems()
-    }
-  }
-
-  const addSystemToTable = async (sys: AvailableSystem) => {
-    const systemName = sys.SystemName || "Unknown"  // Only SystemName format (capital S, capital N)
-    const newSystem: System = {
-      name: systemName,
-      criticality: sys.criticality || 5,
-      criticalityLabel: sys.criticality === 5 ? "5 - MISSION CRITICAL" : "4 - BUSINESS CRITICAL",
-      environment: sys.environment || "Production",
-      health: 0,
-      critical: 0,
-      high: 0,
-      total: 0,
-      lastScan: "Pending",
-      // Newly-added system has never been scanned — null means "stale by
-      // default" per isStale() semantics, which is the honest read.
-      lastScanAt: null,
-      owner: sys.owner || "Unassigned",
-    }
-
-    setLocalSystems((prev) => [...prev, newSystem])
-    setAvailableSystems((prev) =>
-      prev.filter((s) => s.SystemName !== sys.SystemName),  // Only SystemName format
-    )
-    setIsDropdownOpen(false)
-
-    toast({
-      title: "System Added",
-      description: `${systemName} has been added to your dashboard.`,
-    })
-
-    try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 25000)
-      
-      await fetch("/api/proxy/systems/add", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ systemName }),
-        signal: controller.signal,
-      })
-      
-      clearTimeout(timeoutId)
-    } catch (error) {
-      console.error("[systems-view] Failed to notify backend:", error)
-    }
-  }
 
   const handleViewDashboard = (systemName: string, systemKey?: string | null, accountId?: string | null) => {
     if (onSystemSelect) {
@@ -719,64 +566,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
               <RefreshCw className="h-3.5 w-3.5" />
               Retry
             </button>
-          ) : !hasNoAccounts ? <div className="relative inline-block" ref={emptyDropdownRef}>
-            <button
-              onClick={handleAddSystemClick}
-              className="inline-flex items-center gap-1.5 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-90"
-              style={{ background: "#8b5cf6" }}
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Add System
-              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`} />
-            </button>
-
-            {isDropdownOpen && (
-              <div
-                className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-80 rounded-lg shadow-xl border z-50"
-                style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}
-              >
-                <div className="p-3 border-b" style={{ borderColor: "var(--border-subtle)" }}>
-                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                    {backendStatus === "checking"
-                      ? "Checking backend..."
-                      : backendStatus === "connected"
-                        ? "Available systems from AWS"
-                        : "Backend offline - using cached data"}
-                  </p>
-                </div>
-
-                <div className="max-h-64 overflow-y-auto">
-                  {isLoadingAvailable ? (
-                    <div className="p-4 text-center">
-                      <Loader2 className="w-6 h-6 animate-spin mx-auto" style={{ color: "#8b5cf6" }} />
-                      <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>Loading systems...</p>
-                    </div>
-                  ) : availableSystems.length === 0 ? (
-                    <div className="p-4 text-center" style={{ color: "var(--text-muted)" }}>
-                      <p className="text-xs">No new systems found</p>
-                    </div>
-                  ) : (
-                    availableSystems.map((sys, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => addSystemToTable(sys)}
-                        className="w-full p-3 text-left hover:bg-white/5 flex items-center justify-between border-b last:border-0 transition-colors"
-                        style={{ borderColor: "var(--border-subtle)" }}
-                      >
-                        <div>
-                          <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{sys.SystemName || ""}</p>
-                          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                            {sys.resourceCount || sys.resource_count || 0} resources
-                          </p>
-                        </div>
-                        <Plus className="w-3.5 h-3.5" style={{ color: "#8b5cf6" }} />
-                      </button>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-          </div> : null}
+          ) : !hasNoAccounts ? <AddSystemEntry menuAlign="center" /> : null}
         </div>
       </div>
       </div>
@@ -879,64 +669,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
               until inventory_reconcile is CONNECTED. */}
           <RefreshEvidenceButton surface="inventory" onRefreshed={handleInventoryRefreshed} />
 
-          <div className="relative" ref={dropdownRef}>
-            <button
-              onClick={handleAddSystemClick}
-              className="inline-flex items-center gap-1.5 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-90"
-              style={{ background: "#8b5cf6" }}
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Add System
-              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`} />
-            </button>
-
-            {isDropdownOpen && (
-              <div
-                className="absolute top-full right-0 mt-2 w-80 rounded-lg shadow-xl border z-50"
-                style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}
-              >
-                <div className="p-3 border-b" style={{ borderColor: "var(--border-subtle)" }}>
-                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                    {backendStatus === "checking"
-                      ? "Checking backend..."
-                      : backendStatus === "connected"
-                        ? "Available systems from AWS"
-                        : "Backend offline"}
-                  </p>
-                </div>
-
-                <div className="max-h-64 overflow-y-auto">
-                  {isLoadingAvailable ? (
-                    <div className="p-4 text-center">
-                      <Loader2 className="w-6 h-6 animate-spin mx-auto" style={{ color: "#8b5cf6" }} />
-                      <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>Loading systems...</p>
-                    </div>
-                  ) : availableSystems.length === 0 ? (
-                    <div className="p-4 text-center" style={{ color: "var(--text-muted)" }}>
-                      <p className="text-xs">No new systems found</p>
-                    </div>
-                  ) : (
-                    availableSystems.map((sys, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => addSystemToTable(sys)}
-                        className="w-full p-3 text-left hover:bg-white/5 flex items-center justify-between border-b last:border-0 transition-colors"
-                        style={{ borderColor: "var(--border-subtle)" }}
-                      >
-                        <div>
-                          <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{sys.SystemName || ""}</p>
-                          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                            {sys.resourceCount || sys.resource_count || 0} resources
-                          </p>
-                        </div>
-                        <Plus className="w-3.5 h-3.5" style={{ color: "#8b5cf6" }} />
-                      </button>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+          <AddSystemEntry />
 
           <button
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors hover:opacity-90"
@@ -1476,21 +1209,6 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
         </div>
       </div>
 
-      {/* New Systems Modal — shape-mapped from local state (SystemName → systemName) */}
-      {showNewSystemsModal && (
-        <NewSystemsModal
-          newSystems={newSystems.map((s) => ({
-            systemName: s.SystemName,
-            resourceCount: s.resourceCount,
-            resources: s.resources,
-          }))}
-          onClose={() => setShowNewSystemsModal(false)}
-          onSuccess={() => {
-            // Refresh local state after tagging
-            fetchSystemsData()
-          }}
-        />
-      )}
     </div>
   )
 }

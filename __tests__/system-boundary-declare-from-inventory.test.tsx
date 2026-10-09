@@ -151,3 +151,72 @@ describe("declaring from the inventory", () => {
     expect(latest()!.selected.size).toBe(0)
   })
 })
+
+// D2/D4/D17: Systems > Add System opens the account's inventory with ?declare=1 (lib/system-boundary-entry.ts), which the
+// page hands the picker as ``openDeclareFlow``. The flag opens nothing the picker's own checks do not allow.
+describe("opened to declare a system (Systems > Add System)", () => {
+  const capture = (name: string) =>
+    JSON.parse(readFileSync(resolve(process.cwd(), "__tests__/fixtures/system-boundary-captures", `${name}.json`), "utf8"))
+  const ENABLED = capture("capability_enabled")
+  const STACKS = capture("stacks")
+  const enabled = async () => ({ status: ENABLED.status, body: ENABLED.body })
+
+  function mountFlow(readDeclarations: () => Promise<ReadResult<DeclarationsView>>,
+    { capability = readCapability, openDeclareFlow = true }: {
+      capability?: () => Promise<{ status: number; body: unknown }>; openDeclareFlow?: boolean } = {}) {
+    return render(<DeclareFromInventory accountId={STACKS.body.account_id} customerId="acme" renderInventory={() => <div />}
+      readDeclarations={readDeclarations} readGrant={readGrant} readCapability={capability} store={pendingStore(null)}
+      openDeclareFlow={openDeclareFlow} />)
+  }
+
+  function serveStacks() {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input instanceof Request ? input.url : input)
+      if (url === `/api/proxy/accounts/${STACKS.body.account_id}/census/stacks`) return Response.json(STACKS.body, { status: STACKS.status })
+      unstubbed.push(url)
+      throw new TypeError("unstubbed fetch")
+    })
+  }
+
+  it("opens the stack wizard once on load where saving is active and the capability read enables it", async () => {
+    serveStacks()
+    mountFlow(ok(VIEW0), { capability: enabled })
+    await settle()
+    expect(screen.getByTestId("stack-binding-wizard")).toBeTruthy()
+    expect(screen.getByTestId("declare-flow-guide").textContent).toBe(
+      "To add a system, bind its CloudFormation stacks, or pick its root resources in the inventory below and choose Declare a system.")
+  })
+
+  it("control: without the flag the same page opens nothing", async () => {
+    mountFlow(ok(VIEW0), { capability: enabled, openDeclareFlow: false })
+    await settle()
+    expect(screen.queryByTestId("stack-binding-wizard")).toBeNull()
+    expect(screen.queryByTestId("declare-flow-guide")).toBeNull()
+  })
+
+  it("with the wizard off, opens nothing and says how a system is declared, beside the capability's own reason", async () => {
+    mountFlow(ok(VIEW0))
+    await settle()
+    expect(screen.queryByTestId("stack-binding-wizard")).toBeNull()
+    expect(screen.getByTestId("declare-flow-guide").textContent).toBe(
+      "To add a system, pick its root resources in the inventory below, then choose Declare a system.")
+    expect(screen.getByTestId("wizard-capability").textContent).toBe(
+      "Binding stacks and per-resource decisions are not turned on for this install.")
+  })
+
+  it("where saving is not active, says only what it says without the flag", async () => {
+    mountFlow(ok({ ...VIEW0, protocol_phase: "INITIALIZED" }), { capability: enabled })
+    await settle()
+    expect(screen.getByRole("status").textContent).toBe("Declaring systems from this inventory is not enabled on this installation yet.")
+    expect(screen.queryByTestId("stack-binding-wizard")).toBeNull()
+    expect(screen.queryByTestId("declare-flow-guide")).toBeNull()
+  })
+
+  it("where the declarations cannot be read, says why instead of a silent browse-only page", async () => {
+    mountFlow(async () => ({ kind: "REFUSED", status: 403, code: "PERSON_NOT_AUTHORIZED", detail: {} }), { capability: enabled })
+    await settle()
+    expect(screen.getByTestId("declare-flow-unavailable").textContent).toBe(
+      "You are not authorized to declare systems on this installation (PERSON_NOT_AUTHORIZED).")
+    expect(screen.queryByTestId("declare-toolbar")).toBeNull()
+  })
+})

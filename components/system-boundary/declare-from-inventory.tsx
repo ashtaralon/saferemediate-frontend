@@ -17,8 +17,14 @@
  *
  * A7 rev 4: where the capability read says the stack wizard may write here (lib/system-boundary-capability.ts), the toolbar
  * also offers "Bind CloudFormation stacks" (stack-binding-wizard.tsx); otherwise it says why, and nothing else changes.
+ *
+ * D2/D4/D17: Systems' "Add System" opens this page with the declare flow asked for (lib/system-boundary-entry.ts,
+ * ``?declare=1`` -> ``openDeclareFlow``). Only where this component's own checks pass is anything opened: where saving is
+ * active and the capability read enables the stack wizard, that wizard opens once on load; where saving is active, the
+ * toolbar says how a system is declared from picks. Otherwise the same reason as without the flag is said -- and where the
+ * declarations could not be read at all (browse only, otherwise silent), the flag gets that reason in words.
  */
-import { useCallback, useEffect, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { DeclarationForm } from "@/components/system-boundary/declaration-form"
 import { DeclaredSystems } from "@/components/system-boundary/declared-systems"
 import { PendingSaves } from "@/components/system-boundary/pending-saves"
@@ -59,6 +65,8 @@ export interface DeclareFromInventoryProps {
   store?: PendingStore
   /** Injectable for tests; default: the authoring proxy's capability read (A7 rev 4). */
   readCapability?: () => Promise<{ status: number; body: unknown }>
+  /** The page was opened to declare a system (Systems > Add System): open the declare flow where its checks pass. */
+  openDeclareFlow?: boolean
 }
 
 type ViewState = { kind: "loading" } | ReadResult<DeclarationsView>
@@ -68,7 +76,7 @@ export function DeclareFromInventory(props: DeclareFromInventoryProps) {
 }
 
 function Declarer({ accountId, renderInventory, readDeclarations = readView, readGrant = readOwnGrant, save, onEnvelope,
-                    store: injected, readCapability = fetchCapability }: DeclareFromInventoryProps) {
+                    store: injected, readCapability = fetchCapability, openDeclareFlow = false }: DeclareFromInventoryProps) {
   const [view, setView] = useState<ViewState>({ kind: "loading" })
   const [store] = useState<PendingStore>(() => injected ?? pendingStore())
   const [actor, setActor] = useState<string | null>(null)
@@ -132,6 +140,14 @@ function Declarer({ accountId, renderInventory, readDeclarations = readView, rea
   }, [accountId])
 
   const active = view.kind === "OK" && view.value.protocol_phase === "ACTIVE" && view.value.completed_revision !== null
+  // Asked for on load: the stack wizard opens ONCE, and only when saving is active and the capability read enables it.
+  // Closing it afterwards is final for this visit.
+  const autoOpened = useRef(false)
+  useEffect(() => {
+    if (!openDeclareFlow || autoOpened.current || !active || capability === null) return
+    autoOpened.current = true
+    if (capability.kind === "enabled") setBinding(true)
+  }, [openDeclareFlow, active, capability])
   const earlier = shown === null ? [] : [...picks.keys()].filter((key) => !samePublication(picks.get(key)!.publication, shown))
   const selection: InventorySelection | undefined = active
     ? { selected: new Map([...picks].map(([key, pick]) => [key, pick.publication])), onToggle, onPublication: setShown }
@@ -139,6 +155,11 @@ function Declarer({ accountId, renderInventory, readDeclarations = readView, rea
 
   return (
     <div>
+      {openDeclareFlow && (view.kind === "REFUSED" || view.kind === "UNAVAILABLE") ? (
+        <p className="px-6 pt-4 text-xs text-slate-500" data-testid="declare-flow-unavailable">
+          {declarationsUnreadable(view)}
+        </p>
+      ) : null}
       {view.kind === "OK" && !active ? (
         <p className="px-6 pt-4 text-xs text-slate-500" role="status">
           Declaring systems from this inventory is not enabled on this installation yet.
@@ -160,6 +181,13 @@ function Declarer({ accountId, renderInventory, readDeclarations = readView, rea
               </Button>
             ) : null}
           </div>
+          {openDeclareFlow ? (
+            <p className="text-xs text-slate-600" data-testid="declare-flow-guide">
+              {capability?.kind === "enabled"
+                ? "To add a system, bind its CloudFormation stacks, or pick its root resources in the inventory below and choose Declare a system."
+                : "To add a system, pick its root resources in the inventory below, then choose Declare a system."}
+            </p>
+          ) : null}
           {capability !== null && capability.kind !== "enabled" && capabilitySentence(capability) ? (
             <p className="text-xs text-slate-500" data-testid="wizard-capability">{capabilitySentence(capability)}</p>
           ) : null}
@@ -216,4 +244,13 @@ function Declarer({ accountId, renderInventory, readDeclarations = readView, rea
       {renderInventory(selection)}
     </div>
   )
+}
+
+/** Why a system cannot be declared here when the authored declarations could not be read (said only when asked to declare). */
+function declarationsUnreadable(view: Exclude<ReadResult<DeclarationsView>, { kind: "OK" }>): string {
+  if (view.kind === "REFUSED" && view.status === 401) return "Sign in again to declare a system from this account."
+  if (view.kind === "REFUSED" && view.status === 403) {
+    return `You are not authorized to declare systems on this installation (${view.code}).`
+  }
+  return `Systems cannot be declared here right now: the system declarations could not be read (${view.code}).`
 }
