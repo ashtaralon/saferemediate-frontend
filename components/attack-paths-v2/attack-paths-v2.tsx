@@ -69,6 +69,7 @@ import TopologyView from "./topology-view"
 import { TopologyAttackGraph } from "@/components/attack-map/topology-attack-graph"
 import { AtlasLateralView } from "./atlas-lateral-view"
 import { ZoomMinus1Landing } from "./zoom-minus1-landing"
+import { NoSystemsNotice } from "./no-systems-notice"
 import type { BlastRadiusPayload } from "./blast-radius-kpi-strip"
 import {
   buildModeBarTabs,
@@ -291,6 +292,8 @@ export function AttackPathsV2({
   // name several systems share.
   const [catalogIdentities, setCatalogIdentities] = useState<CatalogEntry[]>([])
   const [autoRedirectDone, setAutoRedirectDone] = useState(false)
+  // D10: why the catalogue lists nothing when it could not be read (an HTTP status / "unreachable"); null when it answered.
+  const [catalogFailure, setCatalogFailure] = useState<string | null>(null)
   // A URL, prop, or remembered value is not read authority. Until it appears
   // in the scoped catalog, every downstream data hook receives null and
   // therefore cannot issue a per-system request.
@@ -335,6 +338,7 @@ export function AttackPathsV2({
     if (!systemsCatalog.url) {
       setAvailableSystems([])
       setCatalogIdentities([])
+      setCatalogFailure(null)
       setAutoRedirectDone(true)
       return
     }
@@ -344,11 +348,15 @@ export function AttackPathsV2({
       try {
         const r = await fetch(catalogUrl)
         if (!r.ok) {
-          if (!aborted) setAutoRedirectDone(true)
+          if (!aborted) {
+            setCatalogFailure(`HTTP ${r.status}`)
+            setAutoRedirectDone(true)
+          }
           return
         }
         const j = await r.json()
         if (aborted) return
+        setCatalogFailure(null)
         const rawArr = Array.isArray(j?.systems) ? j.systems : []
         const names: string[] = rawArr
           .map((s: any): string =>
@@ -396,7 +404,10 @@ export function AttackPathsV2({
           setAutoRedirectDone(true)
         }
       } catch {
-        if (!aborted) setAutoRedirectDone(true)
+        if (!aborted) {
+          setCatalogFailure("unreachable")
+          setAutoRedirectDone(true)
+        }
       }
     })()
     return () => {
@@ -1048,13 +1059,7 @@ export function AttackPathsV2({
             </div>
           )}
           {autoRedirectDone && availableSystems.length === 0 && (
-            <div className="text-xs text-muted-foreground">
-              No systems available. Run an AWS sync from the dashboard to
-              populate this list.{" "}
-              <a href="/?section=systems" className="underline hover:text-foreground">
-                Open systems dashboard
-              </a>
-            </div>
+            <NoSystemsNotice catalogFailure={catalogFailure} />
           )}
         </div>
       </div>
