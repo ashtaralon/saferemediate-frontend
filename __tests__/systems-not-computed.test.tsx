@@ -102,6 +102,51 @@ describe("SystemsView on an install that has not computed findings", () => {
   })
 })
 
+describe("SystemsView resources column (D3)", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  // The column rendered resourceCount under a header and tooltip that said "Total findings (all severities + all
+  // statuses)". payments serves resourceCount 12 beside totalFindings 3: the column must say Resources and show 12.
+  async function columnOf(body: unknown, header: string) {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.startsWith("/api/proxy/systems")) return json(body)
+      return json({})
+    }))
+    render(<SystemsView />)
+    await screen.findAllByText("webshop")
+    const headers = screen.getAllByRole("columnheader")
+    const index = headers.findIndex((th) => th.textContent === header)
+    expect(index).toBeGreaterThanOrEqual(0)
+    return {
+      header: headers[index],
+      cells: Object.fromEntries(screen.getAllByRole("row").slice(1).map((row) => {
+        const cells = row.querySelectorAll("td")
+        return [cells[0].querySelector("span")!.textContent, cells[index].textContent]
+      })),
+    }
+  }
+
+  it("is headed Resources, says it is not a findings count, and shows each system's resource count", async () => {
+    const { header, cells } = await columnOf(INSTALL_SERVED, "Resources")
+    expect(header.getAttribute("title")).toBe(
+      "Resources the Systems list counts in this system. Not a findings count; — when the list did not report one.")
+    expect(cells).toEqual({ webshop: "134", payments: "12" })
+    expect(screen.queryByRole("columnheader", { name: "Total" })).toBeNull()
+    expect(screen.queryByTitle(/Total findings/)).toBeNull()
+  })
+
+  it("shows an unreported resource count as —, never as 0", async () => {
+    const unreported = {
+      ...INSTALL_SERVED,
+      systems: INSTALL_SERVED.systems.map((row) =>
+        row.name === "webshop" ? { ...row, resourceCount: null, resource_count: null } : row),
+    }
+    const { cells } = await columnOf(unreported, "Resources")
+    expect(cells).toEqual({ webshop: "—", payments: "12" })
+  })
+})
+
 describe("healthLabel", () => {
   it("labels a missing score as not computed instead of Critical", () => {
     expect(healthLabel(null).label).toBe("Not computed")

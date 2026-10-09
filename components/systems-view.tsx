@@ -39,7 +39,9 @@ interface System {
   health: number | null
   critical: number | null
   high: number | null
-  total: number
+  // How many resources the Systems list counts in this system (D3: this column used to be headed "Total findings").
+  // null = the list did not report a count; shown as "—", never as 0.
+  resourceCount: number | null
   lastScan: string
   // ISO timestamp from backend (or null if never scanned). Used to compute
   // staleness deterministically — if older than STALE_THRESHOLD_DAYS, the
@@ -85,6 +87,14 @@ function isStale(lastScanAt: string | null): boolean {
   if (!lastScanAt) return true
   const d = daysSinceScan(lastScanAt)
   return d === null || d >= STALE_THRESHOLD_DAYS
+}
+
+/** The resource count a Systems row reports (resourceCount / resource_count, else its resources list); null when none. */
+function reportedResourceCount(sys: { resourceCount?: unknown; resource_count?: unknown; resources?: unknown }): number | null {
+  for (const value of [sys.resourceCount, sys.resource_count]) {
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) return value
+  }
+  return Array.isArray(sys.resources) ? sys.resources.length : null
 }
 
 /** The identity a Systems row stands for (A7 B5): the v2 system KEY; else the v1 provisional identity (account + Region +
@@ -230,7 +240,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
           // Transform backend systems to UI format - ONLY use SystemName (capital S, capital N)
           const transformedSystems: System[] = backendSystems.map((sys: any) => {
             const systemName = sys.SystemName || sys.name || "Unknown"  // Only SystemName format
-            const resourceCount = sys.resourceCount || sys.resource_count || sys.resources?.length || 0
+            const resourceCount = reportedResourceCount(sys)
             
             // Use criticality and environment from backend (Neo4j source of truth).
             // Absent = not classified: never a default tier.
@@ -259,7 +269,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
               health: sys.health_score ?? sys.healthScore ?? null,
               critical: sys.critical_count ?? sys.criticalIssues ?? null,
               high: sys.high_count ?? sys.highIssues ?? null,
-              total: resourceCount,
+              resourceCount,
               lastScan: sys.lastScan || "Unknown",
               lastScanAt: sys.lastScanAt ?? null,
               owner: sys.owner || "Unassigned",
@@ -285,7 +295,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
             const existing = acc.find(s => systemIdentityKey(s) === systemIdentityKey(sys))
             if (existing) {
               // Keep the one with more resources/data
-              if (sys.total > existing.total) {
+              if ((sys.resourceCount ?? -1) > (existing.resourceCount ?? -1)) {
                 return acc.map(s => systemIdentityKey(s) === systemIdentityKey(sys) ? sys : s)
               }
               return acc
@@ -748,9 +758,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
                 <th
                   className="text-center px-4 py-3 text-xs font-semibold uppercase tracking-wider"
                   style={{ color: "var(--text-secondary)" }}
-                  title="Total findings (all severities + all statuses) for this system."
+                  title="Resources the Systems list counts in this system. Not a findings count; — when the list did not report one."
                 >
-                  Total
+                  Resources
                 </th>
                 <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Last Scan</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Owner</th>
@@ -865,7 +875,10 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{system.total}</span>
+                      <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}
+                        title={system.resourceCount === null ? "The Systems list did not report a resource count for this system" : undefined}>
+                        {system.resourceCount ?? "—"}
+                      </span>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5">
