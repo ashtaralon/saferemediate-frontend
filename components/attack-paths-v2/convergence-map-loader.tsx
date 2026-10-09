@@ -15,6 +15,8 @@ import { matchConvergencePathId } from "@/lib/attack-paths/iap-to-convergence"
 
 export function ConvergenceMapLoader({
   systemName,
+  systemKey = null,
+  systemAccountId = null,
   cjArn,
   cjName,
   initialSelectedPathId = null,
@@ -22,6 +24,9 @@ export function ConvergenceMapLoader({
   fallbackPaths = [],
 }: {
   systemName: string
+  /** A7 B5: the system's KEY (+ a tag / source key's account) when the page was opened by key; absent, by name as before. */
+  systemKey?: string | null
+  systemAccountId?: string | null
   cjArn: string | null
   cjName: string | null
   initialSelectedPathId?: string | null
@@ -35,6 +40,7 @@ export function ConvergenceMapLoader({
     jewel,
     initialSelectedPathId,
     fallbackPaths,
+    { systemKey, systemAccountId },
   )
   const [selectedPathId, setSelectedPathId] = useState<string | null>(
     initialSelectedPathId,

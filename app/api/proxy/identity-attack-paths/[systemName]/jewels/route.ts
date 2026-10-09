@@ -7,6 +7,7 @@ import {
   TTL_FAST,
   TTL_SLOW,
 } from "@/lib/server/proxy-cache"
+import { systemChoiceDetail } from "@/lib/server/proxy-error"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -29,11 +30,20 @@ function hasUsableJewels(data: unknown): boolean {
 
 /** Lightweight Crown Jewel list — pairs with BE /identity-attack-paths/{system}/jewels */
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ systemName: string }> },
 ) {
   const { systemName } = await params
-  const cacheKey = `iap-jewels:${systemName}`
+  // A7 B5: a page opened by key names ONE system (backend ?system_key=, with the account for a tag / source key).
+  // Absent, the request -- and its cache key -- is byte-identical to before.
+  const { searchParams } = new URL(req.url)
+  const systemKey = searchParams.get("system_key")
+  const accountId = searchParams.get("account_id")
+  const scope = systemKey ? `&system_key=${encodeURIComponent(systemKey)}${
+    accountId ? `&account_id=${encodeURIComponent(accountId)}` : ""}` : ""
+  const cacheKey = systemKey
+    ? `iap-jewels:${systemName}:key=${systemKey}:${accountId ?? ""}`
+    : `iap-jewels:${systemName}`
   const cached = getCached(cacheKey)
   // Never serve a cached empty list as a HIT — empty was often a cold
   // SERVE / freeze artifact and poisons the Attack Paths rail for TTL_SLOW.
@@ -47,7 +57,7 @@ export async function GET(
   }
 
   try {
-    const url = `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(systemName)}/jewels?max_jewels=12`
+    const url = `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(systemName)}/jewels?max_jewels=12${scope}`
     const res = await fetch(url, {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
@@ -75,8 +85,10 @@ export async function GET(
           )
         }
       }
+      // A7 B5: the 409 system choice is relayed (typed) so the page can offer it; every other refusal answers as before.
+      const choice = systemChoiceDetail(body)
       return NextResponse.json(
-        { error: `backend_${res.status}`, crown_jewels: [] },
+        { error: `backend_${res.status}`, crown_jewels: [], ...(choice ? { detail: choice } : {}) },
         { status: res.status },
       )
     }

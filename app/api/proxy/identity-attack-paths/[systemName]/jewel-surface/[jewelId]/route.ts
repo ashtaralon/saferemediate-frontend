@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
 import { normalizeJewelArn } from "@/lib/server/normalize-jewel-id"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { systemChoiceDetail } from "@/lib/server/proxy-error"
 
 // Jewel-surface aggregation — per-crown-jewel computed surface
 // (max_verbs, entry_summary, cross_path_remediation). Originally
@@ -31,7 +32,15 @@ export async function GET(
   const { searchParams } = new URL(req.url)
   const maxPaths = searchParams.get("max_paths") || "15"
 
-  const cacheKey = `jewel-surface|${systemName}|${jewelId}|${maxPaths}`
+  // A7 B5: a page opened by key names ONE system (backend ?system_key=, with the account for a tag / source key).
+  // Absent, the request -- and its cache key -- is byte-identical to before.
+  const systemKey = searchParams.get("system_key")
+  const accountId = searchParams.get("account_id")
+  const scope = systemKey ? `&system_key=${encodeURIComponent(systemKey)}${
+    accountId ? `&account_id=${encodeURIComponent(accountId)}` : ""}` : ""
+  const cacheKey = systemKey
+    ? `jewel-surface|${systemName}|${jewelId}|${maxPaths}|key=${systemKey}|${accountId ?? ""}`
+    : `jewel-surface|${systemName}|${jewelId}|${maxPaths}`
 
   const cached = getCached(cacheKey)
   if (cached) {
@@ -41,14 +50,17 @@ export async function GET(
   try {
     const url = `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(
       systemName,
-    )}/jewel-surface/${encodeURIComponent(jewelId)}?max_paths=${maxPaths}`
+    )}/jewel-surface/${encodeURIComponent(jewelId)}?max_paths=${maxPaths}${scope}`
     const res = await fetch(url, {
       headers: { "Content-Type": "application/json" },
       signal: AbortSignal.timeout(55000),
     })
     if (!res.ok) {
+      // A7 B5: the 409 system choice is relayed (typed, lib/server/proxy-error systemChoiceDetail) so the page can offer
+      // it; every other refusal answers as before. Never cached.
+      const choice = systemChoiceDetail(await res.text().catch(() => ""))
       return NextResponse.json(
-        { error: `Backend returned ${res.status}` },
+        { error: `Backend returned ${res.status}`, ...(choice ? { detail: choice } : {}) },
         { status: res.status },
       )
     }

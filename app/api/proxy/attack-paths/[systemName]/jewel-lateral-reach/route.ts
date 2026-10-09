@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { getCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
+import { systemChoiceDetail } from "@/lib/server/proxy-error"
 
 // =============================================================================
 // Lateral reach proxy —
@@ -38,7 +39,15 @@ export async function GET(
     )
   }
 
-  const cacheKey = `lateral-reach:${systemName}:${jewelType}:${jewelRef}`
+  // A7 B5: a page opened by key names ONE system (backend ?system_key=, with the account for a tag / source key).
+  // Absent, the request -- and its cache key -- is byte-identical to before.
+  const systemKey = req.nextUrl.searchParams.get("system_key")
+  const accountId = req.nextUrl.searchParams.get("account_id")
+  const scope = systemKey ? `&system_key=${encodeURIComponent(systemKey)}${
+    accountId ? `&account_id=${encodeURIComponent(accountId)}` : ""}` : ""
+  const cacheKey = systemKey
+    ? `lateral-reach:${systemName}:${jewelType}:${jewelRef}:key=${systemKey}:${accountId ?? ""}`
+    : `lateral-reach:${systemName}:${jewelType}:${jewelRef}`
   const cached = getCached(cacheKey)
   if (cached) {
     return NextResponse.json(cached, {
@@ -53,7 +62,7 @@ export async function GET(
     const t0 = Date.now()
     const url =
       `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(systemName)}/jewel-lateral-reach` +
-      `?jewel_ref=${encodeURIComponent(jewelRef)}&jewel_type=${encodeURIComponent(jewelType)}`
+      `?jewel_ref=${encodeURIComponent(jewelRef)}&jewel_type=${encodeURIComponent(jewelType)}${scope}`
     const res = await fetch(url, {
       headers: { Accept: "application/json" },
       cache: "no-store",
@@ -65,6 +74,11 @@ export async function GET(
     )
     if (!res.ok) {
       const text = await res.text().catch(() => "")
+      // A7 B5: the 409 system choice is relayed (typed) so the page can offer it; every other refusal answers as before.
+      const choice = res.status === 409 ? systemChoiceDetail(text) : undefined
+      if (choice) {
+        return NextResponse.json({ error: "lateral_reach_unavailable", detail: choice }, { status: 409 })
+      }
       return NextResponse.json<ProxyError>(
         {
           error: "lateral_reach_unavailable",

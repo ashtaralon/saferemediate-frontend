@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { systemChoiceDetail } from "@/lib/server/proxy-error"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -32,6 +33,14 @@ export async function GET(
       const value = req.nextUrl.searchParams.get(name)
       if (value !== null) backendParams.set(name, value)
     }
+    // A7 B5: a page opened by key names ONE system (backend ?system_key=, with the account for a tag / source key).
+    // Absent, the request is byte-identical to before.
+    const systemKey = req.nextUrl.searchParams.get("system_key")
+    const accountId = req.nextUrl.searchParams.get("account_id")
+    if (systemKey) {
+      backendParams.set("system_key", systemKey)
+      if (accountId) backendParams.set("account_id", accountId)
+    }
     const url = `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(systemName)}/jewel-footholds?${backendParams}`
     const response = await fetch(url, {
       cache: "no-store",
@@ -39,6 +48,12 @@ export async function GET(
       signal: AbortSignal.timeout(55_000),
     })
     const body = await response.json().catch(() => null)
+    // A7 B5: the 409 system choice is relayed (typed, lib/server/proxy-error systemChoiceDetail) so the page can offer
+    // it; every other refusal answers as before.
+    const choice = response.status === 409 && body ? systemChoiceDetail(JSON.stringify(body)) : undefined
+    if (choice) {
+      return NextResponse.json({ error: "jewel_footholds_unavailable", detail: choice }, { status: 409 })
+    }
     if (!response.ok || !body) {
       return NextResponse.json(
         {

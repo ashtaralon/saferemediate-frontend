@@ -46,6 +46,8 @@ type CrownJewel = {
   data_classification?: string | null
   priority_score?: number
   system_name?: string
+  /** A7 B5 (v2 answer): the system's KEY beside its display name -- two systems may share a name, never a key. */
+  system_key?: string | null
 }
 
 export type PathsResponse = {
@@ -104,14 +106,17 @@ export function AttackPathsCard({ onNavigateToSection, limit = 8, shared }: Atta
   // to TFM union spotlight on the Topology tab.
   const handleJewelClick = async (jewel: CrownJewel) => {
     if (!jewel.system_name) return
+    // A7 B5: the item's key rides with its name to the per-system read and page, so a name two systems share opens the
+    // system this item belongs to (by name, exactly as before, when the answer carries no key).
+    const systemKey = typeof jewel.system_key === "string" && jewel.system_key.trim() ? jewel.system_key : null
     const dest = await navigateCrownJewelClick(router, jewel.system_name, {
       id: jewel.id,
       arn: jewel.id.startsWith("arn:") ? jewel.id : null,
       name: jewel.name,
       type: jewel.type,
-    })
+    }, systemKey)
     if (dest === "tfm-fallback") {
-      router.push(buildTfmSpotlightUrl(jewel.system_name, jewel.id))
+      router.push(buildTfmSpotlightUrl(jewel.system_name, jewel.id, systemKey))
     }
   }
 

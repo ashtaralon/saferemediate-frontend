@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { systemScopeQuery } from "@/lib/scoped-system-catalog"
 
 export type FootholdLikelihood =
   | "EXPOSED"
@@ -182,10 +183,16 @@ export function useAtlasLateral({
   systemName,
   jewelRef,
   enabled,
+  systemKey = null,
+  systemAccountId = null,
 }: {
   systemName: string
   jewelRef: string | null
   enabled: boolean
+  /** A7 B5: the system's KEY (+ a tag / source key's account) when the page was opened by key -- the foothold read names
+   *  ONE system. Absent, the request is by name exactly as before. */
+  systemKey?: string | null
+  systemAccountId?: string | null
 }): UseAtlasLateralResult {
   const [candidates, setCandidates] = useState<AtlasFootholdCandidate[]>([])
   const [selectedFootholdId, setSelectedFootholdId] = useState<string | null>(null)
@@ -198,7 +205,9 @@ export function useAtlasLateral({
   const [error, setError] = useState<string | null>(null)
   const [nonce, setNonce] = useState(0)
   const retry = useCallback(() => setNonce((n) => n + 1), [])
-  const scopeKey = enabled && systemName && jewelRef ? `${systemName}\u0000${jewelRef}` : null
+  // B5: another key / account is another system's footholds (by name: the scope key is as before).
+  const identitySuffix = systemKey ? `\u0000key=${systemKey}\u0000${systemAccountId ?? ""}` : ""
+  const scopeKey = enabled && systemName && jewelRef ? `${systemName}\u0000${jewelRef}${identitySuffix}` : null
 
   useEffect(() => {
     if (!enabled || !systemName || !jewelRef) {
@@ -221,7 +230,8 @@ export function useAtlasLateral({
     fetch(
       `/api/proxy/attack-paths/${encodeURIComponent(systemName)}/jewel-footholds` +
         `?jewel_ref=${encodeURIComponent(jewelRef)}` +
-        `&evaluate=true&evaluation_limit=30&evaluation_budget_ms=8000&max_hops=8`,
+        `&evaluate=true&evaluation_limit=30&evaluation_budget_ms=8000&max_hops=8` +
+        systemScopeQuery(systemKey, systemAccountId),
       { cache: "no-store" },
     )
       .then(async (r) => {

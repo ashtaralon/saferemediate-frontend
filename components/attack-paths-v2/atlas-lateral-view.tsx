@@ -16,11 +16,16 @@ import type { PathCVEAssessment } from "@/lib/cve-contracts"
  */
 export function AtlasLateralView({
   systemName,
+  systemKey = null,
+  systemAccountId = null,
   jewelId,
   jewelName,
   cveAssessments = [],
 }: {
   systemName: string
+  /** A7 B5: the system's KEY (+ a tag / source key's account) when the page was opened by key; absent, by name as before. */
+  systemKey?: string | null
+  systemAccountId?: string | null
   jewelId: string
   jewelName: string
   cveAssessments?: PathCVEAssessment[]
@@ -29,6 +34,8 @@ export function AtlasLateralView({
     systemName,
     jewelRef: jewelId,
     enabled: true,
+    systemKey,
+    systemAccountId,
   })
 
   return (

@@ -2481,6 +2481,9 @@ function NarrativeStrip({
 // ─── top-level shell ────────────────────────────────────────────────────────
 export interface TopologyAttackGraphProps {
   systemName: string
+  /** A7 B5: the system's KEY (+ a tag / source key's account) when the page was opened by key; absent, by name as before. */
+  systemKey?: string | null
+  systemAccountId?: string | null
   /** Currently-selected jewel (defaults to first available). */
   initialJewel: CrownJewelSummary
   /** Full list of jewels for the left rail. Required: if not supplied, the
@@ -2488,14 +2491,17 @@ export interface TopologyAttackGraphProps {
   jewels: CrownJewelSummary[]
 }
 
-export function TopologyAttackGraph({ systemName, initialJewel, jewels }: TopologyAttackGraphProps) {
+export function TopologyAttackGraph({ systemName, systemKey = null, systemAccountId = null, initialJewel, jewels }: TopologyAttackGraphProps) {
   const [selectedJewel, setSelectedJewel] = useState<CrownJewelSummary>(initialJewel)
   const [selectedPathIdx, setSelectedPathIdx] = useState<number | null>(null)
   // Hop id currently hovered/clicked in the narrative strip. The canvas
   // renders an animated ring on the corresponding chip so the operator can
   // visually link a kill-chain step to its architectural element.
   const [pulsedNodeId, setPulsedNodeId] = useState<string | null>(null)
-  const { data, loading, error, retry } = useCrownJewelConvergence(systemName, selectedJewel)
+  const { data, loading, error, retry } = useCrownJewelConvergence(systemName, selectedJewel, null, [], {
+    systemKey,
+    systemAccountId,
+  })
   const { data: topology, error: topologyError } = useAwsTopology(systemName)
 
   // Auto-select the highest-severity path on data load so the canvas

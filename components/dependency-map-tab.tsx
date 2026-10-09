@@ -301,6 +301,9 @@ export default function DependencyMapTab({
     spotlightJewel ? systemName : null,
     spotlightJewel,
     spotlightPathId,
+    [],
+    // A7 B5: the spotlight's summary / detail reads name ONE system when the tab was opened by key.
+    { systemKey, systemAccountId },
   )
 
   // System-wide Crown Jewel list — drives BOTH the always-on amber crown
@@ -344,7 +347,9 @@ export default function DependencyMapTab({
     crown_jewels?: CrownJewelSummary[]
   }
   const iapUrl = systemName
-    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}/jewels`
+    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}/jewels` +
+      // A7 B5: the key names ONE system (+ a tag / source key's account); absent, the URL is byte-identical.
+      systemScopeQuery(systemKey, systemAccountId).replace(/^&/, "?")
     : null
   const {
     data: iapData,
@@ -353,7 +358,8 @@ export default function DependencyMapTab({
     isStale: iapIsStale,
     retry: retryCrownJewels,
   } = useCachedFetch<IapResponseShape>(iapUrl, {
-    cacheKey: `iap-cj-list:${systemName}`,
+    // B5: another key / account is another system's jewels -- never painted for this one (by name: as before).
+    cacheKey: systemKey ? `iap-cj-list:${systemName}:key=${systemKey}:${systemAccountId ?? ""}` : `iap-cj-list:${systemName}`,
     maxStaleMs: 10 * 60 * 1000, // 10 min fresh window
     fetchInit: { cache: 'no-store' },
   })

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { getCached, getStaleCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
+import { systemChoiceDetail } from "@/lib/server/proxy-error"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -14,17 +15,25 @@ const BACKEND_URL = getBackendBaseUrl()
 // fromStaleCache + staleReason and never re-labels a NOT_READY as READY.
 const ATTEMPT_TIMEOUT_MS = 15_000
 
-function cacheKey(systemName: string): string {
-  return `ap-targets:${systemName}`
+function cacheKey(systemName: string, systemKey: string | null = null, accountId: string | null = null): string {
+  // A7 B5: another key / account is another system -- never a hit for this one. Without a key: byte-identical to before.
+  return systemKey ? `ap-targets:${systemName}:key=${systemKey}:${accountId ?? ""}` : `ap-targets:${systemName}`
 }
 
 /** GET /api/attack-paths/{system}/targets — inventory-first crown-jewel catalog */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ systemName: string }> },
 ) {
   const { systemName } = await params
-  const key = cacheKey(systemName)
+  // A7 B5: a page opened by key names ONE system (backend ?system_key=, with the account for a tag / source key).
+  // Absent, the request -- and its cache key -- is byte-identical to before.
+  const { searchParams } = new URL(request.url)
+  const systemKey = searchParams.get("system_key")
+  const accountId = searchParams.get("account_id")
+  const scope = systemKey ? `?system_key=${encodeURIComponent(systemKey)}${
+    accountId ? `&account_id=${encodeURIComponent(accountId)}` : ""}` : ""
+  const key = cacheKey(systemName, systemKey, accountId)
   const cached = getCached(key)
   if (cached) {
     return NextResponse.json(cached, {
@@ -33,7 +42,7 @@ export async function GET(
   }
 
   try {
-    const url = `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(systemName)}/targets`
+    const url = `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(systemName)}/targets${scope}`
     const res = await fetch(url, {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
@@ -51,8 +60,10 @@ export async function GET(
           )
         }
       }
+      // A7 B5: the 409 system choice is relayed (typed) so the page can offer it; every other refusal answers as before.
+      const choice = systemChoiceDetail(body)
       return NextResponse.json(
-        { error: "Failed to load target catalog", status: res.status },
+        { error: "Failed to load target catalog", status: res.status, ...(choice ? { detail: choice } : {}) },
         { status: res.status },
       )
     }

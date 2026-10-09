@@ -66,9 +66,16 @@ export function buildAttackPathsV2CjUrl(params: {
   systemName: string
   jewelId: string
   pathId: string
+  /** A7 B5: the system's KEY (+ a tag / source key's account) -- the page then names ONE system. Absent: as before. */
+  systemKey?: string | null
+  systemAccountId?: string | null
 }): string {
   const qs = new URLSearchParams()
   qs.set("system", params.systemName)
+  if (params.systemKey) {
+    qs.set("system_key", params.systemKey)
+    if (params.systemAccountId) qs.set("account_id", params.systemAccountId)
+  }
   qs.set("jewel", params.jewelId)
   qs.set("path", params.pathId)
   qs.set("map", "cyntro")
@@ -76,24 +83,33 @@ export function buildAttackPathsV2CjUrl(params: {
   return `/attack-paths-v2?${qs.toString()}`
 }
 
-/** TFM union spotlight — advanced / breadth view. */
+/** TFM union spotlight — advanced / breadth view. A7 B5: with the system's KEY (+ a tag / source key's account) the
+ *  system page opens that ONE system (app/systems reads system_key / account_id); without, the link is as before. */
 export function buildTfmSpotlightUrl(
   systemName: string,
   jewelId: string,
+  systemKey?: string | null,
+  systemAccountId?: string | null,
 ): string {
   const qs = new URLSearchParams({
     systemName,
     tab: "dependency-map",
     cj: jewelId,
   })
+  if (systemKey) {
+    qs.set("system_key", systemKey)
+    if (systemAccountId) qs.set("account_id", systemAccountId)
+  }
   return `/systems?${qs.toString()}`
 }
 
 export async function fetchConvergenceSummary(
   systemName: string,
   jewel: CrownJewelSummary,
+  systemKey?: string | null,
+  systemAccountId?: string | null,
 ): Promise<CrownJewelConvergenceSummary | null> {
-  const res = await fetch(buildConvergenceSummaryUrl(systemName, jewel), {
+  const res = await fetch(buildConvergenceSummaryUrl(systemName, jewel, systemKey, systemAccountId), {
     cache: "no-store",
   })
   const body = (await res.json().catch(() => null)) as
@@ -110,6 +126,8 @@ export function navigateCrownJewelToV2(
   systemName: string,
   jewel: CrownJewelSummary,
   paths: ConvergencePath[],
+  systemKey?: string | null,
+  systemAccountId?: string | null,
 ): boolean {
   const canonical = pickCanonicalConvergencePath(paths)
   if (!canonical) return false
@@ -117,6 +135,8 @@ export function navigateCrownJewelToV2(
     systemName,
     jewelId: jewelIdForNavigation(jewel),
     pathId: canonical.path_id,
+    systemKey,
+    systemAccountId,
   })
   router.push(href)
   return true
@@ -126,11 +146,13 @@ export async function navigateCrownJewelClick(
   router: RouterLike,
   systemName: string,
   cj: CrownJewelSummary | { id: string; arn?: string | null; name: string; type: string },
+  systemKey?: string | null,
+  systemAccountId?: string | null,
 ): Promise<"v2" | "tfm-fallback"> {
   const jewel = toCrownJewelSummary(cj)
-  const summary = await fetchConvergenceSummary(systemName, jewel)
+  const summary = await fetchConvergenceSummary(systemName, jewel, systemKey, systemAccountId)
   if (summary?.paths?.length) {
-    const ok = navigateCrownJewelToV2(router, systemName, jewel, summary.paths)
+    const ok = navigateCrownJewelToV2(router, systemName, jewel, summary.paths, systemKey, systemAccountId)
     if (ok) return "v2"
   }
   return "tfm-fallback"

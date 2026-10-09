@@ -7,6 +7,7 @@ import {
 import { getCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
 import { backendNodeId } from "@/lib/iap-node-id"
 import { jewelIdsMatch, normalizeJewelArn } from "@/lib/server/normalize-jewel-id"
+import { systemChoiceDetail, type SystemChoiceDetail } from "@/lib/server/proxy-error"
 
 // =============================================================================
 // Unified Attack Path facade — strangler-pattern endpoint
@@ -63,7 +64,8 @@ interface IdentityResponse {
 
 interface FacadeError {
   error: string
-  detail?: string
+  /** A string, or (A7 B5) the typed 409 system choice the identity read answered. */
+  detail?: string | SystemChoiceDetail
 }
 
 interface AttackPathPostBody {
@@ -155,6 +157,8 @@ async function buildAttackPathPayload(
     jewelFromClient?: AttackPathPostBody["jewel"]
     siblingPathsFromClient?: AttackPathPostBody["sibling_paths"]
   },
+  /** A7 B5: ``&system_key=..[&account_id=..]`` naming ONE system for the identity read; empty (by name, as before) without. */
+  identityScope = "",
 ): Promise<BuildResult> {
   let selectedPath: IdentityPath | undefined = opts?.pathFromClient
   let jewel =
@@ -167,7 +171,8 @@ async function buildAttackPathPayload(
     try {
       const url =
         `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(systemName)}` +
-        buildIapIdentityAttackPathsQuery({ enriched: true })
+        buildIapIdentityAttackPathsQuery({ enriched: true }) +
+        identityScope
       const t0 = Date.now()
       const res = await fetch(url, {
         headers: { "Content-Type": "application/json" },
@@ -179,6 +184,17 @@ async function buildAttackPathPayload(
         `[attack-path facade] identity status=${res.status} latency_ms=${latencyMs} system=${systemName} jewel=${jewelIdDecoded.slice(0, 64)}`,
       )
       if (!res.ok) {
+        // A7 B5: the 409 system choice is relayed (typed) so the page can offer it; every other refusal answers as before.
+        const choice = res.status === 409 ? systemChoiceDetail(await res.text().catch(() => "")) : undefined
+        if (choice) {
+          return {
+            ok: false,
+            response: NextResponse.json<FacadeError>(
+              { error: "identity_unavailable", detail: choice },
+              { status: 409 },
+            ),
+          }
+        }
         return {
           ok: false,
           response: NextResponse.json<FacadeError>(
@@ -303,7 +319,16 @@ async function handleAttackPath(
     postBody.path_id === pathId &&
     jewelIdsMatch(postBody.path.crown_jewel_id, jewelIdDecoded)
 
-  const cacheKey = `attack-path:${systemName}:${jewelIdDecoded}:${pathId}:${lateralCap}:${useClient ? "page" : "iap"}`
+  // A7 B5: a page opened by key names ONE system (backend ?system_key=, with the account for a tag / source key).
+  // Absent, the identity read -- and the cache key -- is byte-identical to before.
+  const { searchParams } = new URL(req.url)
+  const systemKey = searchParams.get("system_key")
+  const accountId = searchParams.get("account_id")
+  const identityScope = systemKey ? `&system_key=${encodeURIComponent(systemKey)}${
+    accountId ? `&account_id=${encodeURIComponent(accountId)}` : ""}` : ""
+  const cacheKey = systemKey
+    ? `attack-path:${systemName}:${jewelIdDecoded}:${pathId}:${lateralCap}:${useClient ? "page" : "iap"}:key=${systemKey}:${accountId ?? ""}`
+    : `attack-path:${systemName}:${jewelIdDecoded}:${pathId}:${lateralCap}:${useClient ? "page" : "iap"}`
   const cached = getCached(cacheKey)
   if (cached) {
     return NextResponse.json(cached, {
@@ -326,6 +351,7 @@ async function handleAttackPath(
           siblingPathsFromClient: postBody!.sibling_paths,
         }
       : undefined,
+    identityScope,
   )
 
   if (!built.ok) {

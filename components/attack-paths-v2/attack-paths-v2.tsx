@@ -90,10 +90,14 @@ import type { CrownJewelConvergence } from "@/lib/attack-paths/convergence-types
 import { matchConvergencePathId } from "@/lib/attack-paths/iap-to-convergence"
 import { useCrownJewelConvergence } from "@/lib/attack-paths/use-crown-jewel-convergence"
 import {
+  catalogEntries,
   catalogSystemName,
+  selectCatalogSystem,
+  systemScopeQuery,
   unrepeatedLabels,
   scopedStorageKey,
   useScopedSystemCatalog,
+  type CatalogEntry,
 } from "@/lib/scoped-system-catalog"
 import { useAccountScope } from "@/lib/account-scope-context"
 import {
@@ -108,6 +112,8 @@ function isTrustEnvelope(x: any): x is { provenance: any; result: any } {
 
 export function AttackPathsV2({
   systemName: systemNameProp,
+  systemKey: systemKeyProp = null,
+  systemAccountId: systemAccountIdProp = null,
   embedded = false,
   defaultMode = "attack-path",
   showEmbeddedAttackMap = true,
@@ -121,6 +127,10 @@ export function AttackPathsV2({
   // system to the dashboard's selection. Defaults preserve the standalone
   // /attack-paths-v2 route behavior exactly.
   systemName?: string | null
+  /** A7 B5: on a v2 install the system's KEY (two systems may share a name, never a key) and, for a tag / source key,
+   *  its account. The caller's wins over the page URL's system_key; absent both, every read is by name as before. */
+  systemKey?: string | null
+  systemAccountId?: string | null
   embedded?: boolean
   // Seeds the view mode when the URL has no explicit ?mode= param. An
   // explicit ?mode= always wins. Default attack-path = Zoom −1 blast-radius
@@ -158,6 +168,19 @@ export function AttackPathsV2({
   // (see EmptyState rendering below), and the system picker upstream
   // is the entry point operators land on.
   const requestedSystemName = systemNameProp ?? searchParams?.get("system") ?? null
+  // A7 B5: ONE identity -- key AND account -- for every per-system read below: the caller's (props; the system page passes
+  // the key it was opened by), else the page URL's (a link built by systemDetailHref / buildAttackPathsV2CjUrl). A tag /
+  // source key is one system PER ACCOUNT, so its account rides with it. Absent both, every URL, body and cache key below is
+  // byte-identical to before.
+  const urlSystemKey = String(searchParams?.get("system_key") || "").trim() || null
+  const identityKey = systemKeyProp || urlSystemKey
+  const identityAccount = systemKeyProp
+    ? (systemAccountIdProp || null)
+    : urlSystemKey
+      ? (searchParams?.get("account_id") || null)
+      : null
+  const identityQuery = systemScopeQuery(identityKey, identityAccount)
+  const identityCacheSuffix = identityKey ? `:key=${identityKey}:${identityAccount ?? ""}` : ""
   const selectedJewelId = searchParams?.get("jewel") ?? null
   const selectedPathId = searchParams?.get("path") ?? null
   // Exfil tab uses its own per-path selection (orthogonal to attack-path
@@ -264,11 +287,22 @@ export function AttackPathsV2({
   // Robust to backend field-name variants (name / SystemName /
   // system_name — all three have shipped over time).
   const [availableSystems, setAvailableSystems] = useState<string[]>([])
+  // A7 B5: the catalogue's rows as identities -- a page opened by KEY is resolved by its key (and account), never by a
+  // name several systems share.
+  const [catalogIdentities, setCatalogIdentities] = useState<CatalogEntry[]>([])
   const [autoRedirectDone, setAutoRedirectDone] = useState(false)
   // A URL, prop, or remembered value is not read authority. Until it appears
   // in the scoped catalog, every downstream data hook receives null and
   // therefore cannot issue a per-system request.
-  const systemName = catalogSystemName(requestedSystemName, availableSystems)
+  const keyedSelection = identityKey
+    ? selectCatalogSystem(
+        { system: requestedSystemName, systemKey: identityKey, accountId: identityAccount },
+        catalogIdentities,
+      )
+    : null
+  const systemName = identityKey
+    ? (keyedSelection && keyedSelection.kind === "SELECTED" ? keyedSelection.entry.name : null)
+    : catalogSystemName(requestedSystemName, availableSystems)
 
   // Write the current system to localStorage so the next visit
   // resumes here.
@@ -300,6 +334,7 @@ export function AttackPathsV2({
     if (!systemsCatalog.ready) return
     if (!systemsCatalog.url) {
       setAvailableSystems([])
+      setCatalogIdentities([])
       setAutoRedirectDone(true)
       return
     }
@@ -324,6 +359,7 @@ export function AttackPathsV2({
           .filter(Boolean)
           .sort()
         setAvailableSystems(names)
+        setCatalogIdentities(catalogEntries(j, systemsCatalog.customerId))
         // Auto-redirect only fires when no system is in the URL.
         const requested = catalogSystemName(systemName, names)
         if (requested) {
@@ -366,7 +402,7 @@ export function AttackPathsV2({
     return () => {
       aborted = true
     }
-  }, [lastSystemStorageKey, pathname, requestedSystemName, router, searchParams, systemName, systemsCatalog.ready, systemsCatalog.url])
+  }, [lastSystemStorageKey, pathname, requestedSystemName, router, searchParams, systemName, systemsCatalog.ready, systemsCatalog.url, systemsCatalog.customerId])
 
   // Progressive load (P0 perf):
   //   1. /targets — inventory-first target catalog (AP3-104): every in-scope
@@ -377,7 +413,7 @@ export function AttackPathsV2({
   // (Render wake happens via the catalog fetch + keep-warm cron — don't fire
   // the full keep-warm sweep from the browser on every tab open.)
   const jewelsUrl = systemName
-    ? `/api/proxy/attack-paths/${encodeURIComponent(systemName)}/targets`
+    ? `/api/proxy/attack-paths/${encodeURIComponent(systemName)}/targets` + identityQuery.replace(/^&/, "?")
     : null
   const {
     data: jewelsRaw,
@@ -387,7 +423,8 @@ export function AttackPathsV2({
     isStale: jewelsIsStale,
     retry: retryJewels,
   } = useCachedFetch<TargetCatalog>(jewelsUrl, {
-    cacheKey: `ap-targets:${systemName}`,
+    // B5: another key / account is another system's catalog -- never painted for this one (by name: as before).
+    cacheKey: `ap-targets:${systemName}${identityCacheSuffix}`,
     maxStaleMs: 10 * 60 * 1000,
     // Never SWR-paint a cached NOT_READY / empty catalog — that is how the
     // rail stuck on "No crown jewels · showing cached" after SERVE recovered.
@@ -400,7 +437,7 @@ export function AttackPathsV2({
   // (materialized AttackPath rows). Keep a background 5×5 fetch for when it
   // succeeds (richer severity / damage), but do not block or hard-error on it.
   const fetchUrl = systemName
-    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&max_jewels=12&max_paths_per_jewel=8`
+    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&max_jewels=12&max_paths_per_jewel=8${identityQuery}`
     : null
   const {
     data: rawData,
@@ -410,7 +447,7 @@ export function AttackPathsV2({
     isStale: iapIsStale,
     retry: retryFullIap,
   } = useCachedFetch<any>(fetchUrl, {
-    cacheKey: `iap-v2:5x5:${systemName}`,
+    cacheKey: `iap-v2:5x5:${systemName}${identityCacheSuffix}`,
     // The hook already fails closed on typed refusals and semantic_status
     // holds (returned as `hold`). This also refuses to persist a legacy
     // 200 `error` with no rows, from a backend that predates semantic_status.
@@ -599,6 +636,7 @@ export function AttackPathsV2({
     selectedJewelHasPaths ? selectedJewel : null,
     selectedPathId,
     [...allPaths],
+    { systemKey: identityKey, systemAccountId: identityAccount },
   )
 
   const jewelRail = useMemo(
@@ -660,6 +698,8 @@ export function AttackPathsV2({
     () =>
       JSON.stringify({
         system_name: systemName ?? "",
+        // A7 B5: the key names ONE system (the backend's optional body field); absent, the body is byte-identical.
+        ...(identityKey ? { system_key: identityKey } : {}),
         jewel_id: selectedJewelId ?? "",
         include_capable: true,
         include_observed: true,
@@ -672,7 +712,7 @@ export function AttackPathsV2({
         include_details: false,
         atlas_max_hops: 6,
       }),
-    [systemName, selectedJewelId],
+    [systemName, selectedJewelId, identityKey],
   )
   const exfilFetchInit = useMemo<RequestInit>(
     () => ({
@@ -693,7 +733,7 @@ export function AttackPathsV2({
     exfilEnabled ? "/api/proxy/attack-chain/exfil-paths" : null,
     {
       fetchInit: exfilFetchInit,
-      refetchKey: `exfil:${systemName}:${selectedJewelId ?? ""}`,
+      refetchKey: `exfil:${systemName}:${selectedJewelId ?? ""}${identityCacheSuffix}`,
       maxRetries: 2,
       initialDelayMs: 1000,
     },
@@ -701,8 +741,8 @@ export function AttackPathsV2({
 
   const convergenceFetchUrl = useMemo(() => {
     if (viewMode !== "convergence" || !systemName || !selectedJewel || !selectedJewelHasPaths) return null
-    return buildConvergenceFetchUrl(systemName, selectedJewel)
-  }, [viewMode, systemName, selectedJewel, selectedJewelHasPaths])
+    return buildConvergenceFetchUrl(systemName, selectedJewel, identityKey, identityAccount)
+  }, [viewMode, systemName, selectedJewel, selectedJewelHasPaths, identityKey, identityAccount])
 
   const {
     data: convergenceData,
@@ -710,7 +750,7 @@ export function AttackPathsV2({
     error: convergenceError,
     retry: convergenceRetry,
   } = useCachedFetch<CrownJewelConvergence>(convergenceFetchUrl, {
-    cacheKey: `cj-convergence:${systemName}:${selectedJewelId ?? ""}`,
+    cacheKey: `cj-convergence:${systemName}:${selectedJewelId ?? ""}${identityCacheSuffix}`,
   })
 
   const convergenceSource = useMemo((): "live" | "fallback" => {
@@ -996,6 +1036,8 @@ export function AttackPathsV2({
                   onClick={() => {
                     const params = new URLSearchParams(searchParams?.toString() ?? "")
                     params.set("system", s)
+                    // A7 B5: a picked name is a new system -- never paired with the key of the one that did not resolve.
+                    params.delete("system_key")
                     router.replace(`${pathname}?${params.toString()}`)
                   }}
                   className="w-full text-left rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground hover:bg-accent transition-colors"
@@ -1152,6 +1194,8 @@ export function AttackPathsV2({
                 onSwitch={(s) => {
                   const params = new URLSearchParams(searchParams?.toString() ?? "")
                   params.set("system", s)
+                  // A7 B5: another system -- the previous system's key never rides along with the new name.
+                  params.delete("system_key")
                   // Drop jewel/path when switching system — those ids
                   // are per-system and won't resolve on a different one.
                   params.delete("jewel")
@@ -1313,6 +1357,8 @@ export function AttackPathsV2({
             {jewels.length > 0 ? (
               <TopologyAttackGraph
                 systemName={systemName}
+                systemKey={identityKey}
+                systemAccountId={identityAccount}
                 initialJewel={selectedJewel ?? jewels[0]}
                 jewels={jewels}
               />
@@ -1475,6 +1521,8 @@ export function AttackPathsV2({
                   </div>
                   <AtlasLateralView
                     systemName={systemName}
+                    systemKey={identityKey}
+                    systemAccountId={identityAccount}
                     jewelId={selectedJewelId}
                     jewelName={selectedJewel.name}
                     cveAssessments={pathCVEsForMode(selectedPathReport, "LATERAL")}
@@ -1512,6 +1560,8 @@ export function AttackPathsV2({
                 >
                   <Zoom0FanInPanel
                     systemName={systemName}
+                    systemKey={identityKey}
+                    systemAccountId={identityAccount}
                     jewel={selectedJewel}
                     paths={[...jewelPaths]}
                     selectedPathId={selectedPathId}
@@ -1541,10 +1591,13 @@ export function AttackPathsV2({
                   <span className="text-xs font-mono text-amber-700 dark:text-amber-300 truncate">
                     {selectedJewel.name}
                   </span>
-                  <CrownJewelUnionViewLink systemName={systemName} jewel={selectedJewel} />
+                  <CrownJewelUnionViewLink systemName={systemName} systemKey={identityKey}
+                    systemAccountId={identityAccount} jewel={selectedJewel} />
                 </div>
                 <ConvergenceMapLoader
                   systemName={systemName}
+                  systemKey={identityKey}
+                  systemAccountId={identityAccount}
                   cjArn={
                     selectedJewel.canonical_id ??
                     (selectedJewel.id.startsWith("arn:") ? selectedJewel.id : null)
@@ -1561,6 +1614,8 @@ export function AttackPathsV2({
               // Legacy Zoom-1 AttackPathPanel is no longer the default drill-in.
               <Zoom0FanInPanel
                 systemName={systemName}
+                systemKey={identityKey}
+                systemAccountId={identityAccount}
                 jewel={selectedJewel}
                 paths={[...jewelPaths]}
                 selectedPathId={selectedPathId}

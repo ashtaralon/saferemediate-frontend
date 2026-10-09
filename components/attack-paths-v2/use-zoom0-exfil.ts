@@ -14,10 +14,14 @@ export function useZoom0Exfil({
   systemName,
   jewel,
   enabled,
+  systemKey = null,
 }: {
   systemName: string
   jewel: CrownJewelSummary
   enabled: boolean
+  /** A7 B5: the system's KEY when the page was opened by key -- the exfil body's optional ``system_key`` names ONE
+   *  system. Absent, the request body is byte-identical to before. */
+  systemKey?: string | null
 }) {
   const jewelId =
     jewel.canonical_id ?? (jewel.id.startsWith("arn:") ? jewel.id : jewel.name)
@@ -25,6 +29,7 @@ export function useZoom0Exfil({
     () =>
       JSON.stringify({
         system_name: systemName,
+        ...(systemKey ? { system_key: systemKey } : {}),
         jewel_id: jewelId,
         include_capable: true,
         include_observed: true,
@@ -35,7 +40,7 @@ export function useZoom0Exfil({
         // exceed the proxy budget on large estates.
         include_details: false,
       }),
-    [systemName, jewelId],
+    [systemName, jewelId, systemKey],
   )
   const fetchInit = useMemo<RequestInit>(
     () => ({
@@ -50,7 +55,7 @@ export function useZoom0Exfil({
     enabled ? "/api/proxy/attack-chain/exfil-paths" : null,
     {
       fetchInit,
-      refetchKey: `zoom0-exfil:${systemName}:${jewelId}`,
+      refetchKey: systemKey ? `zoom0-exfil:${systemName}:${jewelId}:key=${systemKey}` : `zoom0-exfil:${systemName}:${jewelId}`,
       maxRetries: 2,
       initialDelayMs: 1000,
     },

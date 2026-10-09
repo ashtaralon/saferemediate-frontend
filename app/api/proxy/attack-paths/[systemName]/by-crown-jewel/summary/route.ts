@@ -1,14 +1,24 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { getCached, getStaleCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
+import { systemChoiceDetail } from "@/lib/server/proxy-error"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
 
 const BACKEND_URL = getBackendBaseUrl()
 
-function cacheKey(systemName: string, cjArn: string | null, cjName: string | null): string {
-  return `cj-summary:${systemName}:${cjArn ?? ""}:${cjName ?? ""}`
+function cacheKey(
+  systemName: string,
+  cjArn: string | null,
+  cjName: string | null,
+  systemKey: string | null = null,
+  accountId: string | null = null,
+): string {
+  // A7 B5: another key / account is another system -- never a hit for this one. Without a key: byte-identical to before.
+  return systemKey
+    ? `cj-summary:${systemName}:${cjArn ?? ""}:${cjName ?? ""}:key=${systemKey}:${accountId ?? ""}`
+    : `cj-summary:${systemName}:${cjArn ?? ""}:${cjName ?? ""}`
 }
 
 /** GET /api/attack-paths/{system}/by-crown-jewel/summary — path list only */
@@ -28,7 +38,11 @@ export async function GET(
     )
   }
 
-  const key = cacheKey(systemName, cjArn, cjName)
+  // A7 B5: a page opened by key names ONE system (backend ?system_key=, with the account for a tag / source key).
+  // Absent, the request -- and its cache key -- is byte-identical to before.
+  const systemKey = searchParams.get("system_key")
+  const accountId = searchParams.get("account_id")
+  const key = cacheKey(systemName, cjArn, cjName, systemKey, accountId)
   const cached = getCached(key)
   if (cached) {
     return NextResponse.json(cached, {
@@ -42,6 +56,10 @@ export async function GET(
   const qs = new URLSearchParams()
   if (cjArn) qs.set("cj_arn", cjArn)
   if (cjName) qs.set("cj_name", cjName)
+  if (systemKey) {
+    qs.set("system_key", systemKey)
+    if (accountId) qs.set("account_id", accountId)
+  }
 
   try {
     const url = `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(systemName)}/by-crown-jewel/summary?${qs}`
@@ -65,8 +83,10 @@ export async function GET(
           )
         }
       }
+      // A7 B5: the 409 system choice is relayed (typed) so the page can offer it; every other refusal answers as before.
+      const choice = systemChoiceDetail(body)
       return NextResponse.json(
-        { error: "Failed to load crown jewel summary", status: res.status },
+        { error: "Failed to load crown jewel summary", status: res.status, ...(choice ? { detail: choice } : {}) },
         { status: res.status },
       )
     }

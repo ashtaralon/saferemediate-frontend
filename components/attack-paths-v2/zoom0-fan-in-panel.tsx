@@ -251,6 +251,8 @@ export function zoom0EmptyCanvasMessage(
 
 export function Zoom0FanInPanel({
   systemName,
+  systemKey = null,
+  systemAccountId = null,
   jewel,
   paths,
   selectedPathId,
@@ -265,6 +267,10 @@ export function Zoom0FanInPanel({
   onOpenVulnerability,
 }: {
   systemName: string
+  /** A7 B5: the system's KEY (+ a tag / source key's account) when the page was opened by key -- the convergence,
+   *  foothold and exfil reads name ONE system. Absent, every read is by name exactly as before. */
+  systemKey?: string | null
+  systemAccountId?: string | null
   jewel: CrownJewelSummary
   paths: IdentityAttackPath[]
   /** Investigation pin — spotlights one path on the Attack Map when set. */
@@ -305,7 +311,7 @@ export function Zoom0FanInPanel({
     convergenceJewel,
     selectedPathId,
     paths,
-    { fanInAllDetails: true },
+    { fanInAllDetails: true, systemKey, systemAccountId },
   )
 
   const iapFallback = useMemo(() => {
@@ -427,12 +433,15 @@ export function Zoom0FanInPanel({
     systemName,
     jewelRef: lateralJewelId,
     enabled: detailsPanel === "lateral",
+    systemKey,
+    systemAccountId,
   })
 
   const zoom0Exfil = useZoom0Exfil({
     systemName,
     jewel,
     enabled: detailsPanel === "exfiltration",
+    systemKey,
   })
   const [selectedExfilPathId, setSelectedExfilPathId] = useState<string | null>(null)
   useEffect(() => {

@@ -2900,8 +2900,10 @@ export function SystemDetailDashboard({ systemName, systemKey = null, systemAcco
           {/* Attack Paths: map lives on the Attacker Map mode chip (next to
               Attack Path). This tab never embeds the flow map. */}
           <SystemAttackPaths
-            key={`${systemName}-${refreshKey}`}
+            key={`${systemName}-${systemKey ?? ""}-${systemAccountId ?? ""}-${refreshKey}`}
             systemName={systemName}
+            systemKey={systemKey}
+            systemAccountId={systemAccountId}
             embedded
             defaultMode={initialAttackPathMode ?? "attack-path"}
             showEmbeddedAttackMap={false}

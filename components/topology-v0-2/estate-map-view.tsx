@@ -1067,12 +1067,15 @@ export function EstateMapView({ systemName, systemKey = null, systemAccountId = 
 
   // IAP only when Attack-paths overlay is on — All Access does not need
   // the 30–55s cold IAP compute. Cap 5×5 to stay under the proxy abort.
+  // A7 B5: the same ONE identity (key + account) as the topology and dependency reads; absent, by name as before.
   const iapUrl =
     flowMode === "attack_paths"
-      ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&max_jewels=12&max_paths_per_jewel=8`
+      ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&max_jewels=12&max_paths_per_jewel=8${systemScopeQuery(
+        identityKey, identityAccount)}`
       : null
   const { data: rawIap } = useCachedFetch<unknown>(iapUrl, {
-    cacheKey: `estate-iap:5x5:${systemName}`,
+    cacheKey: identityKey ? `estate-iap:5x5:${systemName}:key=${identityKey}:${identityAccount ?? ""}`
+      : `estate-iap:5x5:${systemName}`,
     maxStaleMs: 10 * 60 * 1000,
     fetchInit: { cache: "no-store" },
   })

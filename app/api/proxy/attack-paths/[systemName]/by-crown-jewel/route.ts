@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { systemChoiceDetail } from "@/lib/server/proxy-error"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -26,6 +27,14 @@ export async function GET(
   const qs = new URLSearchParams()
   if (cjArn) qs.set("cj_arn", cjArn)
   if (cjName) qs.set("cj_name", cjName)
+  // A7 B5: a page opened by key names ONE system (backend ?system_key=, with the account for a tag / source key).
+  // Absent, the request is byte-identical to before.
+  const systemKey = searchParams.get("system_key")
+  const accountId = searchParams.get("account_id")
+  if (systemKey) {
+    qs.set("system_key", systemKey)
+    if (accountId) qs.set("account_id", accountId)
+  }
 
   try {
     const url = `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(systemName)}/by-crown-jewel?${qs}`
@@ -41,8 +50,11 @@ export async function GET(
     if (!res.ok) {
       const body = await res.text().catch(() => "")
       console.error(`[by-crown-jewel] backend ${res.status}: ${body.slice(0, 200)}`)
+      // A7 B5: the 409 system choice is relayed (typed, lib/server/proxy-error systemChoiceDetail) so the page can offer
+      // it; every other refusal answers as before.
+      const choice = systemChoiceDetail(body)
       return NextResponse.json(
-        { error: "Failed to load crown jewel convergence", status: res.status },
+        { error: "Failed to load crown jewel convergence", status: res.status, ...(choice ? { detail: choice } : {}) },
         { status: res.status },
       )
     }

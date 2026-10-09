@@ -12,9 +12,15 @@ import {
 
 export function CrownJewelUnionViewLink({
   systemName,
+  systemKey = null,
+  systemAccountId = null,
   jewel,
 }: {
   systemName: string
+  /** A7 B5: the system's KEY (+ a tag / source key's account) when the page was opened by key -- the summary read and the
+   *  link name ONE system. Absent, both are by name exactly as before. */
+  systemKey?: string | null
+  systemAccountId?: string | null
   jewel: CrownJewelSummary | null
 }) {
   const [realPathCount, setRealPathCount] = useState<number | null>(null)
@@ -26,7 +32,7 @@ export function CrownJewelUnionViewLink({
     }
     let cancelled = false
     void (async () => {
-      const summary = await fetchConvergenceSummary(systemName, jewel)
+      const summary = await fetchConvergenceSummary(systemName, jewel, systemKey, systemAccountId)
       if (cancelled) return
       const n = summary ? filterRealConvergencePaths(summary.paths).length : 0
       setRealPathCount(n)
@@ -34,11 +40,11 @@ export function CrownJewelUnionViewLink({
     return () => {
       cancelled = true
     }
-  }, [systemName, jewel?.id, jewel?.canonical_id, jewel?.name])
+  }, [systemName, jewel?.id, jewel?.canonical_id, jewel?.name, systemKey, systemAccountId])
 
   if (!jewel || realPathCount === null || realPathCount <= 1) return null
 
-  const href = buildTfmSpotlightUrl(systemName, jewelIdForNavigation(jewel))
+  const href = buildTfmSpotlightUrl(systemName, jewelIdForNavigation(jewel), systemKey, systemAccountId)
 
   return (
     <Link
