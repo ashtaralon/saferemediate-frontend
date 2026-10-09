@@ -99,7 +99,7 @@ describe("the account page's Overview", () => {
     const panel = await screen.findByTestId("account-removed")
     expect(panel).toHaveTextContent("This account was removed from Cyntro.")
     expect(panel).toHaveTextContent(
-      `Removed after it was connected by Alice Operator · ${formatUtcInstantExact(removed.at)}. ` +
+      `Alice Operator removed it on ${formatUtcInstantExact(removed.at)}, after it was connected. ` +
         "Its collected evidence is kept; its connection stack may still be in the account.",
     )
     expect(panel).toHaveTextContent("Adding it again in Settings › Accounts starts a new registration that collects afresh.")

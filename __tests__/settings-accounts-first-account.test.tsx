@@ -758,7 +758,7 @@ describe("Remove an activated account: what removing does, the account id typed,
     const audit = screen.getByTestId("removed-accounts")
     expect(audit).toHaveTextContent("Removed accounts (1)")
     expect(within(audit).getByTestId(`removed-${MEMBER}`)).toHaveTextContent(
-      `prod-payments · ${MEMBER}Removed after it was connected by Alice Operator · ${formatUtcInstantExact(removed.at)}. ` +
+      `prod-payments · ${MEMBER}Alice Operator removed it on ${formatUtcInstantExact(removed.at)}, after it was connected. ` +
       "Its collected evidence is kept; its connection stack may still be in the account.")
     expect(posts).toHaveLength(0)
   })
@@ -786,10 +786,14 @@ describe("Remove an activated account: what removing does, the account id typed,
       expect(removed.status).toBe("OFFBOARDED")
       const audit = screen.getByTestId("removed-accounts")
       expect(audit).toHaveTextContent("Removed accounts (1)")
-      // This removal carried no name (the remover's token named nobody): the actor is shown, as before.
+      // This removal carried no name (the remover's token named nobody): the actor is the token identity
+      // "<issuer>#<subject>", said as an operator and the subject -- never the raw issuer URL (D13).
       expect(removed.by_display ?? null).toBeNull()
-      expect(within(audit).getByTestId(`removed-${MEMBER}`)).toHaveTextContent(
-        `Removed after it was connected by ${removed.by} · ${formatUtcInstantExact(removed.at)}.`)
+      expect(removed.by).toBe("https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice")
+      const line = within(audit).getByTestId(`removed-${MEMBER}`)
+      expect(line).toHaveTextContent(
+        `An operator (00u-alice) removed it on ${formatUtcInstantExact(removed.at)}, after it was connected.`)
+      expect(line).not.toHaveTextContent("cognito-idp")
     })
 
   it("an Add of a removed account refused for another reason names the account as its removal does", async () => {

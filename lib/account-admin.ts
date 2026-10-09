@@ -1251,17 +1251,38 @@ export function formatUtcInstantExact(value: string): string {
   return `${iso.slice(0, 19).replace("T", " ")}${millis === ".000" ? "" : millis} UTC`
 }
 
+/** A verified token identity as the backend records an actor: "<issuer URL>#<subject>" (the token's iss and sub). */
+const ISSUER_SUBJECT = /^https?:\/\/[^\s#]+#([^\s#]+)$/
+
 /**
- * One closed registration from the listing's removed audit (level 5), in words: how it was removed, by whom, when, and what
- * removing kept. Settings' removed list and the account page say it the same way.
+ * Who removed an account, as people read it (D13), for the start of a sentence: the name or email the backend resolved
+ * (``by_display``), else the recorded actor when it is itself readable (an email, a name). A bare "<issuer>#<subject>"
+ * token identity is "An operator (<subject>)", the subject cut to 8 characters past 12 -- never the raw issuer URL.
+ * null when nothing was recorded.
+ */
+export function removedByLabel(item: Pick<RemovedAccount, "by" | "by_display">): string | null {
+  const values = [item.by_display, item.by].map((value) => (typeof value === "string" ? value.trim() : "")).filter(Boolean)
+  const readable = values.find((value) => !ISSUER_SUBJECT.test(value))
+  if (readable) return readable
+  const subject = values.map((value) => ISSUER_SUBJECT.exec(value)?.[1]).find(Boolean)
+  if (!subject) return null
+  return `An operator (${subject.length > 12 ? `${subject.slice(0, 8)}…` : subject})`
+}
+
+/**
+ * One closed registration from the listing's removed audit (level 5), in words: who removed it, when, at which stage
+ * (WITHDRAWN: before its registration was confirmed; OFFBOARDED: after it was connected), and what removing kept.
+ * Settings' removed list, the Add-account review and the account page say it the same way.
  */
 export function removedAccountSentence(item: Pick<RemovedAccount, "status" | "by" | "by_display" | "at">): string {
   const offboarded = item.status === "OFFBOARDED"
+  const actor = removedByLabel(item)
+  const when = item.at ? ` on ${formatUtcInstantExact(item.at)}` : ""
   return (
-    (offboarded ? "Removed after it was connected" : "Removed before it was confirmed") +
-    (item.by_display || item.by ? ` by ${item.by_display || item.by}` : "") +
-    (item.at ? ` · ${formatUtcInstantExact(item.at)}` : "") +
-    (offboarded ? ". Its collected evidence is kept; its connection stack may still be in the account." : ".")
+    (actor ? `${actor} removed it${when}` : `It was removed${when}`) +
+    (offboarded
+      ? ", after it was connected. Its collected evidence is kept; its connection stack may still be in the account."
+      : ", before it was confirmed.")
   )
 }
 
