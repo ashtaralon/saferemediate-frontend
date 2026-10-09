@@ -655,7 +655,12 @@ interface TagResults {
   skipped?: number
   tags_applied?: Record<string, string>
   error?: string
+  /** The backend refused the write by name (409 off_boundary_mutation_refused): nothing was written (D18). */
+  refusedCode?: string
 }
+
+/** The containment refusal a contained AWS write answers (backend api/_off_boundary_http.py): 409 with this reason_code. */
+const OFF_BOUNDARY_REFUSAL = "off_boundary_mutation_refused"
 
 interface AutoTagStatus {
   // `wired === false` means the backend genuinely doesn't have the
@@ -900,7 +905,6 @@ export function SystemDetailDashboard({ systemName, systemKey = null, systemAcco
     actualTrafficCaptured: 0,
     lastSync: "Awaiting connection",
   })
-  const [triggeringAutoTag, setTriggeringAutoTag] = useState(false)
   const [autoTaggerResult, setAutoTaggerResult] = useState<any>(null)
   const [autoTaggerLoading, setAutoTaggerLoading] = useState(false)
   const [showAutoTaggerResult, setShowAutoTaggerResult] = useState(false)
@@ -1662,9 +1666,14 @@ export function SystemDetailDashboard({ systemName, systemKey = null, systemAcco
       })
 
       if (!response.ok) {
-        // A typed refusal (409 off_boundary_mutation_refused while writeback is contained) carries
-        // its own message; show that, never a generic failure or a fabricated success.
         const errData = await response.json().catch(() => ({}))
+        // D18: the contained write (aws_system_tag_write) is refused by name -- 409 off_boundary_mutation_refused, relayed
+        // typed by the proxy. Said as what it is (not available on this installation, nothing written), never as an error.
+        const code = errData?.detail?.reason_code ?? errData?.detail?.error
+        if (response.status === 409 && code === OFF_BOUNDARY_REFUSAL) {
+          setTagResults({ success: false, refusedCode: code })
+          return
+        }
         throw new Error(errData?.detail?.message || errData?.error || `HTTP ${response.status}`)
       }
 
@@ -1692,51 +1701,6 @@ export function SystemDetailDashboard({ systemName, systemKey = null, systemAcco
       setTagResults({ success: false, error: err.message })
     } finally {
       setTagging(false)
-    }
-  }
-
-  // =============================================================================
-  // AUTO-TAG HANDLER (Updated)
-  // =============================================================================
-  const handleTriggerAutoTag = async () => {
-    try {
-      setTriggeringAutoTag(true)
-
-      const response = await fetch("/api/proxy/auto-tag-trigger", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ systemName }),
-      })
-
-      const data = await response.json()
-
-      if (data.success) {
-        // Update status immediately and then refresh all data
-        setAutoTagStatus((prev) => ({
-          ...prev,
-          status: "running",
-          totalCycles: data.totalCycles || prev.totalCycles + 1,
-          // The local action's time, NOT data freshness -- see lastTriggeredAt.
-          // `lastSync` keeps whatever the backend last reported.
-          lastTriggeredAt: new Date().toLocaleTimeString(),
-        }))
-      } else {
-        // Handle API error for triggering
-        console.error("Failed to trigger auto-tag:", data.error)
-        setAutoTagStatus((prev) => ({ ...prev, status: "error" }))
-      }
-
-      // Refresh all data after a short delay to reflect the triggered action
-      setTimeout(() => {
-        fetchAllData()
-      }, 3000)
-    } catch (err: any) {
-      console.error("[v0] Error triggering auto-tag:", err)
-      setAutoTagStatus((prev) => ({ ...prev, status: "error" }))
-    } finally {
-      setTriggeringAutoTag(false)
     }
   }
 
@@ -3152,7 +3116,16 @@ export function SystemDetailDashboard({ systemName, systemKey = null, systemAcco
                 </div>
               </div>
 
-              {tagResults && (
+              {tagResults?.refusedCode ? (
+                <div className="p-4 rounded-lg mb-6 bg-[#f59e0b10] border border-[#f59e0b40]" data-testid="tag-write-refused">
+                  <p className="font-semibold text-[#b45309]">Not available on this installation</p>
+                  <p className="mt-1 text-sm text-[#b45309]">
+                    Writing tags to AWS is not available on this installation ({tagResults.refusedCode}); nothing was
+                    written. A system&apos;s membership in Cyntro is set through the System Boundary wizard: Systems ›
+                    Add System.
+                  </p>
+                </div>
+              ) : tagResults && (
                 <div
                   className={`p-4 rounded-lg mb-6 ${
                     tagResults.success ? "bg-[#22c55e10] border border-[#22c55e40]" : "bg-[#ef444410] border border-[#ef444440]"
@@ -3201,9 +3174,9 @@ export function SystemDetailDashboard({ systemName, systemKey = null, systemAcco
                   }}
                   className="flex-1 px-4 py-2 bg-gray-200 text-[var(--foreground,#374151)] rounded-lg font-medium hover:bg-gray-300 transition-colors"
                 >
-                  {tagResults?.success ? "Close" : "Cancel"}
+                  {tagResults?.success || tagResults?.refusedCode ? "Close" : "Cancel"}
                 </button>
-                {!tagResults?.success && (
+                {!tagResults?.success && !tagResults?.refusedCode && (
                   <button
                     onClick={handleTagAll}
                     disabled={tagging}
