@@ -142,6 +142,8 @@ export function InventorySource({ accountId, account, fetchStatus = fetchDiscove
   pollMs?: number
 }) {
   const { status, refreshFailed, refresh } = useDiscoveryStatus(accountId, fetchStatus, pollMs)
+  // An explicit retry after an invalidated view mounts a NEW view (a fresh read of everything), even for the same identity.
+  const [generation, setGeneration] = useState(0)
   if (status.kind === "loading") {
     return (
       <p className="flex items-center gap-2 text-sm text-slate-500">
@@ -154,9 +156,10 @@ export function InventorySource({ accountId, account, fetchStatus = fetchDiscove
     const label = account?.display_name && account.display_name !== accountId ? `${account.display_name} (${accountId})` : accountId
     const bound = { ...status, registrationId: status.registrationId, runId: status.runId }
     return (
-      <BasicInventoryView key={identityKey({ accountId, registrationId: bound.registrationId, runId: bound.runId })}
+      <BasicInventoryView key={`${identityKey({ accountId, registrationId: bound.registrationId, runId: bound.runId })}:${generation}`}
         accountId={accountId} accountLabel={label} status={bound} fetchPage={fetchPage} refreshFailed={refreshFailed}
-        onRefreshStatus={() => void refresh()} />
+        onRefreshStatus={() => void refresh()} onContradicted={() => void refresh()}
+        onRestart={() => { setGeneration((g) => g + 1); void refresh() }} />
     )
   }
   if (status.kind === "outcome" && statusFallback(status) === "unavailable") {

@@ -12,7 +12,7 @@ import { resolve } from "node:path"
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { NextRequest } from "next/server"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { BasicInventoryView } from "@/components/accounts/basic-inventory-view"
+import { BasicInventoryView, contradicts } from "@/components/accounts/basic-inventory-view"
 import {
   emptyPageCopy,
   parseDiscoveryResponse,
@@ -328,13 +328,14 @@ describe("the BASIC view is bound to account, registration and run", () => {
     expect(rowNames().length).toBe(5)
   })
 
-  it("a page naming another registration or run is never shown; the status is re-read instead", async () => {
-    const refresh = vi.fn()
+  it("a page naming another registration or run is never shown; the view is invalidated and the status re-read", async () => {
+    const recheck = vi.fn()
     const status = parseDiscoveryResponse(200, discoveringBody(), ACCOUNT) as DiscoveryStatus & { registrationId: string; runId: string }
     const pages: ResourcesFetcher = async () => as(capture("resources_discovering_page1"), R2, "r2-")
-    render(<BasicInventoryView accountId={ACCOUNT} accountLabel={ACCOUNT} status={status} fetchPage={pages} onRefreshStatus={refresh} />)
+    render(<BasicInventoryView accountId={ACCOUNT} accountLabel={ACCOUNT} status={status} fetchPage={pages} onContradicted={recheck} />)
     fireEvent.click(screen.getByRole("button", { name: "List" }))
-    await waitFor(() => expect(refresh).toHaveBeenCalled())
+    await waitFor(() => expect(recheck).toHaveBeenCalled())
+    expect(screen.getByTestId("basic-invalidated")).toBeTruthy()
     expect(rowNames()).toEqual([])
   })
 
@@ -493,4 +494,119 @@ describe("an absence is claimed only where it was proved", () => {
     await waitFor(() => expect(rowNames().length).toBe(3))
     expect(screen.getByTestId("basic-page-type-state").textContent).toContain("Partial")
   })
+})
+
+// ── Codex review of 85ab9bfd: a contradicting answer invalidates the WHOLE view; an unavailable page is retriable ──────────
+
+describe("an answer contradicting the shown identity or authority invalidates the whole view", () => {
+  afterEach(() => { vi.resetModules(); vi.doUnmock("@/components/system-boundary/declarable-account-inventory") })
+
+  async function source() {
+    vi.doMock("@/components/system-boundary/declarable-account-inventory", () => ({
+      DeclarableAccountInventory: () => <p data-testid="published-reader">published inventory reader</p>,
+    }))
+    return (await import("@/components/accounts/account-inventory-gate")).InventorySource
+  }
+
+  it("a next page of another run, with the status re-read failing: no row, cursor or drawer of the old run stays", async () => {
+    const InventorySource = await source()
+    let reads = 0
+    const status: DiscoveryFetcher = async () => {
+      reads += 1
+      if (reads === 1) return { status: 200, body: discoveringBody() }                     // R1
+      if (reads === 2) return { status: 503, body: { error: "PROXY_BACKEND_UNREACHABLE" } }  // the re-read fails
+      return as({ status: 200, body: discoveringBody() }, R2)                               // the retry reads R2
+    }
+    const pages: ResourcesFetcher = async (_account, request) => {
+      if (reads >= 3) return as(capture("resources_discovering_page1"), R2, "r2-")
+      return request.cursor ? as(capture("resources_discovering_page2"), R2, "r2-") : capture("resources_discovering_page1")
+    }
+    render(<InventorySource accountId={ACCOUNT} account={null} fetchStatus={status} fetchPage={pages} pollMs={60_000} />)
+    fireEvent.click(await screen.findByRole("button", { name: "List" }))
+    fireEvent.click(await screen.findByRole("button", { name: "web-0" }))
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }))              // answers with R2's page
+    expect(await screen.findByTestId("basic-invalidated")).toBeTruthy()
+    expect(screen.queryByTestId("basic-evidence")).toBeNull()
+    expect(rowNames()).toEqual([])
+    expect(screen.queryByRole("button", { name: /Load more|Loading/ })).toBeNull()
+    await waitFor(() => expect(screen.getByTestId("basic-invalidated").textContent).toContain("could not be read again"))
+    expect(screen.queryByTestId("basic-inventory")).toBeNull()                       // the failed re-read never restores R1
+    fireEvent.click(within(screen.getByTestId("basic-invalidated")).getByRole("button", { name: "Retry" }))
+    await waitFor(() => expect(reads).toBe(3))                                       // the retry's status read: R2
+    await act(async () => {})
+    fireEvent.click(await screen.findByRole("button", { name: "List" }))
+    await waitFor(() => expect(rowNames().length).toBe(5))
+    expect(rowNames().every((name) => name.startsWith("r2-web-"))).toBe(true)
+  })
+
+  it("a HELD answer in one table closes the drawer opened from another and every group; the re-read status says held", async () => {
+    const InventorySource = await source()
+    let held = false
+    const status: DiscoveryFetcher = async () => held ? capture("discovery_held_account_removed") : { status: 200, body: discoveringBody() }
+    const pages: ResourcesFetcher = async (_account, request) => {
+      if (request.resourceType === "ec2:instance") return capture("resources_type_partial")   // the group's own table
+      held = true                                                                      // removed while the view was open
+      return capture("resources_held_account_removed")
+    }
+    render(<InventorySource accountId={ACCOUNT} account={null} fetchStatus={status} fetchPage={pages} pollMs={60_000} />)
+    const group = await screen.findByTestId("inventory-group")
+    fireEvent.click(within(group).getByRole("button", { expanded: false }))
+    fireEvent.click(await screen.findByRole("button", { name: "web-0" }))           // the drawer, from the group's rows
+    expect(screen.getByTestId("basic-evidence")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "List" }))                   // another table: answered HELD
+    expect((await screen.findByTestId("discovery-held")).textContent).toContain("ACCOUNT_REMOVED")
+    expect(screen.queryByTestId("basic-evidence")).toBeNull()
+    expect(screen.queryAllByTestId("inventory-group")).toEqual([])
+    expect(rowNames()).toEqual([])
+  })
+
+  it("contradiction is held, not requested, a person or account refusal, or another registration or run -- not a 5xx", () => {
+    const identity = { accountId: ACCOUNT, registrationId: R1.registration, runId: R1.run }
+    const outcome = (state: "held" | "not_requested" | "refused" | "unavailable", status: number) =>
+      ({ kind: "outcome" as const, status, state, reasonCode: null })
+    expect([outcome("held", 200), outcome("not_requested", 200), outcome("refused", 401), outcome("refused", 403),
+      outcome("refused", 404)].map((o) => contradicts(o, identity))).toEqual([true, true, true, true, true])
+    expect([outcome("refused", 400), outcome("unavailable", 503)].map((o) => contradicts(o, identity))).toEqual([false, false])
+    const page = parseResourcesResponse(200, capture("resources_discovering_page1").body, ACCOUNT, null)
+    const other = parseResourcesResponse(200, as(capture("resources_discovering_page1"), R2).body, ACCOUNT, null)
+    expect([contradicts(page as never, identity), contradicts(other as never, identity)]).toEqual([false, true])
+  })
+})
+
+describe("an unavailable page is retriable", () => {
+  const COMPLETE = () => parseDiscoveryResponse(200, capture("discovery_complete_with_gaps").body, ACCOUNT) as
+    DiscoveryStatus & { registrationId: string; runId: string }                       // complete: nothing polls
+  const PROXY_DOWN: Answer = { status: 502, body: { error: "PROXY_BACKEND_UNREACHABLE" } }
+  const STORE_DOWN: Answer = { status: 503, body: { schema_version: "account_resources/v1", account_id: ACCOUNT, state: "unavailable",
+    reason_code: "RESOURCE_DISCOVERY_STORE_UNAVAILABLE" } }
+
+  it.each([["the proxy", PROXY_DOWN], ["the backend", STORE_DOWN]])(
+    "a first page %s answers unavailable is named with its code and a retry that recovers", async (_who, down) => {
+      let calls = 0
+      const pages: ResourcesFetcher = async () => (calls += 1) === 1 ? down : capture("resources_discovering_page1")
+      render(<BasicInventoryView accountId={ACCOUNT} accountLabel={ACCOUNT} status={COMPLETE()} fetchPage={pages} />)
+      fireEvent.click(screen.getByRole("button", { name: "List" }))
+      const failed = await screen.findByTestId("basic-page-failed")
+      expect(failed.textContent).toContain(down.body.error ?? down.body.reason_code)
+      fireEvent.click(within(failed).getByRole("button", { name: "Retry" }))
+      await waitFor(() => expect(rowNames().length).toBe(5))
+    })
+
+  it.each([["the proxy", PROXY_DOWN], ["the backend", STORE_DOWN]])(
+    "a next page %s answers unavailable keeps the rows, frees the button, and its retry recovers", async (_who, down) => {
+      let more = 0
+      const pages: ResourcesFetcher = async (_account, request) => {
+        if (!request.cursor) return capture("resources_discovering_page1")
+        return (more += 1) === 1 ? down : capture("resources_discovering_page2")
+      }
+      render(<BasicInventoryView accountId={ACCOUNT} accountLabel={ACCOUNT} status={COMPLETE()} fetchPage={pages} />)
+      fireEvent.click(screen.getByRole("button", { name: "List" }))
+      fireEvent.click(await screen.findByRole("button", { name: "Load more" }))
+      expect(await screen.findByTestId("basic-more-failed")).toBeTruthy()
+      expect(rowNames().length).toBe(5)
+      const retry = screen.getByRole("button", { name: "Retry loading more" })
+      expect(retry.hasAttribute("disabled")).toBe(false)
+      fireEvent.click(retry)
+      await waitFor(() => expect(rowNames().length).toBe(7))
+    })
 })

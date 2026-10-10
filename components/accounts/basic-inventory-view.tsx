@@ -15,9 +15,11 @@
  * Everything shown is bound to ONE listing identity -- account + registration + run (Codex review of ea268c75, 1). The
  * caller mounts one view per identity (keyed), so a new account, a re-added registration or a new run starts from nothing:
  * no page, cursor, expanded group or open drawer survives it. Within an identity, every request is issued under an EPOCH
- * and dropped when it completes under another or after unmount; a page that names a different registration or run is
- * never shown (the status is re-read instead), and a cursor the backend no longer accepts (409) restarts at page one. A
- * failed request is named, with a retry (Codex review, 2) -- never an endless "Loading".
+ * and dropped when it completes under another or after unmount, and a cursor the backend no longer accepts (409) restarts
+ * at page one. An answer that CONTRADICTS the identity or its authority (another registration or run; held, not requested,
+ * or refused) invalidates the WHOLE view at once and re-reads the status (Codex review of 85ab9bfd, 1). A request that did
+ * not complete, or an unavailable answer (5xx, proxy, malformed), is named with a retry; a failed next page keeps the rows
+ * shown (Codex reviews of ea268c75, 2, and 85ab9bfd, 2) -- never an endless "Loading".
  */
 import { useCallback, useEffect, useRef, useState } from "react"
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react"
@@ -45,6 +47,7 @@ import {
   type EmptyState,
   type ResourcesFetcher,
   type ResourcesOutcome,
+  type ResourcesPage,
   type TypeState,
   type TypeStateName,
 } from "@/lib/account-resources"
@@ -114,7 +117,8 @@ export function useDiscoveryStatus(accountId: string, fetcher: DiscoveryFetcher 
 
 type PageModel =
   | { kind: "loading" }
-  | { kind: "failed" }
+  /** A request that did not complete (rejected) or an unavailable answer (5xx, proxy, malformed): retriable. */
+  | { kind: "failed"; reasonCode: string | null }
   | ResourcesOutcome
   | {
     kind: "rows"; rows: BasicItem[]; nextCursor: string | null; loadingMore: boolean; moreFailed: boolean
@@ -122,17 +126,29 @@ type PageModel =
   }
 
 /**
- * One live listing of ONE identity (optionally one type), reloaded from page one whenever ``revision`` changes. A page
- * naming another registration or run is never shown: ``onMoved`` re-reads the status, whose new identity remounts the view.
+ * A page answer that CONTRADICTS the shown identity or its authority (Codex review of 85ab9bfd, 1): a page of another
+ * registration or run; the run held or no longer requested; the person or the account refused (401 / 403 / 404). The
+ * whole view is invalidated -- never only this table -- and the status is re-read.
+ */
+export function contradicts(parsed: ResourcesPage | ResourcesOutcome, identity: ListingIdentity): boolean {
+  if (parsed.kind === "page") return parsed.registrationId !== identity.registrationId || parsed.runId !== identity.runId
+  return parsed.state === "held" || parsed.state === "not_requested"
+    || (parsed.state === "refused" && [401, 403, 404].includes(parsed.status))
+}
+
+/**
+ * One live listing of ONE identity (optionally one type), reloaded from page one whenever ``revision`` changes. An answer
+ * that contradicts the identity or its authority is never shown: ``onContradicted`` invalidates the whole view. A request
+ * that did not complete, or an unavailable answer, is named with a retry; on a next page it keeps the rows shown.
  */
 export function useBasicPage(identity: ListingIdentity, resourceType: string | null, revision: unknown,
-  fetcher: ResourcesFetcher = fetchResourcesPage, onMoved: () => void = () => {}) {
+  fetcher: ResourcesFetcher = fetchResourcesPage, onContradicted: () => void = () => {}) {
   const [model, setModel] = useState<PageModel>({ kind: "loading" })
   const epoch = useRef(0)
   const modelRef = useRef<PageModel>(model)
   const commit = (next: PageModel) => { modelRef.current = next; setModel(next) }
-  const moved = useRef(onMoved)
-  moved.current = onMoved
+  const contradicted = useRef(onContradicted)
+  contradicted.current = onContradicted
   const { accountId, registrationId, runId } = identity
 
   const first = useCallback(async () => {
@@ -142,16 +158,18 @@ export function useBasicPage(identity: ListingIdentity, resourceType: string | n
       const { status, body } = await fetcher(accountId, { resourceType, cursor: null })
       if (mine !== epoch.current) return
       const parsed = parseResourcesResponse(status, body, accountId, resourceType)
-      if (parsed.kind === "page" && (parsed.registrationId !== registrationId || parsed.runId !== runId)) {
-        moved.current()                             // the account moved on since its status was read: never shown here
+      if (contradicts(parsed, { accountId, registrationId, runId })) {
+        contradicted.current()                      // the account moved on, or its authority refused: never shown here
         return
       }
-      commit(parsed.kind === "page" ? {
-        kind: "rows", rows: parsed.items, nextCursor: parsed.nextCursor, loadingMore: false, moreFailed: false,
-        state: parsed.state, typeState: parsed.typeState,
-      } : parsed)
+      if (parsed.kind === "outcome") {
+        commit(parsed.state === "unavailable" ? { kind: "failed", reasonCode: parsed.reasonCode } : parsed)
+        return
+      }
+      commit({ kind: "rows", rows: parsed.items, nextCursor: parsed.nextCursor, loadingMore: false, moreFailed: false,
+        state: parsed.state, typeState: parsed.typeState })
     } catch {
-      if (mine === epoch.current) commit({ kind: "failed" })
+      if (mine === epoch.current) commit({ kind: "failed", reasonCode: null })
     }
   }, [accountId, registrationId, runId, resourceType, fetcher])
 
@@ -173,12 +191,12 @@ export function useBasicPage(identity: ListingIdentity, resourceType: string | n
         void first()                                // the run or registration moved: start again at page one
         return
       }
-      if (parsed.kind === "page" && (parsed.registrationId !== registrationId || parsed.runId !== runId)) {
-        moved.current()
+      if (contradicts(parsed, { accountId, registrationId, runId })) {
+        contradicted.current()
         return
       }
-      if (parsed.kind !== "page") {
-        commit(parsed)
+      if (parsed.kind !== "page") {                 // unavailable (or a refused request): the rows stay, retriable
+        commit({ ...current, loadingMore: false, moreFailed: true })
         return
       }
       const seen = new Set(current.rows.map((row) => row.resource_key))
@@ -243,13 +261,23 @@ export interface BasicInventoryViewProps {
   fetchPage?: ResourcesFetcher
   /** The status could not be refreshed: the shown answer is the last good one. */
   refreshFailed?: boolean
-  /** Re-read the status (a retry, or a page that named another registration or run). */
+  /** Re-read the status (the retry of a failed refresh). */
   onRefreshStatus?: () => void
+  /** A page contradicted this view's identity or authority: it is invalidated; re-read the status. */
+  onContradicted?: () => void
+  /** Show the account afresh (a new view of whatever the status names now). */
+  onRestart?: () => void
 }
 
-/** Mount ONE per listing identity (key={identityKey(...)}): nothing shown survives a change of account, registration or run. */
+/**
+ * Mount ONE per listing identity (key={identityKey(...)}): nothing shown survives a change of account, registration or run.
+ * An answer contradicting this identity or its authority INVALIDATES the whole view at once -- every table, cursor, open
+ * group and the drawer -- and nothing of it returns: a failed status re-read never restores it (only a new identity, or an
+ * explicit retry that reads everything afresh).
+ */
 export function BasicInventoryView({ accountId, accountLabel, status, fetchPage = fetchResourcesPage, refreshFailed = false,
-  onRefreshStatus = () => {} }: BasicInventoryViewProps) {
+  onRefreshStatus = () => {}, onContradicted = () => {}, onRestart = () => {} }: BasicInventoryViewProps) {
+  const [invalidated, setInvalidated] = useState(false)
   const [layout, setLayout] = useState<"grouped" | "list">("grouped")
   const [category, setCategory] = useState<InventoryCategory | null>(null)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
@@ -269,6 +297,25 @@ export function BasicInventoryView({ accountId, accountLabel, status, fetchPage 
       || b.count - a.count || a.meta.label.localeCompare(b.meta.label))
   const open = (item: BasicItem) => setOpened({ row: toInventoryRow(item), evidence: basicEvidence(item) })
   const live = LIVE_COVERAGE.has(status.coverageState)
+  const contradicted = () => {
+    setInvalidated(true)
+    setOpened(null)
+    onContradicted()
+  }
+
+  if (invalidated) {
+    return (
+      <div className="space-y-2 p-6" data-testid="basic-invalidated">
+        <h1 className="text-lg font-semibold text-slate-900">Inventory — {accountLabel}</h1>
+        <p className="text-sm text-slate-700" role="alert">
+          This listing changed while it was shown (another registration or run, or its access was refused), so nothing of it
+          is shown. Cyntro is reading this account&apos;s discovery status again.
+          {refreshFailed ? " The status could not be read again." : ""}
+        </p>
+        <button type="button" className="text-sm font-semibold text-teal-700 underline" onClick={onRestart}>Retry</button>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4 p-6" data-testid="basic-inventory">
@@ -366,7 +413,7 @@ export function BasicInventoryView({ accountId, accountLabel, status, fetchPage 
                     {isOpen ? (
                       <div className="border-t border-slate-100 px-3 py-2">
                         <BasicRows identity={identity} resourceType={meta.resourceType} revision={revision} fetchPage={fetchPage}
-                          onOpen={open} onMoved={onRefreshStatus} />
+                          onOpen={open} onContradicted={contradicted} />
                       </div>
                     ) : null}
                   </li>
@@ -377,7 +424,7 @@ export function BasicInventoryView({ accountId, accountLabel, status, fetchPage 
         </div>
       ) : (
         <BasicRows identity={identity} resourceType={null} revision={revision} fetchPage={fetchPage} onOpen={open}
-          onMoved={onRefreshStatus} />
+          onContradicted={contradicted} />
       )}
 
       {opened !== null ? (
@@ -387,20 +434,20 @@ export function BasicInventoryView({ accountId, accountLabel, status, fetchPage 
   )
 }
 
-function BasicRows({ identity, resourceType, revision, fetchPage, onOpen, onMoved }: {
+function BasicRows({ identity, resourceType, revision, fetchPage, onOpen, onContradicted }: {
   identity: ListingIdentity
   resourceType: string | null
   revision: unknown
   fetchPage: ResourcesFetcher
   onOpen: (item: BasicItem) => void
-  onMoved: () => void
+  onContradicted: () => void
 }) {
-  const { model, loadMore, retry } = useBasicPage(identity, resourceType, revision, fetchPage, onMoved)
+  const { model, loadMore, retry } = useBasicPage(identity, resourceType, revision, fetchPage, onContradicted)
   if (model.kind === "loading") return <p className="text-xs text-slate-500">Loading…</p>
   if (model.kind === "failed") {
     return (
       <p className="text-xs text-slate-700" role="alert" data-testid="basic-page-failed">
-        These resources could not be loaded (the request did not complete).{" "}
+        These resources could not be loaded {model.reasonCode ? `(${model.reasonCode})` : "(the request did not complete)"}.{" "}
         <button type="button" className="font-semibold text-teal-700 underline" onClick={() => void retry()}>Retry</button>
       </p>
     )
