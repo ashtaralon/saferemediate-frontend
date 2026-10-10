@@ -52,9 +52,7 @@ export interface ServiceNode {
   permissionCount?: number
   // Compute specific
   instanceState?: string
-  // AWS Tags
-  tags?: Record<string, string>
-  isTagged?: boolean
+  // D42: no AWS tag fields -- the system-resources row carries none, and system membership is not a tag.
   vpcId?: string
 }
 
@@ -209,8 +207,6 @@ export function AllServicesTab({ systemName, systemKey = null, systemAccountId =
         },
         attachedPolicies: normalizedType === "IAMRole" ? r.connections || 0 : 0,
         permissionCount: r.connections || 0,
-        tags: {},
-        isTagged: true,
         vpcId: undefined,
       }
     })
@@ -726,20 +722,20 @@ export function AllServicesTab({ systemName, systemKey = null, systemAccountId =
           </CardContent>
         </Card>
 
+        {/* D42: every served row is a member of this system -- Cyntro system membership (for example a root a person
+            declared in the System Boundary wizard), which is not an AWS tag: such a root may carry no System/SystemName
+            tag. This card counts members and makes no tag claim. No served row is a non-member, so a percentage would
+            always read 100%; none is shown. A failed or ambiguous load has no member count: "—", never a zero. */}
         <Card className="border-l-4 border-l-purple-500">
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-sm text-[var(--muted-foreground,#6b7280)]">
               <Shield className="w-4 h-4" />
-              Tag Coverage
+              System membership
             </div>
             <div className="text-3xl font-bold text-[#8b5cf6]">
-              {services.length > 0 
-                ? Math.round((services.filter(s => s.systemName !== 'Untagged').length / services.length) * 100) 
-                : 0}%
+              {loadError || ambiguous ? "—" : services.length}
             </div>
-            <div className="text-xs text-[var(--muted-foreground,#9ca3af)] mt-1">
-              {services.filter(s => s.systemName !== 'Untagged').length} tagged • {services.filter(s => s.systemName === 'Untagged').length} untagged
-            </div>
+            <div className="text-xs text-[var(--muted-foreground,#9ca3af)] mt-1">in this system</div>
           </CardContent>
         </Card>
       </div>
@@ -836,7 +832,7 @@ export function AllServicesTab({ systemName, systemKey = null, systemAccountId =
                       <TableHeader>
                         <TableRow>
                           <TableHead>Service Name</TableHead>
-                          <TableHead>SystemName</TableHead>
+                          <TableHead>System</TableHead>
                           <TableHead>Environment</TableHead>
                           <TableHead>Region</TableHead>
                           <TableHead>Status</TableHead>
@@ -860,14 +856,9 @@ export function AllServicesTab({ systemName, systemKey = null, systemAccountId =
                             </TableCell>
                             <TableCell>
                               <div className="flex flex-col gap-1">
-                                <span
-                                  className={`text-xs px-2 py-1 rounded ${
-                                    service.systemName !== "Untagged"
-                                      ? "bg-[#3b82f620] text-[#3b82f6]"
-                                      : "bg-[#f9731620] text-[#f97316]"
-                                  }`}
-                                >
-                                  {service.systemName === "Untagged" ? "Untagged" : service.systemName}
+                                {/* D42: the system this row is a member of -- not its AWS SystemName tag. */}
+                                <span className="text-xs px-2 py-1 rounded bg-[#3b82f620] text-[#3b82f6]">
+                                  {service.systemName}
                                 </span>
                                 {service.vpcId && (
                                   <span
