@@ -204,7 +204,8 @@ describe("a legacy account (connected for collection only) is offered the one se
     expect(said).toHaveTextContent("If they pass, Cyntro shows its data: inventory, census and systems.")
     expect(said).toHaveTextContent("Read only: nothing in the AWS account changes.")
     expect(said).toHaveTextContent("The decision is recorded under your name.")
-    expect(said).toHaveTextContent("It usually takes minutes, on Cyntro's next processing pass. It is not instant.")
+    expect(said).toHaveTextContent("It is not instant. You can follow each step here: checking, turning the data on, publishing.")
+    expect(dialog).not.toHaveTextContent(/minute|second|hour|usually|within|soon/i)
     expect(dialog).not.toHaveTextContent(/turns reading on|collects this account's inventory/)
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }))
     expect(screen.queryByRole("dialog", { name: dialogName })).toBeNull()
@@ -418,6 +419,32 @@ describe("the page's refresh runs through approval, activation and publication, 
     expect(lists).toBe(settled)
   })
 
+  // Codex P2 on 0b2042ed: data on and its inventory ready, but its census still pending, is not done.
+  const READY = { state: "ready", detail: null }
+  const censusPending = () => ({ ...automatic.publishing(SINCE), inventory: READY, census: { state: "pending", detail: null } })
+
+  it("active, inventory ready, census pending (stage publishing) -> census ready is discovered with no Refresh, then the refresh stops", async () => {
+    const row = await mount(listing(censusPending()))
+    expect(lineOf(row).textContent).toBe("Publishing inventory and census")
+    const before = lists
+    current = listing(automatic.active(SINCE))
+    await tick(4_500)
+    await waitFor(() => expect(lineOf(rowNow()).textContent).toBe("Data active"))
+    expect(lists).toBeGreaterThan(before)
+    const settled = lists
+    await tick(12_000)
+    expect(lists).toBe(settled)
+    expect(posts).toHaveLength(0)
+  })
+
+  it("census held (a named hold) with the data on and its inventory ready: the refresh stops", async () => {
+    await mount(listing({ ...automatic.active(SINCE), census: { state: "held", detail: ["CENSUS_STOPPED"] } }))
+    await waitFor(() => expect(lists).toBeGreaterThan(0))
+    const settled = lists
+    await tick(12_000)
+    expect(lists).toBe(settled)
+  })
+
   it.each([
     ["refused", legacy(SINCE, { request: pendingRequest("refused", SINCE, { completed_at: SINCE, outcome: "not_ready", refusals: ["acceptance_not_current"] }) })],
     ["held", automatic.held(SINCE, ["acceptance_not_current"])],
@@ -452,6 +479,10 @@ describe("the page's refresh runs through approval, activation and publication, 
     const polled = (activation: DataActivation, now = NOW) => accountNeedsPolling({ ...row, data_activation: activation } as any, now)
     for (const stage of ["staging", "checking", "activating", "publishing"] as const) expect(polled(automatic[stage](SINCE))).toBe(true)
     expect(polled({ ...automatic.active(SINCE), inventory: { state: "pending", detail: null } })).toBe(true)
+    expect(polled({ ...automatic.active(SINCE), census: { state: "pending", detail: null } })).toBe(true)
+    expect(polled({ ...automatic.active(SINCE), census: { state: "a_state_this_page_does_not_know", detail: null } })).toBe(true)
+    expect(polled({ ...automatic.active(SINCE), census: { state: "held", detail: ["CENSUS_STOPPED"] } })).toBe(false)
+    expect(polled({ ...automatic.active(SINCE), inventory: { state: "held", detail: null }, census: { state: "pending", detail: null } })).toBe(true)
     expect(polled(automatic.active(SINCE))).toBe(false)
     expect(polled(automatic.held(SINCE, ["acceptance_not_current"]))).toBe(false)
     expect(polled(legacy(SINCE))).toBe(false)

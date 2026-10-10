@@ -378,14 +378,22 @@ export function dataActivationLine(
   }
 }
 
-/** Data on AND its inventory ready: the only success that ends the page's refresh (an older backend reports no inventory). */
+/** An account publication that will not change on its own: ready, or held (a named hold). One the backend does not report
+ *  (an older backend) has nothing to wait for; pending, or a state this page does not know, is still on its way. */
+function publicationSettled(publication: DataPublicationState | null | undefined): boolean {
+  return !publication || publication.state === "ready" || publication.state === "held"
+}
+
+/** Data on AND BOTH required account publications -- inventory and census -- settled (ready, or a named hold): only then
+ *  does nothing more happen on its own, and the page's refresh ends. A census still pending keeps it going (Codex P2 on
+ *  0b2042ed: active + inventory ready + census pending stopped the refresh, and census readiness was never discovered). */
 function dataActivationSucceeded(activation: DataActivation): boolean {
-  return activation.active === true && (activation.inventory ? activation.inventory.state === "ready" : true)
+  return activation.active === true && publicationSettled(activation.inventory) && publicationSettled(activation.census)
 }
 
 /**
  * A stage in which the page keeps re-reading the list, bounded by DATA_ACTIVATION_STAGE_BOUND_MS: Cyntro is still moving the
- * data (collecting through publishing, or active with its inventory not ready yet), a request is queued or being checked, or
+ * data (collecting through publishing, or active with its inventory or census not settled yet), a request is queued or being checked, or
  * (an older backend) a request was approved and the data is not active yet. A hold, a refusal, an account awaiting consent,
  * a removal and an unknown stage are settled: nothing more happens on its own.
  */
@@ -409,10 +417,10 @@ function dataActivationSince(activation: DataActivation): number | null {
 }
 
 /**
- * How long one stage may stay unchanged while the page keeps refreshing it. The backend reports no measured cadence for its
- * processing passes, and the confirmation promises only "usually within minutes": a stage still unchanged after 30 minutes
- * is past that by any reading, so the page stops refreshing and says so ("taking longer than expected") rather than spinning
- * on a request nobody is processing. Counted from the backend's own stage_since, so a reload does not restart it.
+ * How long one stage may stay unchanged while the page keeps refreshing it. End-to-end timing has not been measured and the
+ * page promises no duration; 30 minutes per stage is a cap on automatic re-reading (at most ~450 list reads at the page's
+ * 4-second refresh), after which the page stops and says so ("taking longer than expected") rather than spinning on a stage
+ * nothing is moving. Counted from the backend's own stage_since, so a reload does not restart it.
  */
 export const DATA_ACTIVATION_STAGE_BOUND_MS = 30 * 60 * 1000
 

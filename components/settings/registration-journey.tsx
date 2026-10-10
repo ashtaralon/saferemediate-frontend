@@ -197,8 +197,8 @@ export function RegistrationJourney({
 /**
  * The operator's explicit, INFORMED confirmation of the check they are looking at: the account ID, the name AWS holds (or why
  * it was not read) and everything confirming starts -- collecting, checking and, if the checks pass, showing the account's
- * data (automatic onboarding, Alon 2026-10-10) -- sent with ACTIVATION_CONSENT. No duration is promised beyond "usually
- * within minutes": the backend has measured none. The check is read again from the wall clock at the click; a check that is
+ * data (automatic onboarding, Alon 2026-10-10) -- sent with ACTIVATION_CONSENT. No duration is promised: end-to-end timing
+ * has not been measured, so the page offers to show each step instead. The check is read again from the wall clock at the click; a check that is
  * no longer confirmable sends nothing.
  */
 function ConfirmActivationDialog({
@@ -257,7 +257,7 @@ function ConfirmActivationDialog({
             <li>Cyntro turns reading on, collects this account&apos;s inventory, checks it, and, if the checks pass, shows its data: inventory, census and systems. If a check does not pass, nothing is shown and this page names why.</li>
             <li>Read only: nothing in the AWS account changes.</li>
             <li>The decision is recorded under your name.</li>
-            <li>Its data usually appears within minutes after collection finishes. This page shows each step on the way.</li>
+            <li>You can follow each step here: collecting, checking, turning the data on, publishing.</li>
           </ul>
           {stale ? (
             <p role="alert" data-testid="confirm-stale" className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-700">

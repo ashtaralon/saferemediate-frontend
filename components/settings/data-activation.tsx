@@ -141,7 +141,8 @@ export function DataActivationStatus({
 /**
  * A legacy or revoked account's request to show its data, after saying plainly what it does: why its data is not shown
  * (connected for collection only, or its permit revoked); Cyntro checks it and its latest acceptance run and, if they pass,
- * shows it (read only); the decision is recorded under the person's name; it usually takes minutes, on a processing pass.
+ * shows it (read only); the decision is recorded under the person's name; it is not instant, and each step can be followed
+ * here (no duration is promised: end-to-end timing has not been measured).
  */
 function ShowDataDialog({
   account,
@@ -195,7 +196,7 @@ function ShowDataDialog({
             <li>If they pass, Cyntro shows its data: inventory, census and systems. If they do not, nothing is shown and this page names why.</li>
             <li>Read only: nothing in the AWS account changes.</li>
             <li>The decision is recorded under your name.</li>
-            <li>It usually takes minutes, on Cyntro&apos;s next processing pass. It is not instant.</li>
+            <li>It is not instant. You can follow each step here: checking, turning the data on, publishing.</li>
           </ul>
           {notRequestable ? (
             <div role="alert" data-testid="show-data-not-requestable" className="space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
