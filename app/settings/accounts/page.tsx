@@ -1,5 +1,6 @@
 "use client"
 
+import { DiscoveryRowStatus } from "@/components/accounts/discovery-row-status"
 import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import {
@@ -28,6 +29,8 @@ import { OrganizationAccountPicker, useOrganizationDiscovery } from "@/component
 import { FirstCollectionStatus, RegistrationJourney } from "@/components/settings/registration-journey"
 import { OffboardAccount } from "@/components/settings/offboard-account"
 import { DataActivationStatus, type DataActivationAnswer } from "@/components/settings/data-activation"
+import { DeepEvidenceGroup } from "@/components/settings/deep-evidence"
+import { BASIC_INVENTORY_SHOWN, type CoverageState } from "@/lib/account-resources"
 import { AddAccountStackStep, useInstallationStack } from "@/components/settings/add-account-stack-step"
 import { useAccountScope } from "@/lib/account-scope-context"
 import { COVERAGE_PAGE_PATH, READY_MEANS_OPERATIONAL, coveragePageHref } from "@/lib/observation-coverage"
@@ -693,6 +696,8 @@ export default function AccountSettingsPage() {
                   checking={validating === account.account_id || Boolean(checks[account.account_id]) || account.pending_request?.action === "validate"}
                   journey={journeyFor(account)}
                   dataActivation={dataActivationFor(account)}
+                  discoveryCustomerId={customerId && !account.is_platform_account && account.onboarding_status === "CONNECTED"
+                    ? customerId : null}
                   offboard={offboardFor(account)}
                   onConnect={() => setConnectFor(account.account_id)}
                   onCheck={() => void validate(account.account_id)}
@@ -818,6 +823,7 @@ function MemberAccountRow({
   checking,
   journey,
   dataActivation,
+  discoveryCustomerId,
   offboard,
   onConnect,
   onCheck,
@@ -829,6 +835,8 @@ function MemberAccountRow({
   journey: React.ReactNode
   /** A member account's data activation (its progress, Activate data, or why it cannot be asked for), or null. */
   dataActivation?: React.ReactNode
+  /** A connected member account's basic resource discovery is read for this customer (null: not read). */
+  discoveryCustomerId?: string | null
   /** Remove an activated account (offboard), or null when it is not offered. */
   offboard?: React.ReactNode
   onConnect: () => void
@@ -843,6 +851,12 @@ function MemberAccountRow({
   const summary = account.onboarding_status === "CONNECTED" ? discoverySummary(account.sources) : null
   const caveats = account.onboarding_status === "CONNECTED" ? discoveryCaveats(account.sources) : []
   const pending = account.pending_request
+  // A current registration's basic inventory being shown makes its Resources line the row's inventory status; the older
+  // pipeline's lines are then its deep evidence (components/settings/deep-evidence.tsx). Without one: exactly as before.
+  const [basicShown, setBasicShown] = useState(false)
+  const onCoverage = useCallback((state: CoverageState | null) => setBasicShown(state !== null && BASIC_INVENTORY_SHOWN.has(state)), [])
+  const basic = basicShown && Boolean(discoveryCustomerId) && !platform
+  const deepLines = !platform ? <><FirstCollectionStatus account={account} />{dataActivation}</> : null
   return (
     <div data-testid={`account-row-${account.account_id}`} className={`grid ${columns} items-start gap-3 border-b border-slate-100 px-5 py-4 last:border-b-0 hover:bg-slate-50/70`}>
       <div className="min-w-0">
@@ -901,8 +915,9 @@ function MemberAccountRow({
         {caveats.map((caveat) => <p key={caveat} className="text-[11px] text-amber-800">{caveat}</p>)}
         <AccountCoverageChips accountId={account.account_id} coverage={account.coverage} regionsNotServed={account.regions_not_served} />
         {journey}
-        {!platform ? <FirstCollectionStatus account={account} /> : null}
-        {!platform ? dataActivation : null}
+        {!platform && discoveryCustomerId
+          ? <DiscoveryRowStatus accountId={account.account_id} customerId={discoveryCustomerId} onCoverage={onCoverage} /> : null}
+        {basic ? <DeepEvidenceGroup accountId={account.account_id}>{deepLines}</DeepEvidenceGroup> : deepLines}
         {pending ? (
           <p className="inline-flex items-center gap-1 text-[11px] text-slate-500">
             <Loader2 className="h-3 w-3 animate-spin" aria-hidden />

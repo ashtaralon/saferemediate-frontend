@@ -355,6 +355,7 @@
           "ec2:DescribeInstances"
         ]
       }
-    ]
+    ],
+    "retry": null
   }
 }

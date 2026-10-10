@@ -7,7 +7,9 @@
  * written to the contract (fixtures/data-activation.pending-captures.ts) because the backend that produces it is being built
  * now. Replace them with the backend's committed captures when they land, and rename this file.
  */
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/account-scope-context", () => ({
@@ -66,6 +68,9 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
 }
 
+/** The account's basic-discovery status answer (GET /api/proxy/accounts/{id}/discovery); none: the default 404. */
+let discoveryAnswer: unknown = null
+
 async function mount(body: Record<string, any>, answer?: (url: string) => Response, now = NOW) {
   vi.useFakeTimers({ shouldAdvanceTime: true, now })
   current = body
@@ -79,6 +84,7 @@ async function mount(body: Record<string, any>, answer?: (url: string) => Respon
       lists += 1
       return json(current)
     }
+    if (url === `/api/proxy/accounts/${MEMBER}/discovery` && method === "GET" && discoveryAnswer) return json(discoveryAnswer)
     if (method === "POST") {
       posts.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined })
       return answer ? answer(url) : json({ detail: "no answer set" }, 500)
@@ -97,6 +103,10 @@ const dialogName = `Show data from prod-payments (${MEMBER})?`
 const tick = async (ms: number) => { await act(async () => { await vi.advanceTimersByTimeAsync(ms) }) }
 
 afterEach(() => {
+  // Unmount while the fetch stub and fake timers are still in place: a row's pending effect (its discovery status read) is
+  // flushed into the stub, never into a real request after the stub is gone.
+  cleanup()
+  discoveryAnswer = null
   vi.useRealTimers()
   vi.unstubAllGlobals()
 })
@@ -509,5 +519,46 @@ describe("the words and the refusal shape", () => {
     expect(dataActivationAlreadyRequested({ detail: { code: "ACTIVATION_ALREADY_REQUESTED", request_id: "r", status: "running" } }))
       .toEqual({ status: "running" })
     expect(dataActivationAlreadyRequested({ detail: { code: "ACTIVATION_NOT_REQUESTABLE", blocked_by: [] } })).toBeNull()
+  })
+})
+
+describe("a current registration's basic inventory beside the deep pipeline (row composition)", () => {
+  /** The producer's discovery capture (backend tests/fixtures/account_resources_captures) with account_id set to this row's. */
+  const discovery = (name: string) => {
+    const file = JSON.parse(readFileSync(resolve(process.cwd(), `__tests__/fixtures/account-resources/${name}.json`), "utf8"))
+    return { ...file.body, account_id: MEMBER }
+  }
+  const MISLEADING = /First inventory|First collection|data cannot be shown|Inventory: not collected|Inventory only/
+
+  it.each([
+    ["held (acceptance / Systems)", automatic.held(SINCE, ["acceptance_not_current", "a_hold_this_page_does_not_know:x"]), "HELD", null],
+    ["publishing", automatic.publishing(SINCE), "PUBLISHING", "Publishing the deep inventory and census"],
+  ] as const)("basic rows shown while the deep stage is %s: Resources is the inventory line; the rest is labelled deep evidence",
+    async (_stage, activation, kind, line) => {
+      discoveryAnswer = discovery("discovery_complete_with_gaps")
+      const row = await mount(listing(activation))
+      const deep = await within(row).findByTestId(`deep-evidence-${MEMBER}`)
+      const resources = within(row).getByTestId(`discovery-row-${MEMBER}`)
+      expect(resources.textContent).toContain("Resources: 7 resources found · finished with 0 gaps")
+      expect(resources.compareDocumentPosition(deep) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(within(row).getByRole("link", { name: `Inventory of ${MEMBER}` })).toBeTruthy()
+      // The deep pipeline is still said in full -- its stage, a hold's every code verbatim -- under its own label.
+      expect(deep.textContent).toContain("Deep evidence (enrichment) · the Resources line above is this account's inventory")
+      expect(within(deep).getByTestId(`data-stage-${MEMBER}`)).toHaveAttribute("data-kind", kind)
+      if (kind === "HELD") expect(within(deep).getByTestId(`data-stage-codes-${MEMBER}`).textContent).toContain("a_hold_this_page_does_not_know:x")
+      if (line) expect(lineOf(row).textContent).toBe(line)
+      expect(within(deep).getByTestId(`first-collection-${MEMBER}`).textContent).toMatch(/^Deep evidence collected: /)
+      // Nothing on the row implies the Inventory is hidden or not collected.
+      expect(row.textContent).not.toMatch(MISLEADING)
+    })
+
+  it("a basic run held by its authority (reads revoked) keeps the row as before: the revocation is said as it is", async () => {
+    discoveryAnswer = discovery("discovery_held_account_removed")
+    const row = await mount(listing({ ...automatic.held(SINCE, []), stage: "awaiting_consent", stage_detail: [], can_request: true,
+      permit_revoked_at: new Date(NOW - 30_000).toISOString() }))
+    expect((await within(row).findByTestId(`discovery-row-${MEMBER}`)).textContent).toBe("Resources: held (ACCOUNT_REMOVED)")
+    expect(within(row).queryByTestId(`deep-evidence-${MEMBER}`)).toBeNull()
+    expect(lineOf(row).textContent).toBe("Data access was revoked — confirm again to show this account's data")
+    expect(within(row).getByTestId(`first-collection-${MEMBER}`).textContent).toMatch(/^First inventory collected: /)
   })
 })

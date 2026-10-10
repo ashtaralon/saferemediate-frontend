@@ -27,6 +27,7 @@ import {
   type DataActivationRefresh,
   type ManagedAccount,
 } from "@/lib/account-admin"
+import { useDeepEvidence } from "@/components/settings/deep-evidence"
 
 /** What the page's POST came back with: accepted (queued), refused as not requestable (its blockers), or failed (the page
  *  says why in its own error banner). */
@@ -74,6 +75,7 @@ const IN_FLIGHT = new Set(["COLLECTING", "STAGING", "CHECKING", "ACTIVATING", "P
  *  action: the Overview shows this; Settings adds the legacy request beside it. Null when there is nothing to say. */
 export function DataStageLine({ account }: { account: ManagedAccount }) {
   const refresh = useRefreshState(account)
+  const deep = useDeepEvidence()
   if (account.is_platform_account || !account.data_activation || collectionNotStarted(account)) return null
   const line = dataActivationLine(account)
   if (!line) return null
@@ -88,7 +90,7 @@ export function DataStageLine({ account }: { account: ManagedAccount }) {
         {line.kind === "ACTIVE" ? <CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
           : line.kind === "HELD" || line.kind === "REFUSED" ? <XCircle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
           : IN_FLIGHT.has(line.kind) && !overdue ? <Loader2 className="mt-0.5 h-3 w-3 shrink-0 animate-spin" aria-hidden /> : null}
-        {line.text}
+        {deep && line.kind === "PUBLISHING" ? "Publishing the deep inventory and census" : line.text}
       </p>
       {line.codes.length ? <CodeList codes={line.codes} testid={`data-stage-codes-${id}`} /> : null}
       {overdue ? (
@@ -109,6 +111,7 @@ export function DataActivationStatus({
   onRequest: () => Promise<DataActivationAnswer>
 }) {
   const [open, setOpen] = useState(false)
+  const deep = useDeepEvidence()
   const activation = account.data_activation
   if (account.is_platform_account || !activation || collectionNotStarted(account)) return null
   const id = account.account_id
@@ -129,7 +132,7 @@ export function DataActivationStatus({
       ) : null}
       {blocked ? (
         <div data-testid={`data-activation-blocked-${id}`} className="space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-2 text-amber-900">
-          <p className="inline-flex items-center gap-1 font-semibold"><AlertTriangle className="h-3 w-3" aria-hidden />Its data cannot be shown yet:</p>
+          <p className="inline-flex items-center gap-1 font-semibold"><AlertTriangle className="h-3 w-3" aria-hidden />{deep ? "Its deep evidence cannot be shown yet:" : "Its data cannot be shown yet:"}</p>
           <CodeList codes={blockedBy} testid={`data-activation-blocked-codes-${id}`} />
         </div>
       ) : null}

@@ -5,7 +5,7 @@
  * b7a01033 (__tests__/fixtures/settings-c-producer/README.md); nothing is hand-written. The page sends only the requests
  * asserted here, each naming exactly the registration and version the row shows.
  */
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/account-scope-context", () => ({
@@ -106,6 +106,9 @@ const at = (capture: Capture) => Date.parse(capture.captured_at)
 const step = (row: HTMLElement) => within(row).getByTestId(`registration-step-${MEMBER}`)
 
 afterEach(() => {
+  // Unmount while the fetch stub and fake timers are still in place: a row's pending effect (its discovery status read) is
+  // flushed into the stub, never into a real request after the stub is gone.
+  cleanup()
   vi.useRealTimers()
   vi.unstubAllGlobals()
 })

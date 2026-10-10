@@ -29,6 +29,7 @@ import {
   type RegistrationAction,
   type RegistrationStep,
 } from "@/lib/account-admin"
+import { deepEvidenceText, useDeepEvidence } from "@/components/settings/deep-evidence"
 
 /**
  * The step judged by the CURRENT wall clock on every render -- a row the producer changed since mount (a new check result
@@ -343,6 +344,7 @@ function RemoveAccount({ account, busy, onRemove }: { account: ManagedAccount; b
  * dated, never "live".
  */
 export function FirstCollectionStatus({ account }: { account: ManagedAccount }) {
+  const deep = useDeepEvidence()
   const activated = Boolean(account.registration?.activation)
   const connectedLifecycle = ["AWAITING_CONNECTION", "CONNECTION_FAILED", "CONNECTED"].includes(account.onboarding_status)
   // Progress is the CURRENT registration's only: a first inventory naming an earlier registration is never counted here.
@@ -358,11 +360,13 @@ export function FirstCollectionStatus({ account }: { account: ManagedAccount }) 
     <div className="space-y-1">
       {first ? (
         <p data-testid={`first-collection-${account.account_id}`} data-source={fromRuns ? "runs" : "dispatch"} className={`text-[11px] ${tone}`}>
-          {first.text}
+          {deep ? deepEvidenceText(first.text) : first.text}
         </p>
       ) : null}
       {fromRuns ? (
-        <p className="text-[11px] text-slate-500">Inventory only: CloudTrail and VPC flow logs are collected on their own schedule and are not part of this status.</p>
+        <p className="text-[11px] text-slate-500">
+          {deep ? "" : "Inventory only: "}CloudTrail and VPC flow logs are collected on their own schedule and are not part of this status.
+        </p>
       ) : null}
       {checked ? <p data-testid={`last-check-${account.account_id}`} className="text-[11px] text-slate-500">{checked}</p> : null}
     </div>

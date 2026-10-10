@@ -22,6 +22,8 @@ export const COVERAGE_STATES = ["NOT_REQUESTED", "HELD", "STARTING", "DISCOVERIN
 export type CoverageState = (typeof COVERAGE_STATES)[number]
 /** Coverage that is still moving: the page refreshes while it lasts. */
 export const LIVE_COVERAGE: ReadonlySet<CoverageState> = new Set(["STARTING", "DISCOVERING"])
+/** The current registration's basic inventory is being shown (moving or finished; never HELD, never not requested). */
+export const BASIC_INVENTORY_SHOWN: ReadonlySet<CoverageState> = new Set(["STARTING", "DISCOVERING", "COMPLETE", "COMPLETE_WITH_GAPS"])
 
 const ACCOUNT_ID = /^[0-9]{12}$/
 const RESOURCE_KEY = /^k1\.[A-Za-z0-9_-]{1,2800}$/
@@ -64,6 +66,10 @@ export interface DiscoveryStatus {
   gaps: DiscoveryGap[]
   /** The Regions the run enumerated, with the enumeration's own outcome; null before the run froze its plan. */
   plan: { regions: string[]; regionsStatus: string; scopeStates: Record<string, number> } | null
+  /** The run's start message: SENT, or still PENDING with the blocker that held it (null without a run). */
+  dispatch: { state: string; blocker: string | null } | null
+  /** The current run's last Retry request and its answer (null: none for this run, or an older backend). */
+  retry: { status: string; outcome: string | null; detail: string | null } | null
 }
 
 export interface BasicItem {
@@ -203,6 +209,19 @@ export function parseDiscoveryResponse(status: number, body: unknown, accountId:
     types[name] = parsed
   }
   const text = (value: unknown) => (typeof value === "string" ? value : null)
+  let dispatch: DiscoveryStatus["dispatch"] = null
+  if (body.dispatch !== null && body.dispatch !== undefined) {
+    if (!isObject(body.dispatch) || typeof body.dispatch.state !== "string"
+      || (body.dispatch.blocker !== null && body.dispatch.blocker !== undefined && typeof body.dispatch.blocker !== "string")) {
+      return malformed(status)
+    }
+    dispatch = { state: body.dispatch.state, blocker: text(body.dispatch.blocker) }
+  }
+  let retry: DiscoveryStatus["retry"] = null
+  if (body.retry !== null && body.retry !== undefined) {
+    if (!isObject(body.retry) || typeof body.retry.status !== "string") return malformed(status)
+    retry = { status: body.retry.status, outcome: text(body.retry.outcome), detail: text(body.retry.detail) }
+  }
   // A run being shown names its registration and run: the view is bound to them (and remounts when either moves).
   if (coverage !== "NOT_REQUESTED" && coverage !== "HELD" && (!text(body.run_id) || !text(body.registration_id))) {
     return malformed(status)
@@ -211,7 +230,7 @@ export function parseDiscoveryResponse(status: number, body: unknown, accountId:
     kind: "status", coverageState: coverage as CoverageState, complete: body.complete, heldBy: text(body.held_by), types,
     planState: text(body.plan_state), capabilitiesStatus: text(body.capabilities_status), runId: text(body.run_id),
     registrationId: text(body.registration_id), observedTotal: body.observed_total,
-    observedTotalLabel: body.observed_total_label, totalsByType: totals, gaps: parsedGaps, plan,
+    observedTotalLabel: body.observed_total_label, totalsByType: totals, gaps: parsedGaps, plan, dispatch, retry,
   }
 }
 
@@ -334,6 +353,23 @@ export function gapStatusCopy(status: string): string {
     THROTTLED: "Throttled by AWS",
     FAILED: "Could not be listed",
   } as Record<string, string>)[status] ?? status
+}
+
+/** Gaps a retry can repair: a listing refused for access (the customer may have granted it since), throttled, or failed --
+ *  the backend re-opens exactly those of its scopes that committed nothing. A partial listing (rows committed) is not. */
+export const RETRYABLE_GAP_STATUSES: ReadonlySet<string> = new Set(["ACCESS_DENIED", "THROTTLED", "FAILED"])
+
+/** Whether Retry is offered for a run: its start message is held by a named blocker, or it finished with a retryable gap. */
+export function discoveryRetryable(status: DiscoveryStatus): boolean {
+  if (!status.runId || !status.registrationId) return false
+  if (status.dispatch !== null && status.dispatch.state !== "SENT" && status.dispatch.blocker) return true
+  return status.coverageState === "COMPLETE_WITH_GAPS"
+    && status.gaps.some((gap) => gap.resource_type !== "regions" && RETRYABLE_GAP_STATUSES.has(gap.status))
+}
+
+/** The proxied route of a discovery retry (backend POST /api/admin/accounts/{id}/discovery-retry). */
+export function discoveryRetryPath(accountId: string, customerId: string): string {
+  return `/api/proxy/admin/accounts/${encodeURIComponent(accountId)}/discovery-retry?customer_id=${encodeURIComponent(customerId)}`
 }
 
 /** The backend's code for an install whose web has no account registry: it serves no registration, so no discovery run. */
