@@ -223,7 +223,11 @@ function statusLine(status: DiscoveryStatus): string {
   const count = `${plural(n, "resource", "resources")} ${status.observedTotalLabel === "found" ? "found" : "found so far"}`
   if (status.coverageState === "STARTING") return `${count} · Starting discovery`
   if (status.coverageState === "DISCOVERING") return `${count} · Discovering`
-  if (status.coverageState === "COMPLETE") return `${count} · Discovery complete`
+  // COMPLETE: every DECLARED listing succeeded -- complete for the supported resource types, never "every AWS resource".
+  if (status.coverageState === "COMPLETE") {
+    return n === 0 ? "None found in the supported resource types · Discovery complete"
+      : `${count} · Discovery complete for the supported resource types`
+  }
   if (status.coverageState === "COMPLETE_WITH_GAPS") {
     const unread = problemTypes(status).length
     if (n === 0) {
@@ -380,7 +384,7 @@ export function BasicInventoryView({ accountId, accountLabel, status, fetchPage 
           {shown.length === 0 ? (
             <p className="text-sm text-slate-600" role="status" data-testid="basic-empty">
               {live ? "No resources found yet. Discovering…"
-                : status.coverageState === "COMPLETE" ? "None found: every planned listing succeeded and returned nothing."
+                : status.coverageState === "COMPLETE" ? "None found in the supported resource types: every listing succeeded and returned nothing."
                   : "None found in the supported resource types. Other types are not supported yet (see coverage)."}
             </p>
           ) : (

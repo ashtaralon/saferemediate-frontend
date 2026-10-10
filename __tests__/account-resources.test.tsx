@@ -2,7 +2,7 @@
  * Basic resource discovery in the Inventory: the strict readers of account_discovery/v1 and account_resources/v1, the
  * adapter onto the existing table and drawer, the per-registration reader switch, the live BASIC view and the proxies.
  *
- * Answers are the PRODUCER's captures (backend commit c8add1bc9d1240318f8bacd4ca88b0acc5d95292,
+ * Answers are the PRODUCER's captures (backend commit a2940ef9dbf1faba61c02f34ec6b85e08fea6a11,
  * tests/cyntro_data/test_account_resources_api.py; each fixture's _provenance; byte-equal to that commit's), delivered by
  * fetchers that return them -- mutated only where a case says so (another account's or registration's identity, or a
  * robustness case the producer never emits).
@@ -470,15 +470,16 @@ describe("an absence is claimed only where it was proved", () => {
     expect(emptyPageCopy("type_unsupported", null)).toBe("This resource type is not supported yet: Cyntro does not list it.")
   })
 
-  it("a type listed with nothing is proved empty; the account is not claimed empty", async () => {
+  it("every declared listing read and found nothing: proved empty -- for the supported resource types only", async () => {
     const status = parseDiscoveryResponse(200, capture("discovery_listed_empty").body, ACCOUNT) as
       DiscoveryStatus & { registrationId: string; runId: string }
     render(<BasicInventoryView accountId={ACCOUNT} accountLabel={ACCOUNT} status={status}
       fetchPage={async () => capture("resources_type_listed_empty")} />)
     expect(screen.getByTestId("discovery-status").textContent).toContain(
-      "None found in the supported resource types · Discovery finished · other types are not supported yet")
+      "None found in the supported resource types · Discovery complete")
     expect(screen.getByTestId("basic-empty").textContent).toBe(
-      "None found in the supported resource types. Other types are not supported yet (see coverage).")
+      "None found in the supported resource types: every listing succeeded and returned nothing.")
+    expect(screen.getByTestId("basic-inventory").textContent).not.toMatch(/every AWS|all AWS resource/i)
     const typed = parseResourcesResponse(200, capture("resources_type_listed_empty").body, ACCOUNT, "ec2:instance")
     expect(typed.kind === "page" && emptyPageCopy(typed.state as never, typed.typeState)).toBe(
       "None: every place this was listed returned nothing.")

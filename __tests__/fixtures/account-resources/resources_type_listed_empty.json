@@ -18,7 +18,7 @@
     "reason_code": null,
     "registration_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "run_id": "33455e90b43f4c8d786663070ae62c5e",
-    "coverage_state": "COMPLETE_WITH_GAPS",
+    "coverage_state": "COMPLETE",
     "complete": true,
     "observed_total": 0,
     "observed_total_label": "found",

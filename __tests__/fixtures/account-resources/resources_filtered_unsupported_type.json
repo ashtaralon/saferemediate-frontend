@@ -5,7 +5,7 @@
       "method": "GET",
       "path": "/api/accounts/333333333333/resources",
       "query": {
-        "resource_type": "elasticloadbalancing:load-balancer"
+        "resource_type": "apigateway:apis"
       }
     },
     "real": "the routes, the browse store and its fenced writer, the registry row, the contract, the person check over installed keys (moto tables)"
@@ -26,7 +26,7 @@
       "ec2:instance": 7
     },
     "filter": {
-      "resource_type": "elasticloadbalancing:load-balancer"
+      "resource_type": "apigateway:apis"
     },
     "type_state": {
       "state": "UNSUPPORTED",

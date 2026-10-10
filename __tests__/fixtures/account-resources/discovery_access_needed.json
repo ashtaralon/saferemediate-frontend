@@ -36,8 +36,7 @@
       "scopes": 59,
       "scope_states": {
         "ACCESS_DENIED": 1,
-        "LISTED": 31,
-        "UNSUPPORTED": 27
+        "LISTED": 58
       },
       "duplicate_receipts": 0,
       "unplanned_receipts": 0
@@ -48,17 +47,17 @@
     "totals_by_type": {},
     "types": {
       "apigateway:apis": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "apigateway:restapis": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "autoscaling:autoscalinggroup": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
@@ -68,7 +67,7 @@
         "missing_actions": []
       },
       "dynamodb:table": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
@@ -180,7 +179,7 @@
         "missing_actions": []
       },
       "ecr:repository": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
@@ -200,57 +199,57 @@
         "missing_actions": []
       },
       "eks:cluster": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "elasticache:cluster": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "elasticache:replicationgroup": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "elasticfilesystem:file-system": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "elasticloadbalancing:listener": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "elasticloadbalancing:load-balancer": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "elasticloadbalancing:loadbalancer": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "elasticloadbalancing:target-group": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "es:domain": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "events:event-bus": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "events:rule": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
@@ -280,32 +279,32 @@
         "missing_actions": []
       },
       "kinesis:stream": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "kms:key": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "lambda:function": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "logs:log-group": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "rds:db-cluster": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "rds:db-instance": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
@@ -320,64 +319,32 @@
         "missing_actions": []
       },
       "s3express:bucket": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "secretsmanager:secret": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "sns:topic": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "sqs:queue": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "states:statemachine": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       }
     },
     "gaps": [
-      {
-        "resource_type": "apigateway:apis",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "apigateway:restapis",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "autoscaling:autoscalinggroup",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "dynamodb:table",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
       {
         "resource_type": "ec2:instance",
         "status": "ACCESS_DENIED",
@@ -387,190 +354,6 @@
         "missing_actions": [
           "ec2:DescribeInstances"
         ]
-      },
-      {
-        "resource_type": "ecr:repository",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "eks:cluster",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "elasticache:cluster",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "elasticache:replicationgroup",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "elasticfilesystem:file-system",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "elasticloadbalancing:listener",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "elasticloadbalancing:load-balancer",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "elasticloadbalancing:loadbalancer",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "elasticloadbalancing:target-group",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "es:domain",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "events:event-bus",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "events:rule",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "kinesis:stream",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "kms:key",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "lambda:function",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "logs:log-group",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "rds:db-cluster",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "rds:db-instance",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "s3express:bucket",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "secretsmanager:secret",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "sns:topic",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "sqs:queue",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "states:statemachine",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
       }
     ]
   }
