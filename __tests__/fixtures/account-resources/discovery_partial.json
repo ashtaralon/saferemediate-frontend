@@ -35,9 +35,9 @@
       "regions_status": "LISTED",
       "scopes": 59,
       "scope_states": {
-        "LISTED": 28,
+        "LISTED": 31,
         "PARTIAL": 1,
-        "UNSUPPORTED": 30
+        "UNSUPPORTED": 27
       },
       "duplicate_receipts": 0,
       "unplanned_receipts": 0
@@ -185,17 +185,17 @@
         "missing_actions": []
       },
       "ecs:cluster": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "ecs:service": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "ecs:task": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
@@ -388,30 +388,6 @@
       },
       {
         "resource_type": "ecr:repository",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "ecs:cluster",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "ecs:service",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "ecs:task",
         "status": "UNSUPPORTED",
         "regions": [
           "eu-west-1"

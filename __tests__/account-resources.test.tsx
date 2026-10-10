@@ -2,7 +2,7 @@
  * Basic resource discovery in the Inventory: the strict readers of account_discovery/v1 and account_resources/v1, the
  * adapter onto the existing table and drawer, the per-registration reader switch, the live BASIC view and the proxies.
  *
- * Answers are the PRODUCER's captures (backend commit 503f33e73a79f0ae53a8dd499cccf02f562d4968,
+ * Answers are the PRODUCER's captures (backend commit c8add1bc9d1240318f8bacd4ca88b0acc5d95292,
  * tests/cyntro_data/test_account_resources_api.py; each fixture's _provenance; byte-equal to that commit's), delivered by
  * fetchers that return them -- mutated only where a case says so (another account's or registration's identity, or a
  * robustness case the producer never emits).
@@ -29,7 +29,7 @@ type Name = "discovery_no_plan_yet" | "discovery_complete_with_gaps" | "resource
   | "resources_discovering_page2" | "resources_filtered_ecs_task" | "resources_held_account_removed" | "resource_drawer"
   | "discovery_access_needed" | "resources_empty_unproven_access_denied" | "resources_type_unreadable_access_denied"
   | "discovery_held_account_removed" | "discovery_listed_empty" | "resources_type_listed_empty" | "discovery_partial"
-  | "resources_type_partial"
+  | "resources_type_partial" | "resources_filtered_unsupported_type"
 
 function capture(name: Name): { status: number; body: Record<string, any> } {
   const file = JSON.parse(readFileSync(resolve(process.cwd(), "__tests__/fixtures/account-resources", `${name}.json`), "utf8"))
@@ -46,7 +46,8 @@ describe("the strict readers", () => {
     const done = parseDiscoveryResponse(200, capture("discovery_complete_with_gaps").body, ACCOUNT) as DiscoveryStatus
     expect([done.coverageState, done.complete, done.observedTotalLabel, done.totalsByType]).toEqual(
       ["COMPLETE_WITH_GAPS", true, "found", { "ec2:instance": 7 }])
-    expect(done.gaps.find((gap) => gap.resource_type === "ecs:task")?.status).toBe("UNSUPPORTED")
+    const unshipped = capture("resources_filtered_unsupported_type").body.filter.resource_type
+    expect(done.gaps.find((gap) => gap.resource_type === unshipped)?.status).toBe("UNSUPPORTED")
   })
 
   it("never accepts a COMPLETE run without its plan, another account's answer, or a malformed count", () => {
@@ -463,7 +464,8 @@ describe("an absence is claimed only where it was proved", () => {
   })
 
   it("an unsupported type is not supported, never empty", () => {
-    const page = parseResourcesResponse(200, capture("resources_filtered_ecs_task").body, ACCOUNT, "ecs:task")
+    const body = capture("resources_filtered_unsupported_type").body
+    const page = parseResourcesResponse(200, body, ACCOUNT, body.filter.resource_type)
     expect(page.kind === "page" && [page.state, page.typeState?.state]).toEqual(["type_unsupported", "UNSUPPORTED"])
     expect(emptyPageCopy("type_unsupported", null)).toBe("This resource type is not supported yet: Cyntro does not list it.")
   })

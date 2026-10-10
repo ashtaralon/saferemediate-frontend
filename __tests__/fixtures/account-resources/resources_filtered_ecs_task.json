@@ -14,7 +14,7 @@
   "body": {
     "schema_version": "account_resources/v1",
     "account_id": "333333333333",
-    "state": "type_unsupported",
+    "state": "complete_empty",
     "reason_code": null,
     "registration_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "run_id": "33455e90b43f4c8d786663070ae62c5e",
@@ -29,7 +29,7 @@
       "resource_type": "ecs:task"
     },
     "type_state": {
-      "state": "UNSUPPORTED",
+      "state": "LISTED",
       "found": 0,
       "missing_actions": []
     },
