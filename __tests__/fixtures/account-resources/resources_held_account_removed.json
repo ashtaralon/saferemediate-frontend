@@ -1,0 +1,20 @@
+{
+  "_provenance": {
+    "harness": "tests/cyntro_data/test_account_resources_api.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/accounts/333333333333/resources",
+      "query": {}
+    },
+    "real": "the routes, the browse store and its fenced writer, the registry row, the contract, the person check over installed keys (moto tables)"
+  },
+  "status": 200,
+  "body": {
+    "schema_version": "account_resources/v1",
+    "account_id": "333333333333",
+    "state": "held",
+    "reason_code": "ACCOUNT_REMOVED",
+    "items": [],
+    "next_cursor": null
+  }
+}

@@ -15,6 +15,7 @@
  */
 import { useCallback, useEffect, useState } from "react"
 import { Loader2 } from "lucide-react"
+import { BasicInventoryView, useDiscoveryStatus } from "@/components/accounts/basic-inventory-view"
 import { DeclarableAccountInventory } from "@/components/system-boundary/declarable-account-inventory"
 import { useAccountScope } from "@/lib/account-scope-context"
 import {
@@ -92,8 +93,29 @@ export function AccountInventoryGate({ accountId, listing }: { accountId: string
     if (!listing.account && listing.removed) return <RemovedAccountNotice removed={listing.removed} />
     if (listing.account && collectionNotStarted(listing.account)) return <InventoryNotCollected />
   }
+  return <InventorySource accountId={accountId} account={listing.state === "ready" ? listing.account : null} />
+}
+
+/**
+ * Which reader shows this account's inventory -- per REGISTRATION (basic resource discovery's rollout): a registration whose
+ * confirmation started a discovery run reads its live BASIC listing (account_resources/v1); any other answer -- no run
+ * (NOT_REQUESTED), a backend without the route, a refusal -- keeps the published inventory reader, exactly as before.
+ */
+export function InventorySource({ accountId, account }: { accountId: string; account: ManagedAccount | null }) {
+  const { status } = useDiscoveryStatus(accountId)
+  if (status.kind === "loading") {
+    return (
+      <p className="flex items-center gap-2 text-sm text-slate-500">
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading the inventory…
+      </p>
+    )
+  }
+  if (status.kind === "status" && status.coverageState !== "NOT_REQUESTED") {
+    const label = account?.display_name && account.display_name !== accountId ? `${account.display_name} (${accountId})` : accountId
+    return <BasicInventoryView accountId={accountId} accountLabel={label} status={status} />
+  }
   // The listed row (when there is one) lets the inventory and census say a not-yet-shown answer from the data's real stage.
-  return <DeclarableAccountInventory accountId={accountId} account={listing.state === "ready" ? listing.account : null} />
+  return <DeclarableAccountInventory accountId={accountId} account={account} />
 }
 
 /** /accounts/{accountId}/inventory: the same gate over its own listing read. */

@@ -134,8 +134,15 @@ export interface ManagedAccount {
 // none) still needs a separate request to show its data (POST /{account_id}/activate-data). Every value below is the
 // backend's (the listing's `data_activation`); this page only says it, and never says a stage it was not told.
 
-/** What the informed confirmation consents to, sent with the confirm's POST /{account_id}/activate. */
-export const ACTIVATION_CONSENT = { consent: "collect_and_show", consent_version: "v2" } as const
+/** What the informed confirmation consents to, sent with the confirm's POST /{account_id}/activate: collecting and showing the
+ *  account's data once its checks pass (collect_and_show/v2), and -- basic resource discovery -- listing its resources at once
+ *  in every currently enabled AWS Region plus global resources (discover_resources/v1, backend consent.py). */
+export const ACTIVATION_CONSENT = {
+  consent: "collect_and_show",
+  consent_version: "v2",
+  discovery_consent: "discover_resources",
+  discovery_consent_version: "v1",
+} as const
 
 export type DataActivationRequestStatus = "queued" | "running" | "completed" | "refused"
 

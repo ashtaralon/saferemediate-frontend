@@ -11,6 +11,7 @@ import { X } from "lucide-react"
 import { InventoryTypeTile } from "@/components/accounts/inventory-type-tile"
 import { formatUtcInstantExact } from "@/lib/account-admin"
 import type { InventoryRow } from "@/lib/account-inventory"
+import type { BasicEvidence } from "@/lib/account-resources"
 import { detailLabel, formatDetail, internetFacingFacts } from "@/lib/inventory-details"
 import { inventoryTypeMeta } from "@/lib/inventory-types"
 
@@ -41,11 +42,14 @@ export function InventoryResourceDrawer({
   row,
   accountLabel,
   onClose,
+  basic,
 }: {
   row: InventoryRow
   /** The account as people know it ("Payments prod (111122223333)"), or its id. */
   accountLabel: string
   onClose: () => void
+  /** A BASIC row (basic resource discovery): observed from AWS, never verified; its details stage as the backend says it. */
+  basic?: BasicEvidence
 }) {
   // Focus moves into the drill-down when it opens, so a keyboard user is in it (and Escape closes it).
   const close = useRef<HTMLButtonElement>(null)
@@ -103,6 +107,13 @@ export function InventoryResourceDrawer({
           </Section>
 
           <Section title="Details">
+            {basic && basic.detailsStatus === "UNSUPPORTED" ? (
+              <p className="mb-1 text-xs text-slate-500" data-testid="basic-details-status">
+                Basic information available · Further details not supported.
+              </p>
+            ) : basic ? (
+              <p className="mb-1 text-xs text-slate-500" data-testid="basic-details-status">Collecting details.</p>
+            ) : null}
             {row.details === undefined ? (
               <p className="text-xs text-slate-500">Details appear after this account&apos;s next inventory publication.</p>
             ) : Object.keys(row.details).length === 0 ? (
@@ -127,7 +138,9 @@ export function InventoryResourceDrawer({
                 {row.tags_withheld.count} tags, not shown ({WITHHELD_TAGS[row.tags_withheld.reason] ?? row.tags_withheld.reason}).
               </p>
             ) : row.tags === undefined ? (
-              <p className="text-xs text-slate-500">Tags are not collected for this resource type.</p>
+              <p className="text-xs text-slate-500">
+                {basic ? "Tags are not read by basic discovery." : "Tags are not collected for this resource type."}
+              </p>
             ) : Object.keys(row.tags).length === 0 ? (
               <p className="text-xs text-slate-500">No tags.</p>
             ) : (
@@ -138,6 +151,14 @@ export function InventoryResourceDrawer({
           </Section>
 
           <Section title="Evidence">
+            {basic ? (
+              <dl data-testid="basic-evidence">
+                <Fact label="Observed" value={`From AWS at ${basic.observedAt ? formatUtcInstantExact(basic.observedAt) : "—"} · Basic discovery`} />
+                <Fact label="Source" value={basic.sourceApi ?? "—"} mono />
+                <Fact label="Verification" value="Not a verified configuration" />
+                <Fact label="Cyntro ID" value={row.resource_uid} mono />
+              </dl>
+            ) : (
             <dl>
               <Fact label="Inventory status" value={row.state} />
               <Fact
@@ -149,6 +170,7 @@ export function InventoryResourceDrawer({
               ) : null}
               <Fact label="Cyntro ID" value={row.resource_uid} mono />
             </dl>
+            )}
           </Section>
         </div>
       </aside>

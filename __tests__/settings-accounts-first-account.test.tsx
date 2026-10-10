@@ -199,7 +199,8 @@ describe("confirmation: the check reached, the operator confirms THAT check", ()
     expect(posts[0]).toEqual({
       url: `/api/proxy/admin/accounts/${MEMBER}/activate?customer_id=${CUSTOMER}`,
       body: { registration_id: registration.registration_id, registration_version: registration.registration_version,
-              check_id: check.check_id, consent: "collect_and_show", consent_version: "v2" },
+              check_id: check.check_id, consent: "collect_and_show", consent_version: "v2",
+              discovery_consent: "discover_resources", discovery_consent_version: "v1" },
     })
   })
 
@@ -291,7 +292,8 @@ describe("a result arriving on the open page is judged by the clock NOW (Codex S
     expect(posts[0].body).toEqual({ registration_id: registration.registration_id,
                                     registration_version: registration.registration_version,
                                     check_id: registration.access_check.check_id,
-                                    consent: "collect_and_show", consent_version: "v2" })
+                                    consent: "collect_and_show", consent_version: "v2",
+                                    discovery_consent: "discover_resources", discovery_consent_version: "v1" })
   })
 
   it("a check recorded ahead of this browser's clock says so, then becomes confirmable on its own", async () => {

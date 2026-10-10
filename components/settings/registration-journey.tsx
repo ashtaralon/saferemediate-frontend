@@ -254,6 +254,7 @@ function ConfirmActivationDialog({
             name is a label the account&apos;s administrators set. Confirm only an account ID you recognise.
           </p>
           <ul data-testid="confirm-informed" className="list-disc space-y-1.5 pl-5">
+            <li data-testid="confirm-discovery">Cyntro starts listing this account&apos;s resources right away, in every currently enabled AWS Region plus global resources. They appear in Inventory as they are found; a type Cyntro cannot read yet, or may not read, is named there.</li>
             <li>Cyntro turns reading on, collects this account&apos;s inventory, checks it, and, if the checks pass, shows its data: inventory, census and systems. If a check does not pass, nothing is shown and this page names why.</li>
             <li>Read only: nothing in the AWS account changes.</li>
             <li>The decision is recorded under your name.</li>

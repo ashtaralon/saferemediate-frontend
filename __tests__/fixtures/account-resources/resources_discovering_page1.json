@@ -1,0 +1,155 @@
+{
+  "_provenance": {
+    "harness": "tests/cyntro_data/test_account_resources_api.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/accounts/333333333333/resources",
+      "query": {
+        "limit": "5"
+      }
+    },
+    "real": "the routes, the browse store and its fenced writer, the registry row, the contract, the person check over installed keys (moto tables)"
+  },
+  "status": 200,
+  "body": {
+    "schema_version": "account_resources/v1",
+    "account_id": "333333333333",
+    "state": "populated",
+    "reason_code": null,
+    "registration_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "run_id": "33455e90b43f4c8d786663070ae62c5e",
+    "coverage_state": "DISCOVERING",
+    "complete": false,
+    "observed_total": 7,
+    "observed_total_label": "found_so_far",
+    "totals_by_type": {
+      "ec2:instance": 7
+    },
+    "filter": {
+      "resource_type": null
+    },
+    "items": [
+      {
+        "resource_key": "k1.YXJuOmF3czplYzI6ZXUtd2VzdC0xOjMzMzMzMzMzMzMzMzppbnN0YW5jZS9pLTAwMDAwMDAwMDAwMDAwMDA1",
+        "resource_type": "ec2:instance",
+        "identity_basis": "derived_arn",
+        "arn": "arn:aws:ec2:eu-west-1:333333333333:instance/i-00000000000000005",
+        "native_id": "i-00000000000000005",
+        "name": "web-5",
+        "name_source": "returned_name_tag",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "provider_state": "running",
+        "summary": {
+          "instance_type": "t3.small"
+        },
+        "depth": "BASIC",
+        "details_status": "UNSUPPORTED",
+        "source_api": "ec2:DescribeInstances",
+        "observed_at": "2026-10-10T12:00:00+00:00",
+        "first_seen_at": "2026-10-10T12:00:00+00:00",
+        "decision_eligibility": {
+          "eligible": false,
+          "reason": "BASIC_ONLY"
+        }
+      },
+      {
+        "resource_key": "k1.YXJuOmF3czplYzI6ZXUtd2VzdC0xOjMzMzMzMzMzMzMzMzppbnN0YW5jZS9pLTAwMDAwMDAwMDAwMDAwMDA0",
+        "resource_type": "ec2:instance",
+        "identity_basis": "derived_arn",
+        "arn": "arn:aws:ec2:eu-west-1:333333333333:instance/i-00000000000000004",
+        "native_id": "i-00000000000000004",
+        "name": "web-4",
+        "name_source": "returned_name_tag",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "provider_state": "running",
+        "summary": {
+          "instance_type": "t3.small"
+        },
+        "depth": "BASIC",
+        "details_status": "UNSUPPORTED",
+        "source_api": "ec2:DescribeInstances",
+        "observed_at": "2026-10-10T12:00:00+00:00",
+        "first_seen_at": "2026-10-10T12:00:00+00:00",
+        "decision_eligibility": {
+          "eligible": false,
+          "reason": "BASIC_ONLY"
+        }
+      },
+      {
+        "resource_key": "k1.YXJuOmF3czplYzI6ZXUtd2VzdC0xOjMzMzMzMzMzMzMzMzppbnN0YW5jZS9pLTAwMDAwMDAwMDAwMDAwMDAw",
+        "resource_type": "ec2:instance",
+        "identity_basis": "derived_arn",
+        "arn": "arn:aws:ec2:eu-west-1:333333333333:instance/i-00000000000000000",
+        "native_id": "i-00000000000000000",
+        "name": "web-0",
+        "name_source": "returned_name_tag",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "provider_state": "running",
+        "summary": {
+          "instance_type": "t3.small"
+        },
+        "depth": "BASIC",
+        "details_status": "UNSUPPORTED",
+        "source_api": "ec2:DescribeInstances",
+        "observed_at": "2026-10-10T12:00:00+00:00",
+        "first_seen_at": "2026-10-10T12:00:00+00:00",
+        "decision_eligibility": {
+          "eligible": false,
+          "reason": "BASIC_ONLY"
+        }
+      },
+      {
+        "resource_key": "k1.YXJuOmF3czplYzI6ZXUtd2VzdC0xOjMzMzMzMzMzMzMzMzppbnN0YW5jZS9pLTAwMDAwMDAwMDAwMDAwMDAy",
+        "resource_type": "ec2:instance",
+        "identity_basis": "derived_arn",
+        "arn": "arn:aws:ec2:eu-west-1:333333333333:instance/i-00000000000000002",
+        "native_id": "i-00000000000000002",
+        "name": "web-2",
+        "name_source": "returned_name_tag",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "provider_state": "running",
+        "summary": {
+          "instance_type": "t3.small"
+        },
+        "depth": "BASIC",
+        "details_status": "UNSUPPORTED",
+        "source_api": "ec2:DescribeInstances",
+        "observed_at": "2026-10-10T12:00:00+00:00",
+        "first_seen_at": "2026-10-10T12:00:00+00:00",
+        "decision_eligibility": {
+          "eligible": false,
+          "reason": "BASIC_ONLY"
+        }
+      },
+      {
+        "resource_key": "k1.YXJuOmF3czplYzI6ZXUtd2VzdC0xOjMzMzMzMzMzMzMzMzppbnN0YW5jZS9pLTAwMDAwMDAwMDAwMDAwMDAx",
+        "resource_type": "ec2:instance",
+        "identity_basis": "derived_arn",
+        "arn": "arn:aws:ec2:eu-west-1:333333333333:instance/i-00000000000000001",
+        "native_id": "i-00000000000000001",
+        "name": "web-1",
+        "name_source": "returned_name_tag",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "provider_state": "running",
+        "summary": {
+          "instance_type": "t3.small"
+        },
+        "depth": "BASIC",
+        "details_status": "UNSUPPORTED",
+        "source_api": "ec2:DescribeInstances",
+        "observed_at": "2026-10-10T12:00:00+00:00",
+        "first_seen_at": "2026-10-10T12:00:00+00:00",
+        "decision_eligibility": {
+          "eligible": false,
+          "reason": "BASIC_ONLY"
+        }
+      }
+    ],
+    "next_cursor": "eyJiIjoidjE6ZjIxZjM2NWMwMTU1MTdhODhkNTM3ZjFiNzQ1OTBiMDlhNGQ0ZjVlZDE3OGNmM2I5YTQwZGY0MDJjZTQzYjJmYSIsImsiOiJSRUcjYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWEjUk9XI2VjMjppbnN0YW5jZSM2MTk4NmZhZTM0ZmUxNDVlM2RjNWY5ZmM0MjdmNjA3ZGE4N2JmOGJjIiwidiI6ImFjY291bnRfcmVzb3VyY2VzL3YxIn0="
+  }
+}

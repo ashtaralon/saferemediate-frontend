@@ -1,0 +1,84 @@
+{
+  "_provenance": {
+    "harness": "tests/cyntro_data/test_account_resources_api.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/accounts/333333333333/resources",
+      "query": {
+        "limit": "5",
+        "cursor": "<page 1 cursor>"
+      }
+    },
+    "real": "the routes, the browse store and its fenced writer, the registry row, the contract, the person check over installed keys (moto tables)"
+  },
+  "status": 200,
+  "body": {
+    "schema_version": "account_resources/v1",
+    "account_id": "333333333333",
+    "state": "populated",
+    "reason_code": null,
+    "registration_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "run_id": "33455e90b43f4c8d786663070ae62c5e",
+    "coverage_state": "DISCOVERING",
+    "complete": false,
+    "observed_total": 7,
+    "observed_total_label": "found_so_far",
+    "totals_by_type": {
+      "ec2:instance": 7
+    },
+    "filter": {
+      "resource_type": null
+    },
+    "items": [
+      {
+        "resource_key": "k1.YXJuOmF3czplYzI6ZXUtd2VzdC0xOjMzMzMzMzMzMzMzMzppbnN0YW5jZS9pLTAwMDAwMDAwMDAwMDAwMDAz",
+        "resource_type": "ec2:instance",
+        "identity_basis": "derived_arn",
+        "arn": "arn:aws:ec2:eu-west-1:333333333333:instance/i-00000000000000003",
+        "native_id": "i-00000000000000003",
+        "name": "web-3",
+        "name_source": "returned_name_tag",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "provider_state": "running",
+        "summary": {
+          "instance_type": "t3.small"
+        },
+        "depth": "BASIC",
+        "details_status": "UNSUPPORTED",
+        "source_api": "ec2:DescribeInstances",
+        "observed_at": "2026-10-10T12:00:00+00:00",
+        "first_seen_at": "2026-10-10T12:00:00+00:00",
+        "decision_eligibility": {
+          "eligible": false,
+          "reason": "BASIC_ONLY"
+        }
+      },
+      {
+        "resource_key": "k1.YXJuOmF3czplYzI6ZXUtd2VzdC0xOjMzMzMzMzMzMzMzMzppbnN0YW5jZS9pLTAwMDAwMDAwMDAwMDAwMDA2",
+        "resource_type": "ec2:instance",
+        "identity_basis": "derived_arn",
+        "arn": "arn:aws:ec2:eu-west-1:333333333333:instance/i-00000000000000006",
+        "native_id": "i-00000000000000006",
+        "name": "web-6",
+        "name_source": "returned_name_tag",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "provider_state": "running",
+        "summary": {
+          "instance_type": "t3.small"
+        },
+        "depth": "BASIC",
+        "details_status": "UNSUPPORTED",
+        "source_api": "ec2:DescribeInstances",
+        "observed_at": "2026-10-10T12:00:00+00:00",
+        "first_seen_at": "2026-10-10T12:00:00+00:00",
+        "decision_eligibility": {
+          "eligible": false,
+          "reason": "BASIC_ONLY"
+        }
+      }
+    ],
+    "next_cursor": null
+  }
+}
