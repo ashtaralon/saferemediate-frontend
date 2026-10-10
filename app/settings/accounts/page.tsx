@@ -27,6 +27,7 @@ import { AccountCoverageChips, ConnectAccountPanel, MemberStatusBadge } from "@/
 import { OrganizationAccountPicker, useOrganizationDiscovery } from "@/components/settings/organization-account-picker"
 import { FirstCollectionStatus, RegistrationJourney } from "@/components/settings/registration-journey"
 import { OffboardAccount } from "@/components/settings/offboard-account"
+import { DataActivationStatus, type DataActivationAnswer } from "@/components/settings/data-activation"
 import { AddAccountStackStep, useInstallationStack } from "@/components/settings/add-account-stack-step"
 import { useAccountScope } from "@/lib/account-scope-context"
 import { COVERAGE_PAGE_PATH, READY_MEANS_OPERATIONAL, coveragePageHref } from "@/lib/observation-coverage"
@@ -44,6 +45,8 @@ import {
   checkAccountId,
   checkReadRoleArn,
   connectionCheckOutcome,
+  dataActivationNotRequestable,
+  dataActivationPath,
   organizationListing,
   organizationListingBoundary,
   discoveryCaveats,
@@ -362,6 +365,41 @@ export default function AccountSettingsPage() {
     )
   }
 
+  /** Activate data: the person's request for this member account. 202 = queued; the page then re-reads the list, which shows
+   *  the request and its progress. 409 ACTIVATION_NOT_REQUESTABLE carries its blockers back to the dialog; any other refusal
+   *  is said in the page's error banner. Either way the list is read again, so the row shows what the backend now holds. */
+  async function requestDataActivation(account: ManagedAccount): Promise<DataActivationAnswer> {
+    if (!customerId) return { kind: "failed" }
+    setActionError(null)
+    try {
+      const response = await fetch(dataActivationPath(account.account_id, customerId), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      })
+      if (response.status === 409) {
+        const payload = await response.clone().json().catch(() => null)
+        const blockedBy = dataActivationNotRequestable(payload)
+        if (blockedBy) {
+          void load("quiet")
+          return { kind: "not_requestable", blockedBy }
+        }
+      }
+      if (!response.ok) throw await accountAdminFailure(response, "Activate data")
+      await load("quiet")
+      return { kind: "queued" }
+    } catch (reason) {
+      setActionError(reason instanceof Error ? reason.message : String(reason))
+      void load("quiet")
+      return { kind: "failed" }
+    }
+  }
+
+  function dataActivationFor(account: ManagedAccount) {
+    if (!customerId || account.is_platform_account || !account.data_activation) return null
+    return <DataActivationStatus account={account} onRequest={() => requestDataActivation(account)} />
+  }
+
   function journeyFor(account: ManagedAccount) {
     if (!customerId || !account.registration) return null
     return (
@@ -642,6 +680,7 @@ export default function AccountSettingsPage() {
                   columns={tableColumns}
                   checking={validating === account.account_id || Boolean(checks[account.account_id]) || account.pending_request?.action === "validate"}
                   journey={journeyFor(account)}
+                  dataActivation={dataActivationFor(account)}
                   offboard={offboardFor(account)}
                   onConnect={() => setConnectFor(account.account_id)}
                   onCheck={() => void validate(account.account_id)}
@@ -766,6 +805,7 @@ function MemberAccountRow({
   columns,
   checking,
   journey,
+  dataActivation,
   offboard,
   onConnect,
   onCheck,
@@ -775,6 +815,8 @@ function MemberAccountRow({
   checking: boolean
   /** Option C: the registration's next step (check access, confirm, retry, release), or null. */
   journey: React.ReactNode
+  /** A member account's data activation (its progress, Activate data, or why it cannot be asked for), or null. */
+  dataActivation?: React.ReactNode
   /** Remove an activated account (offboard), or null when it is not offered. */
   offboard?: React.ReactNode
   onConnect: () => void
@@ -848,6 +890,7 @@ function MemberAccountRow({
         <AccountCoverageChips accountId={account.account_id} coverage={account.coverage} regionsNotServed={account.regions_not_served} />
         {journey}
         {!platform ? <FirstCollectionStatus account={account} /> : null}
+        {!platform ? dataActivation : null}
         {pending ? (
           <p className="inline-flex items-center gap-1 text-[11px] text-slate-500">
             <Loader2 className="h-3 w-3 animate-spin" aria-hidden />

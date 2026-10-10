@@ -13,6 +13,7 @@
  */
 
 import releaseContract from "./release-contract.json"
+import { LIFECYCLE_NOW } from "./inventory-copy"
 
 export const MEMBER_ACCOUNTS_MODE = "MEMBER_ACCOUNTS"
 
@@ -121,6 +122,126 @@ export interface ManagedAccount {
   /** Member accounts registered under option C: the registration's progress (backend api/account_registry.py
    *  _registration_progress). Absent or null for rows registered before it. Provisional, not a frozen contract. */
   registration?: RegistrationProgress | null
+  /** Member accounts: whether this account's DATA is turned on, and the person-initiated request that turns it on
+   *  (POST /{account_id}/activate-data). null for the platform account; absent from a backend without the route. */
+  data_activation?: DataActivation | null
+}
+
+// ── Activate data: a person asks Cyntro to turn on a staged member account's data ─────────────────────────────────
+// A member account's first inventory is collected and staged, but its data is served only once it is activated. The
+// person asks; Cyntro checks the account's latest acceptance run on its next processing pass and, if it passes, turns the
+// data on. Every value below is the backend's (the listing's `data_activation`); this page only says it.
+
+export type DataActivationRequestStatus = "queued" | "running" | "completed" | "refused"
+
+/** The latest activation request for one account, as the listing reports it. */
+export interface DataActivationRequest {
+  request_id: string
+  status: DataActivationRequestStatus | string
+  requested_by?: { display?: string | null } | null
+  requested_at?: string | null
+  completed_at?: string | null
+  /** What a completed request decided; `permit_granted` = the acceptance check passed and the data is being turned on. */
+  outcome?: string | null
+  /** A refused request's codes, verbatim (dataActivationCodeText words the known ones). */
+  refusals?: string[] | null
+}
+
+export interface DataActivation {
+  /** The account's data lifecycle state (SHADOW, READY, ACTIVE, VALIDATION_HELD, OFFBOARDED, ...), or null. */
+  state: string | null
+  policy: "STAGE_ONLY" | "AUTO_ACTIVATE_WHEN_READY" | string
+  active: boolean
+  /** Whether "Activate data" may be asked for now; when false, `blocked_by` names why. */
+  can_request: boolean
+  blocked_by: string[]
+  request: DataActivationRequest | null
+}
+
+/** The proxied route a person's "Activate data" request is posted to. */
+export function dataActivationPath(accountId: string, customerId: string): string {
+  return `/api/proxy/admin/accounts/${encodeURIComponent(accountId)}/activate-data?customer_id=${encodeURIComponent(customerId)}`
+}
+
+/** The refusal / blocker codes this page can put in words, by the code's head (before any ":<detail>"). */
+const DATA_ACTIVATION_CODES: Record<string, string> = {
+  requester_not_verified: "Cyntro could not verify the person who asked.",
+  platform_not_ready:
+    "This installation's own account is not operational yet; an account's data can be turned on only once it is.",
+  acceptance_not_current: "This account has no current passing acceptance run: none is recorded, or the last one has expired.",
+  tenant_not_ready: "This account's data is not checked and ready yet, so it cannot be turned on.",
+  lifecycle_unreadable: "Cyntro could not read where this account's data stands.",
+  acceptance_run_not_named: "The acceptance pass on record does not name the run it came from.",
+  acceptance_not_installed_readonly: "The acceptance pass on record is not from the installed read-only acceptance suite.",
+  projection_write_not_configured: "This installation is not configured to write the record that turns data on.",
+  tenant_claims_more_than_its_record_supports: "This account's recorded stage claims more than its record supports.",
+}
+
+/**
+ * A short line for a known activation refusal or blocker code, or null for a code this page does not know (the code itself
+ * is always shown verbatim beside it). tenant_not_ready:<STATE> also says where the data stands now.
+ */
+export function dataActivationCodeText(code: string): string | null {
+  const [head, ...rest] = code.split(":")
+  if (!Object.prototype.hasOwnProperty.call(DATA_ACTIVATION_CODES, head)) return null
+  const now = head === "tenant_not_ready" ? LIFECYCLE_NOW[rest.join(":")] : undefined
+  return now ? `${DATA_ACTIVATION_CODES[head]} Now: ${now}.` : DATA_ACTIVATION_CODES[head]
+}
+
+/** Who asked, as people read it: the backend's display, or "an operator (<subject>)" for a bare token identity. */
+function requesterLabel(request: DataActivationRequest): string | null {
+  const who = removedByLabel({ by_display: request.requested_by?.display ?? null })
+  return who?.startsWith("An operator (") ? `a${who.slice(1)}` : who
+}
+
+export type DataActivationProgress =
+  | { kind: "ACTIVE"; text: string }
+  | { kind: "QUEUED" | "RUNNING" | "APPROVED" | "FINISHED" | "UNKNOWN"; text: string; request: DataActivationRequest }
+  | { kind: "REFUSED"; text: string; request: DataActivationRequest; refusals: string[] }
+
+/**
+ * Where the data activation stands, from the listing only: active wins; otherwise the latest request's own status. A
+ * completed request whose data is not active yet is "approved" only when its outcome says permit_granted. Null when the data
+ * is not active and nothing was asked.
+ */
+export function dataActivationProgress(activation: DataActivation | null | undefined): DataActivationProgress | null {
+  if (!activation) return null
+  if (activation.active === true) return { kind: "ACTIVE", text: "Data active" }
+  const request = activation.request
+  if (!request) return null
+  switch (request.status) {
+    case "queued": {
+      const by = requesterLabel(request)
+      return { kind: "QUEUED", request, text: `Activation requested${by ? ` by ${by}` : ""} — waiting to be processed` }
+    }
+    case "running": return { kind: "RUNNING", request, text: "Checking acceptance…" }
+    case "completed":
+      return request.outcome === "permit_granted"
+        ? { kind: "APPROVED", request, text: "Approved — data is being activated" }
+        : { kind: "FINISHED", request,
+            text: request.outcome ? `Activation request completed: ${request.outcome}` : "Activation request completed with no outcome recorded" }
+    case "refused":
+      return { kind: "REFUSED", request, text: "Activation refused", refusals: Array.isArray(request.refusals) ? request.refusals : [] }
+    default: return { kind: "UNKNOWN", request, text: `Activation request in a state Cyntro does not know (${request.status})` }
+  }
+}
+
+/** "Data not active yet. Now: <stage>." -- where the account's data stands; null once it is active. */
+export function dataActivationStateText(activation: DataActivation | null | undefined): string | null {
+  if (!activation || activation.active === true) return null
+  const state = activation.state
+  if (!state) return "Data not active yet."
+  const now = Object.prototype.hasOwnProperty.call(LIFECYCLE_NOW, state) ? LIFECYCLE_NOW[state] : null
+  return now ? `Data not active yet. Now: ${now}.` : `Data not active yet (state ${state}).`
+}
+
+/** 409 ACTIVATION_NOT_REQUESTABLE's blockers (in `detail`, or at the top level), or null for any other answer. */
+export function dataActivationNotRequestable(payload: unknown): string[] | null {
+  if (!payload || typeof payload !== "object") return null
+  const record = payload as Record<string, unknown>
+  const detail = record.detail && typeof record.detail === "object" ? (record.detail as Record<string, unknown>) : record
+  if (detail.code !== "ACTIVATION_NOT_REQUESTABLE") return null
+  return Array.isArray(detail.blocked_by) ? detail.blocked_by.filter((code): code is string => typeof code === "string") : []
 }
 
 /** The backend's collection mode for an account connected through its own read role (member_registry.COLLECTION_MODE_MEMBER). */
@@ -650,13 +771,18 @@ const CONNECTOR_WORKING = new Set(["REGISTERING", "LISTED_ADMITTED", "CHECKING",
  *  happens (collected, failed, blocked by configuration, held, unavailable). */
 const FIRST_INVENTORY_MOVING = new Set(["INTENDED", "QUEUED", "STARTING", "COLLECTING"])
 
+/** Data-activation request statuses that are still open (queued, or being checked). */
+const DATA_ACTIVATION_OPEN = new Set(["queued", "running"])
+
 /** Whether the page must keep re-reading the list for this row: the connector is still moving it, a request for it is
- *  open (a removal the connector has not recorded yet included), or its first inventory is still being collected. */
+ *  open (a removal the connector has not recorded yet included; a data-activation request queued or being checked), or its
+ *  first inventory is still being collected. */
 export function accountNeedsPolling(
-  account: Pick<ManagedAccount, "onboarding_status" | "pending_request" | "registration">,
+  account: Pick<ManagedAccount, "onboarding_status" | "pending_request" | "registration" | "data_activation">,
 ): boolean {
   return CONNECTOR_WORKING.has(account.onboarding_status) || Boolean(account.pending_request)
     || FIRST_INVENTORY_MOVING.has(account.registration?.first_inventory?.state ?? "")
+    || DATA_ACTIVATION_OPEN.has(account.data_activation?.request?.status ?? "")
 }
 
 const STEP_LABEL: Record<string, string> = { register: "registration", access_check: "access check", activate: "activation" }
