@@ -71,6 +71,14 @@ describe("the strict readers", () => {
     expect(parseResourcesResponse(200, capture("resources_discovering_page1").body, ACCOUNT, "ecs:task").kind).toBe("outcome")
   })
 
+  it("a filtered page names its type's state once the plan exists (null before it); an unfiltered page never does", () => {
+    // Robustness: before the plan, the producer's per-type states are empty, so a filtered page's type_state is null.
+    const filtered = capture("resources_filtered_ecs_task").body
+    expect(parseResourcesResponse(200, { ...filtered, type_state: null }, ACCOUNT, "ecs:task").kind).toBe("page")
+    const whole = capture("resources_discovering_page1").body
+    expect(parseResourcesResponse(200, { ...whole, type_state: filtered.type_state }, ACCOUNT, null).kind).toBe("outcome")
+  })
+
   it("reads a held answer as held, with its code and no rows", () => {
     const held = parseResourcesResponse(200, capture("resources_held_account_removed").body, ACCOUNT, null)
     expect(held).toEqual({ kind: "outcome", status: 200, state: "held", reasonCode: "ACCOUNT_REMOVED" })
