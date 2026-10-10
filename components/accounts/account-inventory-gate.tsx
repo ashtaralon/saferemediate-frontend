@@ -15,9 +15,16 @@
  */
 import { useCallback, useEffect, useState } from "react"
 import { Loader2 } from "lucide-react"
-import { BasicInventoryView, useDiscoveryStatus } from "@/components/accounts/basic-inventory-view"
+import { BasicInventoryView, identityKey, useDiscoveryStatus } from "@/components/accounts/basic-inventory-view"
 import { DeclarableAccountInventory } from "@/components/system-boundary/declarable-account-inventory"
 import { useAccountScope } from "@/lib/account-scope-context"
+import {
+  fetchDiscovery,
+  fetchResourcesPage,
+  statusFallback,
+  type DiscoveryFetcher,
+  type ResourcesFetcher,
+} from "@/lib/account-resources"
 import {
   accountAdminFailure,
   collectionNotStarted,
@@ -93,16 +100,48 @@ export function AccountInventoryGate({ accountId, listing }: { accountId: string
     if (!listing.account && listing.removed) return <RemovedAccountNotice removed={listing.removed} />
     if (listing.account && collectionNotStarted(listing.account)) return <InventoryNotCollected />
   }
-  return <InventorySource accountId={accountId} account={listing.state === "ready" ? listing.account : null} />
+  // Keyed by account: nothing one account's reader holds (status, pages, an open drawer) is ever shown under another.
+  return <InventorySource key={accountId} accountId={accountId} account={listing.state === "ready" ? listing.account : null} />
+}
+
+/** Basic discovery's current authority refuses the run (removed, reads off, purge pending, ...): nothing of it is shown. */
+export function DiscoveryHeldNotice({ heldBy }: { heldBy: string | null }) {
+  return (
+    <div data-testid="discovery-held" className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">
+      <p className="font-semibold text-slate-800">This account&apos;s resources cannot be shown now.</p>
+      <p className="mt-1">
+        Its current registration does not allow reading them{heldBy ? ` (${heldBy})` : ""}. Nothing discovered earlier is shown.
+      </p>
+    </div>
+  )
+}
+
+/** The status read failed (network or server): nothing is proved, so no reader mounts -- named, with a retry. */
+export function DiscoveryStatusUnavailable({ reasonCode, onRetry }: { reasonCode: string | null; onRetry: () => void }) {
+  return (
+    <div data-testid="discovery-unavailable" role="alert" className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">
+      <p className="font-semibold text-slate-800">The inventory is unavailable right now.</p>
+      <p className="mt-1">Cyntro could not read this account&apos;s discovery status{reasonCode ? ` (${reasonCode})` : ""}.</p>
+      <button type="button" className="mt-2 text-sm font-semibold text-teal-700 underline" onClick={onRetry}>Retry</button>
+    </div>
+  )
 }
 
 /**
  * Which reader shows this account's inventory -- per REGISTRATION (basic resource discovery's rollout): a registration whose
- * confirmation started a discovery run reads its live BASIC listing (account_resources/v1); any other answer -- no run
- * (NOT_REQUESTED), a backend without the route, a refusal -- keeps the published inventory reader, exactly as before.
+ * confirmation started a discovery run reads its live BASIC listing (account_resources/v1), one view per account +
+ * registration + run; a HELD run shows that it is held and nothing of it; a status that could not be read is named, with
+ * a retry. No run (NOT_REQUESTED), a backend without the route or a refusal keeps the published inventory reader, exactly
+ * as before. Mount one per account (the gate keys it).
  */
-export function InventorySource({ accountId, account }: { accountId: string; account: ManagedAccount | null }) {
-  const { status } = useDiscoveryStatus(accountId)
+export function InventorySource({ accountId, account, fetchStatus = fetchDiscovery, fetchPage = fetchResourcesPage, pollMs }: {
+  accountId: string
+  account: ManagedAccount | null
+  fetchStatus?: DiscoveryFetcher
+  fetchPage?: ResourcesFetcher
+  pollMs?: number
+}) {
+  const { status, refreshFailed, refresh } = useDiscoveryStatus(accountId, fetchStatus, pollMs)
   if (status.kind === "loading") {
     return (
       <p className="flex items-center gap-2 text-sm text-slate-500">
@@ -110,9 +149,18 @@ export function InventorySource({ accountId, account }: { accountId: string; acc
       </p>
     )
   }
-  if (status.kind === "status" && status.coverageState !== "NOT_REQUESTED") {
+  if (status.kind === "status" && status.coverageState === "HELD") return <DiscoveryHeldNotice heldBy={status.heldBy} />
+  if (status.kind === "status" && status.coverageState !== "NOT_REQUESTED" && status.registrationId && status.runId) {
     const label = account?.display_name && account.display_name !== accountId ? `${account.display_name} (${accountId})` : accountId
-    return <BasicInventoryView accountId={accountId} accountLabel={label} status={status} />
+    const bound = { ...status, registrationId: status.registrationId, runId: status.runId }
+    return (
+      <BasicInventoryView key={identityKey({ accountId, registrationId: bound.registrationId, runId: bound.runId })}
+        accountId={accountId} accountLabel={label} status={bound} fetchPage={fetchPage} refreshFailed={refreshFailed}
+        onRefreshStatus={() => void refresh()} />
+    )
+  }
+  if (status.kind === "outcome" && statusFallback(status) === "unavailable") {
+    return <DiscoveryStatusUnavailable reasonCode={status.reasonCode} onRetry={() => void refresh()} />
   }
   // The listed row (when there is one) lets the inventory and census say a not-yet-shown answer from the data's real stage.
   return <DeclarableAccountInventory accountId={accountId} account={account} />

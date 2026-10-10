@@ -1,0 +1,35 @@
+{
+  "_provenance": {
+    "harness": "tests/cyntro_data/test_account_resources_api.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/accounts/333333333333/discovery",
+      "query": {}
+    },
+    "real": "the routes, the browse store and its fenced writer, the registry row, the contract, the person check over installed keys (moto tables)"
+  },
+  "status": 200,
+  "body": {
+    "schema_version": "account_discovery/v1",
+    "account_id": "333333333333",
+    "registration_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "connection_status": "CONNECTED",
+    "capabilities_status": "RECORDED",
+    "run_id": null,
+    "manifest_version": null,
+    "region_scope": null,
+    "requested_at": null,
+    "dispatch": null,
+    "coverage_state": "NOT_REQUESTED",
+    "held_by": null,
+    "revision": null,
+    "complete": false,
+    "plan": null,
+    "plan_state": null,
+    "observed_total": 0,
+    "observed_total_label": "found_so_far",
+    "totals_by_type": {},
+    "types": {},
+    "gaps": []
+  }
+}

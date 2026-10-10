@@ -185,8 +185,10 @@ describe("confirmation: the check reached, the operator confirms THAT check", ()
     expect(dialog).toHaveTextContent("It does not prove who owns the account")
     // Automatic onboarding (2026-10-10): the ONE informed confirmation says everything it starts, and promises no number.
     const informed = within(dialog).getByTestId("confirm-informed")
-    expect(informed).toHaveTextContent(
-      "Cyntro turns reading on, collects this account's inventory, checks it, and, if the checks pass, shows its data: inventory, census and systems.")
+    // Basic resources stay visible on their own; only the later, verified stages wait for (and name) their checks.
+    expect(within(informed).getByTestId("confirm-verified-stages")).toHaveTextContent(
+      "Separately, Cyntro turns reading on and collects this account's data for the later, verified stages: verified details, census and systems. Each of those stages has its own status here and is shown once its checks pass; if a check does not pass, that stage says why. The resources found above stay visible either way.")
+    expect(informed).not.toHaveTextContent(/nothing is shown/i)
     expect(informed).toHaveTextContent("Read only: nothing in the AWS account changes.")
     expect(informed).toHaveTextContent("The decision is recorded under your name.")
     // End-to-end timing has not been measured: neutral progress words, never a duration.

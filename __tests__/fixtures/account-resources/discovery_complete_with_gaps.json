@@ -47,6 +47,303 @@
     "totals_by_type": {
       "ec2:instance": 7
     },
+    "types": {
+      "apigateway:apis": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "apigateway:restapis": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "autoscaling:autoscalinggroup": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "cloudfront:distribution": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "dynamodb:table": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:customer-gateway": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:egress-only-internet-gateway": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:elastic-ip": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:image": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:instance": {
+        "state": "LISTED",
+        "found": 7,
+        "missing_actions": []
+      },
+      "ec2:internet-gateway": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:nat-gateway": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:network-acl": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:network-interface": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:route-table": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:security-group": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:snapshot": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:subnet": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:transit-gateway": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:transit-gateway-attachment": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:volume": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:vpc": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:vpc-endpoint": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:vpc-peering-connection": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:vpn-connection": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:vpn-gateway": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ecr:repository": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ecs:cluster": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ecs:service": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ecs:task": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "eks:cluster": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "elasticache:cluster": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "elasticache:replicationgroup": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "elasticfilesystem:file-system": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "elasticloadbalancing:listener": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "elasticloadbalancing:load-balancer": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "elasticloadbalancing:loadbalancer": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "elasticloadbalancing:target-group": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "es:domain": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "events:event-bus": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "events:rule": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "iam:group": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "iam:instance-profile": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "iam:policy": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "iam:role": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "iam:user": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "kinesis:stream": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "kms:key": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "lambda:function": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "logs:log-group": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "rds:db-cluster": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "rds:db-instance": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "route53:hostedzone": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "s3:bucket": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "s3express:bucket": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "secretsmanager:secret": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "sns:topic": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "sqs:queue": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "states:statemachine": {
+        "state": "UNSUPPORTED",
+        "found": 0,
+        "missing_actions": []
+      }
+    },
     "gaps": [
       {
         "resource_type": "apigateway:apis",

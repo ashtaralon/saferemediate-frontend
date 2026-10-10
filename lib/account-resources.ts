@@ -26,6 +26,19 @@ export const LIVE_COVERAGE: ReadonlySet<CoverageState> = new Set(["STARTING", "D
 const ACCOUNT_ID = /^[0-9]{12}$/
 const RESOURCE_KEY = /^k1\.[A-Za-z0-9_-]{1,2800}$/
 
+/** Per resource type, what its planned scopes prove (backend contract.type_states). */
+export const TYPE_STATES = ["LISTED", "DISCOVERING", "PARTIAL", "ACCESS_NEEDED", "UNREADABLE", "UNSUPPORTED"] as const
+export type TypeStateName = (typeof TYPE_STATES)[number]
+export interface TypeState {
+  state: TypeStateName
+  found: number
+  missing_actions: string[]
+}
+
+/** An empty page's state says what was PROVED: complete_empty only where the relevant listings succeeded. */
+export const EMPTY_STATES = ["empty_so_far", "complete_empty", "empty_unproven", "type_unsupported", "type_unreadable"] as const
+export type EmptyState = (typeof EMPTY_STATES)[number]
+
 export interface DiscoveryGap {
   resource_type: string
   status: string
@@ -46,6 +59,8 @@ export interface DiscoveryStatus {
   /** "found_so_far" until the run is complete against its plan; "found" after. */
   observedTotalLabel: "found" | "found_so_far"
   totalsByType: Record<string, number>
+  /** Per planned type (empty before the plan is recorded). */
+  types: Record<string, TypeState>
   gaps: DiscoveryGap[]
   /** The Regions the run enumerated, with the enumeration's own outcome; null before the run froze its plan. */
   plan: { regions: string[]; regionsStatus: string; scopeStates: Record<string, number> } | null
@@ -72,7 +87,7 @@ export interface BasicItem {
 
 export interface ResourcesPage {
   kind: "page"
-  state: "populated" | "empty_so_far" | "complete_empty"
+  state: "populated" | EmptyState
   registrationId: string
   runId: string
   coverageState: CoverageState
@@ -80,6 +95,8 @@ export interface ResourcesPage {
   observedTotal: number
   observedTotalLabel: "found" | "found_so_far"
   totalsByType: Record<string, number>
+  /** The filtered type's state (null without a filter, or before the plan). */
+  typeState: TypeState | null
   items: BasicItem[]
   nextCursor: string | null
 }
@@ -112,6 +129,14 @@ function counts(value: unknown): Record<string, number> | null {
 
 function strings(value: unknown): string[] | null {
   return Array.isArray(value) && value.every((v) => typeof v === "string") ? (value as string[]) : null
+}
+
+function typeState(value: unknown): TypeState | null {
+  const missing = isObject(value) ? strings(value.missing_actions) : null
+  if (!isObject(value) || !TYPE_STATES.includes(value.state as TypeStateName) || !isCount(value.found) || missing === null) {
+    return null
+  }
+  return { state: value.state as TypeStateName, found: value.found, missing_actions: missing }
 }
 
 function malformed(status: number): ResourcesOutcome {
@@ -170,9 +195,20 @@ export function parseDiscoveryResponse(status: number, body: unknown, accountId:
   if ((coverage === "COMPLETE" || coverage === "COMPLETE_WITH_GAPS") && (plan === null || body.complete !== true)) {
     return malformed(status)
   }
+  const types: Record<string, TypeState> = {}
+  if (!isObject(body.types)) return malformed(status)
+  for (const [name, value] of Object.entries(body.types)) {
+    const parsed = typeState(value)
+    if (parsed === null) return malformed(status)
+    types[name] = parsed
+  }
   const text = (value: unknown) => (typeof value === "string" ? value : null)
+  // A run being shown names its registration and run: the view is bound to them (and remounts when either moves).
+  if (coverage !== "NOT_REQUESTED" && coverage !== "HELD" && (!text(body.run_id) || !text(body.registration_id))) {
+    return malformed(status)
+  }
   return {
-    kind: "status", coverageState: coverage as CoverageState, complete: body.complete, heldBy: text(body.held_by),
+    kind: "status", coverageState: coverage as CoverageState, complete: body.complete, heldBy: text(body.held_by), types,
     planState: text(body.plan_state), capabilitiesStatus: text(body.capabilities_status), runId: text(body.run_id),
     registrationId: text(body.registration_id), observedTotal: body.observed_total,
     observedTotalLabel: body.observed_total_label, totalsByType: totals, gaps: parsedGaps, plan,
@@ -206,7 +242,10 @@ export function parseResourcesResponse(status: number, body: unknown, accountId:
   if (known) return known
   const state = body.state
   const totals = counts(body.totals_by_type)
-  if (status !== 200 || (state !== "populated" && state !== "empty_so_far" && state !== "complete_empty")
+  const pageTypeState = body.type_state === null ? null : typeState(body.type_state)
+  if (status !== 200 || (state !== "populated" && !EMPTY_STATES.includes(state as EmptyState))
+    // A filtered page names its type's state once the plan is recorded (null before it); an unfiltered page never does.
+    || (body.type_state !== null && pageTypeState === null) || (resourceType === null && body.type_state !== null)
     || !Array.isArray(body.items) || !body.items.every(validItem) || totals === null || !isCount(body.observed_total)
     || typeof body.registration_id !== "string" || typeof body.run_id !== "string" || typeof body.complete !== "boolean"
     || !COVERAGE_STATES.includes(body.coverage_state as CoverageState)
@@ -218,9 +257,9 @@ export function parseResourcesResponse(status: number, body: unknown, accountId:
   const items = body.items as BasicItem[]
   if (resourceType !== null && items.some((item) => item.resource_type !== resourceType)) return malformed(status)
   return {
-    kind: "page", state, registrationId: body.registration_id, runId: body.run_id, coverageState: body.coverage_state as CoverageState,
+    kind: "page", state: state as ResourcesPage["state"], registrationId: body.registration_id, runId: body.run_id, coverageState: body.coverage_state as CoverageState,
     complete: body.complete, observedTotal: body.observed_total, observedTotalLabel: body.observed_total_label,
-    totalsByType: totals, items, nextCursor: body.next_cursor as string | null,
+    totalsByType: totals, typeState: pageTypeState, items, nextCursor: body.next_cursor as string | null,
   }
 }
 
@@ -256,6 +295,36 @@ export function basicEvidence(item: BasicItem): BasicEvidence {
   return { observedAt: item.observed_at, sourceApi: item.source_api, detailsStatus: item.details_status }
 }
 
+/** A type's state, in words. */
+export function typeStateCopy(state: TypeStateName): string {
+  return ({
+    LISTED: "Listed",
+    DISCOVERING: "Discovering",
+    PARTIAL: "Partial",
+    ACCESS_NEEDED: "Access needed",
+    UNREADABLE: "Could not be read",
+    UNSUPPORTED: "Not supported yet",
+  } as Record<TypeStateName, string>)[state]
+}
+
+/** An empty page, in words: an absence is claimed only where it was proved. */
+export function emptyPageCopy(state: EmptyState, typeState: TypeState | null): string {
+  switch (state) {
+    case "complete_empty":
+      return "None: every place this was listed returned nothing."
+    case "empty_so_far":
+      return "None found so far. Discovering…"
+    case "empty_unproven":
+      return "Nothing could be shown: some resource types could not be read or are not supported yet (see coverage)."
+    case "type_unsupported":
+      return "This resource type is not supported yet: Cyntro does not list it."
+    case "type_unreadable":
+      return typeState && typeState.missing_actions.length
+        ? `These resources could not be read: access needed (${typeState.missing_actions.join(", ")}).`
+        : "These resources could not be read."
+  }
+}
+
 /** A coverage gap, in words (never "0 resources"). */
 export function gapStatusCopy(status: string): string {
   return ({
@@ -265,6 +334,20 @@ export function gapStatusCopy(status: string): string {
     THROTTLED: "Throttled by AWS",
     FAILED: "Could not be listed",
   } as Record<string, string>)[status] ?? status
+}
+
+/** The backend's code for an install whose web has no account registry: it serves no registration, so no discovery run. */
+export const ACCOUNT_REGISTRY_UNCONFIGURED = "ACCOUNT_REGISTRY_UNCONFIGURED"
+
+/**
+ * A status answer that is not a run, and which reader it leaves the account with. No run (NOT_REQUESTED), a refusal, an
+ * older backend without the route (its 404 is malformed here), an install without an account registry: the PUBLISHED
+ * reader, exactly as before discovery. A network failure or any other 5xx: "unavailable", named, with a retry -- it proves
+ * nothing about whether a run exists, so it neither falls back nor shows anything.
+ */
+export function statusFallback(outcome: ResourcesOutcome): "published" | "unavailable" {
+  const failed = outcome.status === 0 || outcome.status >= 500
+  return failed && outcome.reasonCode !== ACCOUNT_REGISTRY_UNCONFIGURED ? "unavailable" : "published"
 }
 
 export type ResourcesFetcher = (accountId: string, request: { resourceType: string | null; cursor: string | null; limit?: number },

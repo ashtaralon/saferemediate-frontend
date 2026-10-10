@@ -67,6 +67,13 @@ function serve(listing: Capture, inventory?: { status: number; body: unknown }) 
     if (url.startsWith("/api/proxy/admin/accounts/groups/all?")) return reply({ customer_id: CUSTOMER, groups: [] })
     if (url === `/api/proxy/admin/accounts/organization?customer_id=${CUSTOMER}`) return reply({ customer_id: CUSTOMER, state: "NOT_RUN" })
     if (url.includes("/census")) return reply(census.body, census.status)
+    const discovery = /^\/api\/proxy\/accounts\/([0-9]{12})\/discovery$/.exec(url)
+    if (discovery) {
+      // Basic discovery: no discovery run for these accounts -- the backend's own NOT_REQUESTED status (its capture, the
+      // requested account's ID), which keeps the published readers these cases are about.
+      const status = golden("account-resources", "discovery_not_requested")
+      return reply({ ...(status.body as Record<string, unknown>), account_id: discovery[1] }, status.status)
+    }
     if (url.startsWith("/api/proxy/accounts/") && inventory) return reply(inventory.body, inventory.status)
     return reply({ detail: `unexpected ${url}` }, 404)
   }))

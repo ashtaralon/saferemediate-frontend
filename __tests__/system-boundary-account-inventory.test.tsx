@@ -73,6 +73,12 @@ function serve({ inventory, declarations, census = { listed_only: "not_published
       const captured = fixture("system-boundary-captures", "capability")
       return json(captured.body, captured.status)
     }
+    if (url === `/api/proxy/accounts/${ACCOUNT}/discovery`) {
+      // Basic discovery: this account has no discovery run -- the backend's own NOT_REQUESTED status (its capture, this
+      // account's ID), which keeps the published inventory reader these cases are about.
+      const captured = fixture("account-resources", "discovery_not_requested")
+      return json({ ...captured.body, account_id: ACCOUNT }, captured.status)
+    }
     unexpected.push(url)
     return json({ detail: `unexpected ${url}` }, 404)
   }))

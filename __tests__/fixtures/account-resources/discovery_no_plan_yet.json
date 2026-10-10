@@ -33,6 +33,7 @@
     "observed_total": 0,
     "observed_total_label": "found_so_far",
     "totals_by_type": {},
+    "types": {},
     "gaps": []
   }
 }

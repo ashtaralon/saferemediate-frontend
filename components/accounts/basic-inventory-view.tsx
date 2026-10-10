@@ -7,13 +7,17 @@
  * - Counts say "found so far" until the run is complete against its own plan (every enabled Region and global resources).
  * - The scope line names the Regions the run actually enumerated; a refused Region listing says so.
  * - Coverage gaps are named per type: access needed (with the missing action), not supported yet, partial, throttled --
- *   never "0 resources".
+ *   never "0 resources". An absence is claimed only where the listing that would have found it succeeded.
  * - While the run is moving the page refreshes every 2 seconds, only while the tab is visible; it stops once the run is
  *   complete, held or not requested.
  * - Rows are BASIC: never selectable, never "verified"; the drill-down says "Observed from AWS ... · Basic discovery".
  *
- * Every page request is issued under the current EPOCH and dropped when it completes under another (an older account, filter
- * or refresh never replaces a newer answer); a cursor the backend no longer accepts (409) restarts at page one.
+ * Everything shown is bound to ONE listing identity -- account + registration + run (Codex review of ea268c75, 1). The
+ * caller mounts one view per identity (keyed), so a new account, a re-added registration or a new run starts from nothing:
+ * no page, cursor, expanded group or open drawer survives it. Within an identity, every request is issued under an EPOCH
+ * and dropped when it completes under another or after unmount; a page that names a different registration or run is
+ * never shown (the status is re-read instead), and a cursor the backend no longer accepts (409) restarts at page one. A
+ * failed request is named, with a retry (Codex review, 2) -- never an endless "Loading".
  */
 import { useCallback, useEffect, useRef, useState } from "react"
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react"
@@ -26,40 +30,77 @@ import {
   CURSOR_RESTART_REQUIRED,
   LIVE_COVERAGE,
   basicEvidence,
+  emptyPageCopy,
   fetchDiscovery,
   fetchResourcesPage,
   gapStatusCopy,
   parseDiscoveryResponse,
   parseResourcesResponse,
   toInventoryRow,
+  typeStateCopy,
   type BasicEvidence,
   type BasicItem,
   type DiscoveryFetcher,
   type DiscoveryStatus,
+  type EmptyState,
   type ResourcesFetcher,
   type ResourcesOutcome,
+  type TypeState,
+  type TypeStateName,
 } from "@/lib/account-resources"
 import { INVENTORY_CATEGORY_LABEL, inventoryTypeMeta, type InventoryCategory } from "@/lib/inventory-types"
 
 export const POLL_MS = 2000
 const CATEGORY_ORDER: InventoryCategory[] = ["compute", "data", "identity", "network", "other"]
+/** Types whose listing did not (fully) succeed: shown as groups even with nothing found, with their state. */
+const PROBLEM_TYPE_STATES: ReadonlySet<TypeStateName> = new Set(["ACCESS_NEEDED", "UNREADABLE", "PARTIAL"])
 
 type StatusModel = { kind: "loading" } | DiscoveryStatus | ResourcesOutcome
 
-/** The run's status, polled every POLL_MS while it is moving and the tab is visible. */
+/** The identity a displayed listing belongs to. */
+export interface ListingIdentity {
+  accountId: string
+  registrationId: string
+  runId: string
+}
+
+export function identityKey(identity: ListingIdentity): string {
+  return `${identity.accountId}:${identity.registrationId}:${identity.runId}`
+}
+
+/**
+ * The run's status for ONE account, polled every POLL_MS while it is moving and the tab is visible. A status read for
+ * another account is never returned (a new account reads "loading" until its own answer arrives). A failed refresh after a
+ * good answer keeps that answer and says the refresh failed -- it proves nothing changed -- while any other answer
+ * (another run, held, a refusal) replaces it.
+ */
 export function useDiscoveryStatus(accountId: string, fetcher: DiscoveryFetcher = fetchDiscovery, pollMs = POLL_MS) {
-  const [status, setStatus] = useState<StatusModel>({ kind: "loading" })
+  const [state, setState] = useState<{ accountId: string; model: StatusModel; refreshFailed: boolean }>(
+    { accountId, model: { kind: "loading" }, refreshFailed: false })
   const epoch = useRef(0)
   const load = useCallback(async () => {
     const mine = ++epoch.current
+    let next: StatusModel
     try {
       const { status: code, body } = await fetcher(accountId)
-      if (mine === epoch.current) setStatus(parseDiscoveryResponse(code, body, accountId))
+      next = parseDiscoveryResponse(code, body, accountId)
     } catch {
-      if (mine === epoch.current) setStatus({ kind: "outcome", status: 0, state: "unavailable", reasonCode: "NETWORK" })
+      next = { kind: "outcome", status: 0, state: "unavailable", reasonCode: "NETWORK" }
     }
+    if (mine !== epoch.current) return
+    setState((current) => {
+      const failed = next.kind === "outcome" && (next.status === 0 || next.status >= 500)
+      if (failed && current.accountId === accountId && current.model.kind === "status") {
+        return { ...current, refreshFailed: true }
+      }
+      return { accountId, model: next, refreshFailed: false }
+    })
   }, [accountId, fetcher])
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    void load()
+    return () => { epoch.current += 1 }           // an older account's (or an unmounted view's) answer is dropped
+  }, [load])
+  const status: StatusModel = state.accountId === accountId ? state.model : { kind: "loading" }
   const live = status.kind === "status" && LIVE_COVERAGE.has(status.coverageState)
   useEffect(() => {
     if (!live) return
@@ -68,67 +109,113 @@ export function useDiscoveryStatus(accountId: string, fetcher: DiscoveryFetcher 
     }, pollMs)
     return () => clearInterval(timer)
   }, [live, load, pollMs])
-  return { status, refresh: load }
+  return { status, refreshFailed: state.accountId === accountId && state.refreshFailed, refresh: load }
 }
 
 type PageModel =
   | { kind: "loading" }
+  | { kind: "failed" }
   | ResourcesOutcome
-  | { kind: "rows"; rows: BasicItem[]; nextCursor: string | null; loadingMore: boolean; runId: string; registrationId: string }
+  | {
+    kind: "rows"; rows: BasicItem[]; nextCursor: string | null; loadingMore: boolean; moreFailed: boolean
+    state: "populated" | EmptyState; typeState: TypeState | null
+  }
 
-/** One live listing (optionally one type), reloaded from page one whenever ``revision`` changes. */
-export function useBasicPage(accountId: string, resourceType: string | null, revision: unknown,
-  fetcher: ResourcesFetcher = fetchResourcesPage) {
+/**
+ * One live listing of ONE identity (optionally one type), reloaded from page one whenever ``revision`` changes. A page
+ * naming another registration or run is never shown: ``onMoved`` re-reads the status, whose new identity remounts the view.
+ */
+export function useBasicPage(identity: ListingIdentity, resourceType: string | null, revision: unknown,
+  fetcher: ResourcesFetcher = fetchResourcesPage, onMoved: () => void = () => {}) {
   const [model, setModel] = useState<PageModel>({ kind: "loading" })
   const epoch = useRef(0)
   const modelRef = useRef<PageModel>(model)
   const commit = (next: PageModel) => { modelRef.current = next; setModel(next) }
+  const moved = useRef(onMoved)
+  moved.current = onMoved
+  const { accountId, registrationId, runId } = identity
 
   const first = useCallback(async () => {
     const mine = ++epoch.current
-    const { status, body } = await fetcher(accountId, { resourceType, cursor: null })
-    if (mine !== epoch.current) return
-    const parsed = parseResourcesResponse(status, body, accountId, resourceType)
-    commit(parsed.kind === "page" ? { kind: "rows", rows: parsed.items, nextCursor: parsed.nextCursor, loadingMore: false,
-      runId: parsed.runId, registrationId: parsed.registrationId } : parsed)
-  }, [accountId, resourceType, fetcher])
+    if (modelRef.current.kind === "failed") commit({ kind: "loading" })
+    try {
+      const { status, body } = await fetcher(accountId, { resourceType, cursor: null })
+      if (mine !== epoch.current) return
+      const parsed = parseResourcesResponse(status, body, accountId, resourceType)
+      if (parsed.kind === "page" && (parsed.registrationId !== registrationId || parsed.runId !== runId)) {
+        moved.current()                             // the account moved on since its status was read: never shown here
+        return
+      }
+      commit(parsed.kind === "page" ? {
+        kind: "rows", rows: parsed.items, nextCursor: parsed.nextCursor, loadingMore: false, moreFailed: false,
+        state: parsed.state, typeState: parsed.typeState,
+      } : parsed)
+    } catch {
+      if (mine === epoch.current) commit({ kind: "failed" })
+    }
+  }, [accountId, registrationId, runId, resourceType, fetcher])
 
-  useEffect(() => { void first() }, [first, revision])
+  useEffect(() => {
+    void first()
+    return () => { epoch.current += 1 }           // a later revision, another type, or unmount: drop what is in flight
+  }, [first, revision])
 
   const loadMore = useCallback(async () => {
     const current = modelRef.current
     if (current.kind !== "rows" || current.nextCursor === null || current.loadingMore) return
     const mine = epoch.current
-    commit({ ...current, loadingMore: true })
-    const { status, body } = await fetcher(accountId, { resourceType, cursor: current.nextCursor })
-    if (mine !== epoch.current) return
-    const parsed = parseResourcesResponse(status, body, accountId, resourceType)
-    if (parsed.kind === "outcome" && String(parsed.reasonCode ?? "").startsWith(CURSOR_RESTART_REQUIRED)) {
-      void first()                                  // the run or registration moved: start again at page one
-      return
+    commit({ ...current, loadingMore: true, moreFailed: false })
+    try {
+      const { status, body } = await fetcher(accountId, { resourceType, cursor: current.nextCursor })
+      if (mine !== epoch.current) return
+      const parsed = parseResourcesResponse(status, body, accountId, resourceType)
+      if (parsed.kind === "outcome" && String(parsed.reasonCode ?? "").startsWith(CURSOR_RESTART_REQUIRED)) {
+        void first()                                // the run or registration moved: start again at page one
+        return
+      }
+      if (parsed.kind === "page" && (parsed.registrationId !== registrationId || parsed.runId !== runId)) {
+        moved.current()
+        return
+      }
+      if (parsed.kind !== "page") {
+        commit(parsed)
+        return
+      }
+      const seen = new Set(current.rows.map((row) => row.resource_key))
+      commit({ ...current, rows: [...current.rows, ...parsed.items.filter((row) => !seen.has(row.resource_key))],
+        nextCursor: parsed.nextCursor, loadingMore: false, moreFailed: false })
+    } catch {
+      if (mine === epoch.current) commit({ ...current, loadingMore: false, moreFailed: true })
     }
-    if (parsed.kind !== "page" || parsed.runId !== current.runId) {
-      if (parsed.kind === "page") void first()
-      else commit(parsed)
-      return
-    }
-    const seen = new Set(current.rows.map((row) => row.resource_key))
-    commit({ ...current, rows: [...current.rows, ...parsed.items.filter((row) => !seen.has(row.resource_key))],
-      nextCursor: parsed.nextCursor, loadingMore: false })
-  }, [accountId, resourceType, fetcher, first])
+  }, [accountId, registrationId, runId, resourceType, fetcher, first])
 
-  return { model, loadMore }
+  return { model, loadMore, retry: first }
+}
+
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`
+}
+
+function problemTypes(status: DiscoveryStatus): string[] {
+  return Object.entries(status.types).filter(([, t]) => PROBLEM_TYPE_STATES.has(t.state)).map(([name]) => name)
 }
 
 function statusLine(status: DiscoveryStatus): string {
   const n = status.observedTotal
-  const count = `${n} ${n === 1 ? "resource" : "resources"} ${status.observedTotalLabel === "found" ? "found" : "found so far"}`
+  const count = `${plural(n, "resource", "resources")} ${status.observedTotalLabel === "found" ? "found" : "found so far"}`
   if (status.coverageState === "STARTING") return `${count} · Starting discovery`
   if (status.coverageState === "DISCOVERING") return `${count} · Discovering`
-  if (status.coverageState === "COMPLETE") return `${count} · Discovery complete for supported types`
+  if (status.coverageState === "COMPLETE") return `${count} · Discovery complete`
   if (status.coverageState === "COMPLETE_WITH_GAPS") {
+    const unread = problemTypes(status).length
+    if (n === 0) {
+      // Never "0 found" over listings that did not succeed: name what could not be read, or what was proved.
+      return unread
+        ? `No resources shown · Discovery finished · ${plural(unread, "resource type", "resource types")} could not be read`
+        : "None found in the supported resource types · Discovery finished · other types are not supported yet"
+    }
     const gaps = status.gaps.filter((gap) => gap.status !== "UNSUPPORTED").length
-    return `${count} · Discovery finished${gaps ? ` · ${gaps} ${gaps === 1 ? "gap" : "gaps"}` : ""}`
+    return `${count} · Discovery finished${gaps ? ` · ${plural(gaps, "gap", "gaps")}` : ""}`
   }
   return count
 }
@@ -143,26 +230,38 @@ function scopeLine(status: DiscoveryStatus): string {
 }
 
 /** A pseudo publication for the shared table: a BASIC row is never selectable, so it names only the run it came from. */
-function runPublication(runId: string, registrationId: string): PublicationIdentity {
-  return { attempt: runId, generation: 0, source_identity: "basic-discovery", authority_digest: "", registration_id: registrationId }
+function runPublication(identity: ListingIdentity): PublicationIdentity {
+  return { attempt: identity.runId, generation: 0, source_identity: "basic-discovery", authority_digest: "",
+    registration_id: identity.registrationId }
 }
 
 export interface BasicInventoryViewProps {
   accountId: string
   accountLabel: string
-  status: DiscoveryStatus
+  /** A status naming its registration and run (STARTING, DISCOVERING, COMPLETE, COMPLETE_WITH_GAPS). */
+  status: DiscoveryStatus & { registrationId: string; runId: string }
   fetchPage?: ResourcesFetcher
+  /** The status could not be refreshed: the shown answer is the last good one. */
+  refreshFailed?: boolean
+  /** Re-read the status (a retry, or a page that named another registration or run). */
+  onRefreshStatus?: () => void
 }
 
-export function BasicInventoryView({ accountId, accountLabel, status, fetchPage = fetchResourcesPage }: BasicInventoryViewProps) {
+/** Mount ONE per listing identity (key={identityKey(...)}): nothing shown survives a change of account, registration or run. */
+export function BasicInventoryView({ accountId, accountLabel, status, fetchPage = fetchResourcesPage, refreshFailed = false,
+  onRefreshStatus = () => {} }: BasicInventoryViewProps) {
   const [layout, setLayout] = useState<"grouped" | "list">("grouped")
   const [category, setCategory] = useState<InventoryCategory | null>(null)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const [opened, setOpened] = useState<{ row: InventoryRow; evidence: BasicEvidence } | null>(null)
   const [coverageOpen, setCoverageOpen] = useState(false)
+  const identity: ListingIdentity = { accountId, registrationId: status.registrationId, runId: status.runId }
   // Pages reload when the run's found-count or state moves (never more often than the status poll).
   const revision = `${status.coverageState}:${status.observedTotal}`
-  const types = Object.entries(status.totalsByType).map(([resourceType, count]) => ({ meta: inventoryTypeMeta(resourceType), count }))
+  const names = new Set([...Object.keys(status.totalsByType), ...problemTypes(status)])
+  const types = [...names].map((resourceType) => ({
+    meta: inventoryTypeMeta(resourceType), count: status.totalsByType[resourceType] ?? 0, state: status.types[resourceType] ?? null,
+  }))
   const perCategory = new Map<InventoryCategory, number>()
   for (const { meta, count } of types) perCategory.set(meta.category, (perCategory.get(meta.category) ?? 0) + count)
   const shown = types.filter(({ meta }) => category === null || meta.category === category)
@@ -185,6 +284,12 @@ export function BasicInventoryView({ accountId, accountLabel, status, fetchPage 
             </button>
           ) : null}
         </p>
+        {refreshFailed ? (
+          <p className="mt-1 text-xs text-amber-800" role="alert" data-testid="discovery-refresh-failed">
+            Discovery status could not be refreshed; showing the last answer.{" "}
+            <button type="button" className="font-semibold underline" onClick={onRefreshStatus}>Retry</button>
+          </p>
+        ) : null}
       </div>
 
       {coverageOpen ? (
@@ -226,12 +331,14 @@ export function BasicInventoryView({ accountId, accountLabel, status, fetchPage 
             ))}
           </div>
           {shown.length === 0 ? (
-            <p className="text-sm text-slate-600" role="status">
-              {live ? "No resources found yet. Discovering…" : "No resources were found in the supported types."}
+            <p className="text-sm text-slate-600" role="status" data-testid="basic-empty">
+              {live ? "No resources found yet. Discovering…"
+                : status.coverageState === "COMPLETE" ? "None found: every planned listing succeeded and returned nothing."
+                  : "None found in the supported resource types. Other types are not supported yet (see coverage)."}
             </p>
           ) : (
             <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white" aria-label="Resource types">
-              {shown.map(({ meta, count }) => {
+              {shown.map(({ meta, count, state }) => {
                 const isOpen = expanded.has(meta.resourceType)
                 return (
                   <li key={meta.resourceType} data-testid="inventory-group">
@@ -248,12 +355,18 @@ export function BasicInventoryView({ accountId, accountLabel, status, fetchPage 
                         <span className="block text-sm font-semibold text-slate-900">{meta.label}</span>
                         <span className="block font-mono text-[11px] text-slate-400">{meta.resourceType}</span>
                       </span>
+                      {state && PROBLEM_TYPE_STATES.has(state.state) ? (
+                        <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800" data-testid="inventory-group-state">
+                          {typeStateCopy(state.state)}
+                        </span>
+                      ) : null}
                       <span className="text-[11px] text-slate-500">{INVENTORY_CATEGORY_LABEL[meta.category]}</span>
                       <span className="w-12 text-right text-sm font-semibold text-slate-800" data-testid="inventory-group-count">{count}</span>
                     </button>
                     {isOpen ? (
                       <div className="border-t border-slate-100 px-3 py-2">
-                        <BasicRows accountId={accountId} resourceType={meta.resourceType} revision={revision} fetchPage={fetchPage} onOpen={open} />
+                        <BasicRows identity={identity} resourceType={meta.resourceType} revision={revision} fetchPage={fetchPage}
+                          onOpen={open} onMoved={onRefreshStatus} />
                       </div>
                     ) : null}
                   </li>
@@ -263,7 +376,8 @@ export function BasicInventoryView({ accountId, accountLabel, status, fetchPage 
           )}
         </div>
       ) : (
-        <BasicRows accountId={accountId} resourceType={null} revision={revision} fetchPage={fetchPage} onOpen={open} />
+        <BasicRows identity={identity} resourceType={null} revision={revision} fetchPage={fetchPage} onOpen={open}
+          onMoved={onRefreshStatus} />
       )}
 
       {opened !== null ? (
@@ -273,29 +387,52 @@ export function BasicInventoryView({ accountId, accountLabel, status, fetchPage 
   )
 }
 
-function BasicRows({ accountId, resourceType, revision, fetchPage, onOpen }: {
-  accountId: string
+function BasicRows({ identity, resourceType, revision, fetchPage, onOpen, onMoved }: {
+  identity: ListingIdentity
   resourceType: string | null
   revision: unknown
   fetchPage: ResourcesFetcher
   onOpen: (item: BasicItem) => void
+  onMoved: () => void
 }) {
-  const { model, loadMore } = useBasicPage(accountId, resourceType, revision, fetchPage)
+  const { model, loadMore, retry } = useBasicPage(identity, resourceType, revision, fetchPage, onMoved)
   if (model.kind === "loading") return <p className="text-xs text-slate-500">Loading…</p>
+  if (model.kind === "failed") {
+    return (
+      <p className="text-xs text-slate-700" role="alert" data-testid="basic-page-failed">
+        These resources could not be loaded (the request did not complete).{" "}
+        <button type="button" className="font-semibold text-teal-700 underline" onClick={() => void retry()}>Retry</button>
+      </p>
+    )
+  }
   if (model.kind === "outcome") {
     return <p className="text-xs text-slate-700" role="status">These resources cannot be shown now ({model.reasonCode ?? model.state}).</p>
   }
-  if (model.rows.length === 0) return <p className="text-xs text-slate-700" role="status">None found so far.</p>
+  if (model.rows.length === 0) {
+    const copy = model.state === "populated" ? emptyPageCopy("empty_so_far", null) : emptyPageCopy(model.state, model.typeState)
+    return <p className="text-xs text-slate-700" role="status" data-testid="basic-page-empty">{copy}</p>
+  }
   const byKey = new Map(model.rows.map((item) => [item.resource_key, item]))
   return (
     <div className="space-y-2">
+      {model.typeState && PROBLEM_TYPE_STATES.has(model.typeState.state) ? (
+        <p className="text-xs text-amber-800" data-testid="basic-page-type-state">
+          {typeStateCopy(model.typeState.state)}: some places this type is listed could not be read
+          {model.typeState.missing_actions.length ? ` (needs ${model.typeState.missing_actions.join(", ")})` : ""}.
+        </p>
+      ) : null}
       <InventoryRowsTable rows={model.rows.map(toInventoryRow)} resourceType={resourceType}
         onOpen={(row) => { const item = byKey.get(row.resource_uid); if (item) onOpen(item) }}
-        publication={runPublication(model.runId, model.registrationId)} />
+        publication={runPublication(identity)} />
       {model.nextCursor !== null ? (
-        <Button type="button" variant="outline" size="sm" onClick={() => void loadMore()} disabled={model.loadingMore}>
-          {model.loadingMore ? "Loading…" : "Load more"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => void loadMore()} disabled={model.loadingMore}>
+            {model.loadingMore ? "Loading…" : model.moreFailed ? "Retry loading more" : "Load more"}
+          </Button>
+          {model.moreFailed ? (
+            <span className="text-xs text-slate-700" role="alert" data-testid="basic-more-failed">The next page could not be loaded.</span>
+          ) : null}
+        </div>
       ) : null}
     </div>
   )
