@@ -16,18 +16,21 @@ import { AccountCensusBands } from "@/components/accounts/account-census-bands"
 import { AccountInventoryPanel } from "@/components/accounts/account-inventory-panel"
 import { DeclareFromInventory } from "@/components/system-boundary/declare-from-inventory"
 import { useAccountScope } from "@/lib/account-scope-context"
+import type { ManagedAccount } from "@/lib/account-admin"
 import { wantsDeclareFlow } from "@/lib/system-boundary-entry"
 
-export function DeclarableAccountInventory({ accountId }: { accountId: string }) {
+/** ``account``: this account's listed row, when the caller has it -- its data stage words an inventory or census that is not
+ *  shown yet (lib/account-admin.ts inventoryStageText, censusStageText). Absent: each route's own answer is said. */
+export function DeclarableAccountInventory({ accountId, account = null }: { accountId: string; account?: ManagedAccount | null }) {
   const scope = useAccountScope()
   const openDeclareFlow = wantsDeclareFlow(useSearchParams())
   return (
-    <AccountCensusBands accountId={accountId}>
+    <AccountCensusBands accountId={accountId} account={account}>
       <DeclareFromInventory
         accountId={accountId}
         customerId={scope.customerId}
         openDeclareFlow={openDeclareFlow}
-        renderInventory={(selection) => <AccountInventoryPanel accountId={accountId} selection={selection} />}
+        renderInventory={(selection) => <AccountInventoryPanel accountId={accountId} selection={selection} account={account} />}
       />
     </AccountCensusBands>
   )

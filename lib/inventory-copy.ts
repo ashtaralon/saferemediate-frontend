@@ -64,6 +64,12 @@ function readinessCopy(reason: string): string | null {
   return PASS_LAPSE_COPY[head] ?? null
 }
 
+/** A readiness hold ("<account>:CONSUMER_NOT_READY:<reason>"): the account's data is not active or its pass lapsed -- the hold
+ *  whose words the account's data stage (lib/account-admin.ts inventoryStageText) may say more truly. */
+export function isReadinessHold(reasonCode: string | null): boolean {
+  return READINESS_HOLD.test(reasonCode ?? "")
+}
+
 export function heldCopy(reasonCode: string | null): string {
   const code = reasonCode ?? ""
   if (HELD_COPY[code]) return HELD_COPY[code]

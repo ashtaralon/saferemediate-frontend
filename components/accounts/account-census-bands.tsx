@@ -15,6 +15,7 @@
  * Every number comes from the published census; nothing is estimated. An answer without rows says why, in words.
  */
 import type { ReactNode } from "react"
+import { censusStageText, type ManagedAccount } from "@/lib/account-admin"
 import { useCensusRead, PUBLICATION_MOVED, type CensusModel } from "@/components/accounts/use-census-read"
 import {
   DEPTH_INVENTORY_PENDING,
@@ -114,10 +115,20 @@ function MoreButton({ model, onMore, label }: { model: CensusModel; onMore: () =
   )
 }
 
-export function AccountCensusBands({ accountId, children, fetchPage = fetchCensusPage }: {
+/** Census answers whose words the account's data stage may say more truly (census.state); an install fact -- census
+ *  disabled or stopped -- is never replaced. */
+function stageMaySpeak(outcome: { state: string; reasonCode?: string | null }): boolean {
+  const code = outcome.reasonCode ?? ""
+  if (outcome.state === "held") return code.includes("CONSUMER_NOT_READY")
+  return outcome.state === "not_published" && code !== "CENSUS_DISABLED" && code !== "CENSUS_STOPPED"
+}
+
+export function AccountCensusBands({ accountId, children, fetchPage = fetchCensusPage, account = null }: {
   accountId: string
   children: ReactNode
   fetchPage?: CensusFetcher
+  /** The account's listed row, when known: a census not shown yet is said from census.state and the data's stage. */
+  account?: ManagedAccount | null
 }) {
   const listed = useCensusRead(accountId, DEPTH_LISTED_ONLY, fetchPage)
   const pending = useCensusRead(accountId, DEPTH_INVENTORY_PENDING, fetchPage)
@@ -129,7 +140,7 @@ export function AccountCensusBands({ accountId, children, fetchPage = fetchCensu
   } else if (model.kind === "outcome") {
     const sentence = model.outcome.reasonCode === PUBLICATION_MOVED
       ? "The census changed while it was being read; refresh to read the current one."
-      : outcomeSentence(model.outcome)
+      : (account && stageMaySpeak(model.outcome) ? censusStageText(account) : null) ?? outcomeSentence(model.outcome)
     band1 = (
       <section aria-label="Census coverage" className="rounded-md border border-slate-200 bg-white p-4 text-sm">
         <h2 className="text-base font-semibold text-slate-900">Everything in this account</h2>

@@ -11,8 +11,10 @@
 import { useEffect, useState } from "react"
 import { AlertTriangle, CheckCircle2, Clock, Loader2, ShieldCheck, Trash2, Unlock, X } from "lucide-react"
 import {
+  ACTIVATION_CONSENT,
   accessRefusalText,
   activationStepText,
+  currentFirstInventory,
   firstInventoryOutcomeText,
   firstInventoryText,
   formatUtcInstantExact,
@@ -70,7 +72,8 @@ export function RegistrationJourney({
   customerId: string
   /** A journey request is being sent, or the account already has an open request: no second one is offered. */
   busy: boolean
-  onAction: (action: RegistrationAction, checkId?: string) => Promise<void>
+  /** `consent`: sent only by the informed confirmation (ACTIVATION_CONSENT). */
+  onAction: (action: RegistrationAction, checkId?: string, consent?: typeof ACTIVATION_CONSENT) => Promise<void>
 }) {
   const [step, recheck] = useStep(account)
   const [confirming, setConfirming] = useState(false)
@@ -168,7 +171,7 @@ export function RegistrationJourney({
         </div>
         {confirming ? (
           <ConfirmActivationDialog account={account} role={role} recheck={recheck} onClose={() => setConfirming(false)}
-            onConfirm={async (checkId) => { await onAction("activate", checkId); setConfirming(false) }} />
+            onConfirm={async (checkId) => { await onAction("activate", checkId, ACTIVATION_CONSENT); setConfirming(false) }} />
         ) : null}
       </div>
     )
@@ -192,9 +195,11 @@ export function RegistrationJourney({
 }
 
 /**
- * The operator's explicit confirmation of the check they are looking at: the account ID, the name AWS holds (or why it was
- * not read) and what confirming does. The check is read again from the wall clock at the click; a check that is no longer
- * confirmable sends nothing.
+ * The operator's explicit, INFORMED confirmation of the check they are looking at: the account ID, the name AWS holds (or why
+ * it was not read) and everything confirming starts -- collecting, checking and, if the checks pass, showing the account's
+ * data (automatic onboarding, Alon 2026-10-10) -- sent with ACTIVATION_CONSENT. No duration is promised beyond "usually
+ * within minutes": the backend has measured none. The check is read again from the wall clock at the click; a check that is
+ * no longer confirmable sends nothing.
  */
 function ConfirmActivationDialog({
   account,
@@ -248,10 +253,11 @@ function ConfirmActivationDialog({
             The check proves this installation can use {role} in that account. It does not prove who owns the account, and a
             name is a label the account&apos;s administrators set. Confirm only an account ID you recognise.
           </p>
-          <ul className="list-disc space-y-1.5 pl-5">
-            <li>Your confirmation turns reading on for this account. Cyntro proves the account again, reads its sources in its Region, and queues its first inventory.</li>
-            <li>This page then shows where its first inventory stands, from the records of that work: queued, collecting, collected or failed.</li>
-            <li>Read access only: nothing in the account is changed.</li>
+          <ul data-testid="confirm-informed" className="list-disc space-y-1.5 pl-5">
+            <li>Cyntro turns reading on, collects this account&apos;s inventory, checks it, and, if the checks pass, shows its data: inventory, census and systems. If a check does not pass, nothing is shown and this page names why.</li>
+            <li>Read only: nothing in the AWS account changes.</li>
+            <li>The decision is recorded under your name.</li>
+            <li>Its data usually appears within minutes after collection finishes. This page shows each step on the way.</li>
           </ul>
           {stale ? (
             <p role="alert" data-testid="confirm-stale" className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-700">
@@ -338,9 +344,12 @@ function RemoveAccount({ account, busy, onRemove }: { account: ManagedAccount; b
 export function FirstCollectionStatus({ account }: { account: ManagedAccount }) {
   const activated = Boolean(account.registration?.activation)
   const connectedLifecycle = ["AWAITING_CONNECTION", "CONNECTION_FAILED", "CONNECTED"].includes(account.onboarding_status)
-  const outcome = account.registration?.first_inventory
-  const fromRuns = activated && connectedLifecycle ? firstInventoryOutcomeText(outcome) : null
-  const first = fromRuns ?? (activated && connectedLifecycle && !outcome ? firstInventoryText(account.registration?.first_inventory_dispatch) : null)
+  // Progress is the CURRENT registration's only: a first inventory naming an earlier registration is never counted here.
+  const { outcome, other } = currentFirstInventory(account)
+  const fromRuns = activated && connectedLifecycle
+    ? (other ? { tone: "pending" as const, text: "First inventory: waiting for this registration's data." } : firstInventoryOutcomeText(outcome))
+    : null
+  const first = fromRuns ?? (activated && connectedLifecycle && !outcome && !other ? firstInventoryText(account.registration?.first_inventory_dispatch) : null)
   const checked = lastConnectionCheckText(account)
   if (!first && !checked) return null
   const tone = first?.tone === "blocked" ? "text-red-700" : first?.tone === "pending" ? "text-amber-800" : "text-slate-600"

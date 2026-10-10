@@ -32,7 +32,8 @@ import {
   type InventorySelection,
   type PublicationIdentity,
 } from "@/lib/account-inventory"
-import { inventoryOutcomeCopy } from "@/lib/inventory-copy"
+import { inventoryOutcomeCopy, isReadinessHold } from "@/lib/inventory-copy"
+import { inventoryStageText, type ManagedAccount } from "@/lib/account-admin"
 import { inventoryTypeMeta } from "@/lib/inventory-types"
 
 export type RosterState =
@@ -54,6 +55,9 @@ export interface AccountInventoryViewProps {
   fetchPage?: InventoryFetcher
   /** Declaring from the inventory (AccountOnboardingPhase2's flow): the caller's picks. Absent: browse only. */
   selection?: InventorySelection
+  /** The account's listed row, when known: an inventory not published yet, or held for readiness, is then said from the
+   *  data's real stage (inventoryStageText) instead of the lifecycle state the hold recorded, which can lag it. */
+  account?: ManagedAccount | null
 }
 
 export function AccountInventoryView(props: AccountInventoryViewProps) {
@@ -72,6 +76,7 @@ function InventoryReader({
   onResourceTypeChange,
   fetchPage = fetchInventoryPage,
   selection,
+  account = null,
   layout,
   onLayoutChange,
 }: AccountInventoryViewProps & { layout: InventoryLayout; onLayoutChange: (layout: InventoryLayout) => void }) {
@@ -158,7 +163,10 @@ function InventoryReader({
       ) : null}
 
       {model.kind === "evidence" || model.kind === "refused" || model.kind === "unavailable" ? (
-        <p className="text-sm text-slate-700" role="status">{inventoryOutcomeCopy(model)}</p>
+        <p className="text-sm text-slate-700" role="status">
+          {(model.kind === "evidence" && (model.state === "not_published" || (model.state === "held" && isReadinessHold(model.reasonCode)))
+            && account ? inventoryStageText(account) : null) ?? inventoryOutcomeCopy(model)}
+        </p>
       ) : null}
 
       {model.kind === "data" ? (

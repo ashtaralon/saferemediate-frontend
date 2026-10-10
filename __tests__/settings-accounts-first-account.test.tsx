@@ -183,6 +183,14 @@ describe("confirmation: the check reached, the operator confirms THAT check", ()
     const dialog = await screen.findByRole("dialog", { name: `Start collecting from ${MEMBER}?` })
     expect(within(dialog).getByTestId("confirm-name")).toHaveTextContent("Name in AWS: prod-payments")
     expect(dialog).toHaveTextContent("It does not prove who owns the account")
+    // Automatic onboarding (2026-10-10): the ONE informed confirmation says everything it starts, and promises no number.
+    const informed = within(dialog).getByTestId("confirm-informed")
+    expect(informed).toHaveTextContent(
+      "Cyntro turns reading on, collects this account's inventory, checks it, and, if the checks pass, shows its data: inventory, census and systems.")
+    expect(informed).toHaveTextContent("Read only: nothing in the AWS account changes.")
+    expect(informed).toHaveTextContent("The decision is recorded under your name.")
+    expect(informed).toHaveTextContent("Its data usually appears within minutes after collection finishes.")
+    expect(informed).not.toHaveTextContent(/\d+ (minutes|seconds|hours)/)
     expect(posts).toHaveLength(0)
     fireEvent.click(within(dialog).getByRole("button", { name: /Confirm and start collecting/ }))
     await waitFor(() => expect(posts).toHaveLength(1))
@@ -190,7 +198,7 @@ describe("confirmation: the check reached, the operator confirms THAT check", ()
     expect(posts[0]).toEqual({
       url: `/api/proxy/admin/accounts/${MEMBER}/activate?customer_id=${CUSTOMER}`,
       body: { registration_id: registration.registration_id, registration_version: registration.registration_version,
-              check_id: check.check_id },
+              check_id: check.check_id, consent: "collect_and_show", consent_version: "v2" },
     })
   })
 
@@ -281,7 +289,8 @@ describe("a result arriving on the open page is judged by the clock NOW (Codex S
     expect(registration.access_check.check_id).not.toBe(registrationOf(firstCheck as Capture).access_check.check_id)
     expect(posts[0].body).toEqual({ registration_id: registration.registration_id,
                                     registration_version: registration.registration_version,
-                                    check_id: registration.access_check.check_id })
+                                    check_id: registration.access_check.check_id,
+                                    consent: "collect_and_show", consent_version: "v2" })
   })
 
   it("a check recorded ahead of this browser's clock says so, then becomes confirmable on its own", async () => {

@@ -13,9 +13,15 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { AccountInventoryView, type RosterState } from "@/components/accounts/account-inventory-view"
 import type { InventorySelection } from "@/lib/account-inventory"
 import { useAccountScope } from "@/lib/account-scope-context"
+import type { ManagedAccount } from "@/lib/account-admin"
 
-/** ``selection``: the caller's picks when declaring a system from this inventory (absent: browse only). */
-export function AccountInventoryPanel({ accountId, selection }: { accountId: string; selection?: InventorySelection }) {
+/** ``selection``: the caller's picks when declaring a system from this inventory (absent: browse only). ``account``: the
+ *  account's listed row, when known (its data stage words an inventory that is not shown yet). */
+export function AccountInventoryPanel({ accountId, selection, account = null }: {
+  accountId: string
+  selection?: InventorySelection
+  account?: ManagedAccount | null
+}) {
   const scope = useAccountScope()
   const router = useRouter()
   const pathname = usePathname()
@@ -48,6 +54,7 @@ export function AccountInventoryPanel({ accountId, selection }: { accountId: str
       roster={roster}
       onResourceTypeChange={onResourceTypeChange}
       selection={selection}
+      account={account}
     />
   )
 }

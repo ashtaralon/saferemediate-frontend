@@ -92,7 +92,8 @@ export function AccountInventoryGate({ accountId, listing }: { accountId: string
     if (!listing.account && listing.removed) return <RemovedAccountNotice removed={listing.removed} />
     if (listing.account && collectionNotStarted(listing.account)) return <InventoryNotCollected />
   }
-  return <DeclarableAccountInventory accountId={accountId} />
+  // The listed row (when there is one) lets the inventory and census say a not-yet-shown answer from the data's real stage.
+  return <DeclarableAccountInventory accountId={accountId} account={listing.state === "ready" ? listing.account : null} />
 }
 
 /** /accounts/{accountId}/inventory: the same gate over its own listing read. */

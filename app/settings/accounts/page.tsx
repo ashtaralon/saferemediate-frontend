@@ -32,6 +32,7 @@ import { AddAccountStackStep, useInstallationStack } from "@/components/settings
 import { useAccountScope } from "@/lib/account-scope-context"
 import { COVERAGE_PAGE_PATH, READY_MEANS_OPERATIONAL, coveragePageHref } from "@/lib/observation-coverage"
 import {
+  ACTIVATION_CONSENT,
   MEMBER_ACCOUNTS_MODE,
   accountAdminFailure,
   accountIdAddable,
@@ -45,6 +46,7 @@ import {
   checkAccountId,
   checkReadRoleArn,
   connectionCheckOutcome,
+  dataActivationAlreadyRequested,
   dataActivationNotRequestable,
   dataActivationPath,
   organizationListing,
@@ -252,7 +254,7 @@ export default function AccountSettingsPage() {
   // open request (accountNeedsPolling), or a check this page asked for. Stops when none; stops on
   // unmount.
   const needsPolling =
-    allAccounts.some(accountNeedsPolling) ||
+    allAccounts.some((account) => accountNeedsPolling(account, Date.now())) ||
     awaitingConnect !== null ||
     Object.keys(checks).length > 0
   useEffect(() => {
@@ -310,8 +312,11 @@ export default function AccountSettingsPage() {
   }
 
   /** Option C: one journey request for the registration and version the operator is looking at (and, to confirm, the
-   *  check they confirm). The connector decides it; the page then re-reads the list, which shows the open request. */
-  async function requestRegistrationAction(account: ManagedAccount, action: RegistrationAction, checkId?: string) {
+   *  check they confirm, with the informed consent the confirmation gave). The connector decides it; the page then re-reads
+   *  the list, which shows the open request. */
+  async function requestRegistrationAction(
+    account: ManagedAccount, action: RegistrationAction, checkId?: string, consent?: typeof ACTIVATION_CONSENT,
+  ) {
     if (!customerId || !account.registration) return
     setJourneyBusy(account.account_id)
     setActionError(null)
@@ -319,7 +324,7 @@ export default function AccountSettingsPage() {
       const response = await fetch(registrationActionPath(action, account.account_id, customerId), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(registrationRequestBody(account.registration, checkId)),
+        body: JSON.stringify({ ...registrationRequestBody(account.registration, checkId), ...(consent ?? {}) }),
       })
       if (!response.ok) throw await accountAdminFailure(response, REGISTRATION_ACTION_LABEL[action])
       const body = await response.json().catch(() => ({}))
@@ -365,9 +370,10 @@ export default function AccountSettingsPage() {
     )
   }
 
-  /** Activate data: the person's request for this member account. 202 = queued; the page then re-reads the list, which shows
-   *  the request and its progress. 409 ACTIVATION_NOT_REQUESTABLE carries its blockers back to the dialog; any other refusal
-   *  is said in the page's error banner. Either way the list is read again, so the row shows what the backend now holds. */
+  /** A legacy account's "show its data" request (POST /activate-data). 202 = queued; the page then re-reads the list, which
+   *  shows the request and its progress. 409 ACTIVATION_NOT_REQUESTABLE carries its blockers back to the dialog; 409
+   *  ACTIVATION_ALREADY_REQUESTED is said as a notice (one is open); any other refusal is said in the page's error banner.
+   *  Either way the list is read again, so the row shows what the backend now holds. */
   async function requestDataActivation(account: ManagedAccount): Promise<DataActivationAnswer> {
     if (!customerId) return { kind: "failed" }
     setActionError(null)
@@ -383,6 +389,12 @@ export default function AccountSettingsPage() {
         if (blockedBy) {
           void load("quiet")
           return { kind: "not_requestable", blockedBy }
+        }
+        const open = dataActivationAlreadyRequested(payload)
+        if (open) {
+          setNotice(`A request to show the data of ${account.account_id} is already open${open.status ? ` (${open.status})` : ""}; Cyntro is still working on it.`)
+          await load("quiet")
+          return { kind: "queued" }
         }
       }
       if (!response.ok) throw await accountAdminFailure(response, "Activate data")
@@ -407,7 +419,7 @@ export default function AccountSettingsPage() {
         account={account}
         customerId={customerId}
         busy={journeyBusy === account.account_id || Boolean(account.pending_request)}
-        onAction={(action, checkId) => requestRegistrationAction(account, action, checkId)}
+        onAction={(action, checkId, consent) => requestRegistrationAction(account, action, checkId, consent)}
       />
     )
   }

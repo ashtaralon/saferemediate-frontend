@@ -8,8 +8,10 @@
  */
 import Link from "next/link"
 import { FirstCollectionStatus } from "@/components/settings/registration-journey"
+import { DataStageLine } from "@/components/settings/data-activation"
 import { MemberStatusBadge } from "@/components/settings/connect-account-panel"
 import {
+  currentFirstInventory,
   discoveryCaveats,
   discoverySummary,
   firstInventoryByType,
@@ -18,7 +20,8 @@ import {
 } from "@/lib/account-admin"
 
 export function AccountOverview({ account }: { account: ManagedAccount }) {
-  const outcome = account.registration?.first_inventory ?? null
+  // The CURRENT registration's first inventory only: one naming an earlier registration is never listed as this one's.
+  const { outcome, other } = currentFirstInventory(account)
   const rows = firstInventoryByType(outcome)
   const measured = rows.filter((row) => row.records !== null)
   const summary = account.onboarding_status === "CONNECTED" ? discoverySummary(account.sources) : null
@@ -38,6 +41,8 @@ export function AccountOverview({ account }: { account: ManagedAccount }) {
         {summary ? <p className="mt-1 text-xs text-slate-500">{summary}</p> : null}
         {caveats.map((caveat) => <p key={caveat} className="mt-1 text-xs text-amber-800">{caveat}</p>)}
         <div className="mt-3"><FirstCollectionStatus account={account} /></div>
+        {/* Where its data stands on the way to being shown -- the same line Settings › Accounts shows (data_activation). */}
+        <div className="mt-2"><DataStageLine account={account} /></div>
         <Link href="/settings/accounts" className="mt-3 inline-block text-xs font-semibold text-teal-700 hover:text-teal-800">
           Manage in Settings › Accounts
         </Link>
@@ -45,7 +50,11 @@ export function AccountOverview({ account }: { account: ManagedAccount }) {
 
       <section className="rounded-xl border border-slate-200 bg-white p-5" aria-labelledby="account-first-inventory-title">
         <h2 id="account-first-inventory-title" className="text-sm font-semibold text-slate-900">First inventory by resource type</h2>
-        {!outcome || outcome.state === "NOT_ACTIVATED" ? (
+        {other ? (
+          <p data-testid="first-inventory-by-type-other-registration" className="mt-2 text-xs text-slate-500">
+            Waiting for this registration&apos;s data: the first inventory on record belongs to an earlier registration of this account.
+          </p>
+        ) : !outcome || outcome.state === "NOT_ACTIVATED" ? (
           <p data-testid="first-inventory-by-type-empty" className="mt-2 text-xs text-slate-500">
             No first inventory yet: it is queued when the account is confirmed.
           </p>
