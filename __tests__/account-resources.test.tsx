@@ -149,3 +149,37 @@ describe("the proxies", () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })
+
+describe("the per-registration reader switch", () => {
+  afterEach(() => { vi.resetModules(); vi.doUnmock("@/lib/account-resources"); vi.doUnmock("@/components/system-boundary/declarable-account-inventory") })
+
+  async function gate(answer: { status: number; body: unknown }) {
+    vi.doMock("@/components/system-boundary/declarable-account-inventory", () => ({
+      DeclarableAccountInventory: () => <p data-testid="published-reader">published inventory reader</p>,
+    }))
+    vi.doMock("@/lib/account-resources", async (real) => ({
+      ...(await real<typeof import("@/lib/account-resources")>()),
+      fetchDiscovery: async () => answer,
+      fetchResourcesPage: async () => capture("resources_discovering_page1"),
+    }))
+    const { InventorySource } = await import("@/components/accounts/account-inventory-gate")
+    render(<InventorySource accountId={ACCOUNT} account={null} />)
+  }
+
+  it("a registration with a discovery run reads its live BASIC listing", async () => {
+    await gate(capture("discovery_complete_with_gaps"))
+    expect(await screen.findByTestId("basic-inventory")).toBeTruthy()
+    expect(screen.queryByTestId("published-reader")).toBeNull()
+  })
+
+  it.each([
+    ["no run (NOT_REQUESTED)", { status: 200, body: { ...capture("discovery_no_plan_yet").body, coverage_state: "NOT_REQUESTED",
+      run_id: null, plan_state: null } }],
+    ["an older backend without the route", { status: 404, body: { detail: "Not Found" } }],
+    ["a refusal", { status: 403, body: { error: "PROXY_BACKEND_UNREACHABLE" } }],
+  ])("%s keeps the published inventory reader exactly as before", async (_name, answer) => {
+    await gate(answer)
+    expect(await screen.findByTestId("published-reader")).toBeTruthy()
+    expect(screen.queryByTestId("basic-inventory")).toBeNull()
+  })
+})
