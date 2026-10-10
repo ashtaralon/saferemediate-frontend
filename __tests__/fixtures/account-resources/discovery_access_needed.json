@@ -36,7 +36,8 @@
       "scopes": 59,
       "scope_states": {
         "ACCESS_DENIED": 1,
-        "UNSUPPORTED": 58
+        "LISTED": 28,
+        "UNSUPPORTED": 30
       },
       "duplicate_receipts": 0,
       "unplanned_receipts": 0
@@ -62,7 +63,7 @@
         "missing_actions": []
       },
       "cloudfront:distribution": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
@@ -72,22 +73,22 @@
         "missing_actions": []
       },
       "ec2:customer-gateway": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "ec2:egress-only-internet-gateway": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "ec2:elastic-ip": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "ec2:image": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
@@ -99,82 +100,82 @@
         ]
       },
       "ec2:internet-gateway": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "ec2:nat-gateway": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "ec2:network-acl": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "ec2:network-interface": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "ec2:route-table": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "ec2:security-group": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "ec2:snapshot": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "ec2:subnet": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "ec2:transit-gateway": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "ec2:transit-gateway-attachment": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "ec2:volume": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "ec2:vpc": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "ec2:vpc-endpoint": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "ec2:vpc-peering-connection": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "ec2:vpn-connection": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "ec2:vpn-gateway": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
@@ -254,27 +255,27 @@
         "missing_actions": []
       },
       "iam:group": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "iam:instance-profile": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "iam:policy": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "iam:role": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "iam:user": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
@@ -309,12 +310,12 @@
         "missing_actions": []
       },
       "route53:hostedzone": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
       "s3:bucket": {
-        "state": "UNSUPPORTED",
+        "state": "LISTED",
         "found": 0,
         "missing_actions": []
       },
@@ -370,47 +371,7 @@
         "missing_actions": []
       },
       {
-        "resource_type": "cloudfront:distribution",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "global"
-        ],
-        "missing_actions": []
-      },
-      {
         "resource_type": "dynamodb:table",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "ec2:customer-gateway",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "ec2:egress-only-internet-gateway",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "ec2:elastic-ip",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "ec2:image",
         "status": "UNSUPPORTED",
         "regions": [
           "eu-west-1"
@@ -426,134 +387,6 @@
         "missing_actions": [
           "ec2:DescribeInstances"
         ]
-      },
-      {
-        "resource_type": "ec2:internet-gateway",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "ec2:nat-gateway",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "ec2:network-acl",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "ec2:network-interface",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "ec2:route-table",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "ec2:security-group",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "ec2:snapshot",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "ec2:subnet",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "ec2:transit-gateway",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "ec2:transit-gateway-attachment",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "ec2:volume",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "ec2:vpc",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "ec2:vpc-endpoint",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "ec2:vpc-peering-connection",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "ec2:vpn-connection",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "ec2:vpn-gateway",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "eu-west-1"
-        ],
-        "missing_actions": []
       },
       {
         "resource_type": "ecr:repository",
@@ -676,46 +509,6 @@
         "missing_actions": []
       },
       {
-        "resource_type": "iam:group",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "global"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "iam:instance-profile",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "global"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "iam:policy",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "global"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "iam:role",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "global"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "iam:user",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "global"
-        ],
-        "missing_actions": []
-      },
-      {
         "resource_type": "kinesis:stream",
         "status": "UNSUPPORTED",
         "regions": [
@@ -760,22 +553,6 @@
         "status": "UNSUPPORTED",
         "regions": [
           "eu-west-1"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "route53:hostedzone",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "global"
-        ],
-        "missing_actions": []
-      },
-      {
-        "resource_type": "s3:bucket",
-        "status": "UNSUPPORTED",
-        "regions": [
-          "global"
         ],
         "missing_actions": []
       },

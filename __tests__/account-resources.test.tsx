@@ -2,7 +2,7 @@
  * Basic resource discovery in the Inventory: the strict readers of account_discovery/v1 and account_resources/v1, the
  * adapter onto the existing table and drawer, the per-registration reader switch, the live BASIC view and the proxies.
  *
- * Answers are the PRODUCER's captures (backend commit 0b51e3beebe879faaac3264bfb7500c80068f906,
+ * Answers are the PRODUCER's captures (backend commit 503f33e73a79f0ae53a8dd499cccf02f562d4968,
  * tests/cyntro_data/test_account_resources_api.py; each fixture's _provenance; byte-equal to that commit's), delivered by
  * fetchers that return them -- mutated only where a case says so (another account's or registration's identity, or a
  * robustness case the producer never emits).
