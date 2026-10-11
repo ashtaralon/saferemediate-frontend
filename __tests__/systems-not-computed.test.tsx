@@ -1,5 +1,10 @@
 import { render, screen } from "@testing-library/react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+// SystemsView paints its per-scope systems cache (localStorage, stale-while-revalidate) BEFORE the fresh answer. Each case
+// starts with no cache, so what it reads is the answer it served -- never a previous case's (FE CI 38123387270 read the
+// first D3 case's cached webshop 134 where the unreported case serves null).
+beforeEach(() => localStorage.clear())
 
 // A fresh customer install serves /api/systems from the published collection
 // before any LP findings exist: every score and count is null, environment /
