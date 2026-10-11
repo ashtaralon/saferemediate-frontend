@@ -586,7 +586,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
   }
 
   return (
-    <div className="space-y-6">
+    // D50: inline-size containment keeps this view's widest content (the systems table, the action row) from setting the
+    // app shell's minimum width -- without it the page overflowed by 264 px at 1512 px and pushed "Add System" off-screen.
+    <div className="space-y-6 [contain:inline-size]">
       <div>
         <BackToDashboard />
       </div>
@@ -651,7 +653,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
       {/* Secondary action row — re-ingest + add-system dropdown. Kept
          separate from the PageHeader actions slot so the dropdown's
          absolute-positioned panel doesn't fight with header layout. */}
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2">
 
           {/* The exact range this list is observed over, and the per-source
               record behind it. READY is "operational", not "complete history". */}
@@ -721,7 +723,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
 
       {/* Systems Table */}
       <div
-        className="rounded-lg border overflow-hidden"
+        className="rounded-lg border overflow-x-auto"
         style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}
       >
         {isLoadingData ? (

@@ -94,6 +94,23 @@ describe("Systems > Add System leads into the System Boundary wizard", () => {
     expect(screen.getAllByRole("row")).toHaveLength(1 + LISTED.length)        // header + the served row, no optimistic row
   })
 
+  it("D50: the entry stays on screen at desktop widths -- a labelled, focusable link the view's own width cannot push away", async () => {
+    // Live 0.10.6 at 1512 px: the table and action row set the shell's minimum width, the page overflowed 264 px and
+    // "Add System" rendered at x=1505..1615. jsdom has no layout, so this pins the three guarantees that fixed it in the
+    // measured browser (contained inline size, wrapping action row, table scrolling inside its own box).
+    serve(LISTED)
+    render(<SystemsView />)
+    await screen.findAllByText("testbed-webshop")
+    const add = screen.getByTestId("add-system")
+    expect(add).toHaveAccessibleName("Add System")
+    add.focus()
+    expect(document.activeElement).toBe(add)
+    expect(add.closest(".space-y-6")?.className).toContain("[contain:inline-size]")
+    expect(add.parentElement?.className).toContain("flex-wrap")
+    const table = screen.getAllByRole("table")[0]
+    expect(table.closest(".rounded-lg.border")?.className).toContain("overflow-x-auto")
+  })
+
   it("with several served accounts in scope, lists exactly those to choose from, each into its declare flow", async () => {
     accountScope.options.accounts = [ACCOUNT_A, ACCOUNT_B]
     serve(LISTED)
