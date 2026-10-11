@@ -91,8 +91,23 @@ export interface RootSelection {
   observed_incarnation: ObservedIncarnation
 }
 
-/** A root a save attaches: its identity and the selection it was picked under. */
-export type DeclaredRoot = SeedIdentity & { selection: RootSelection }
+/** (Wizard on discovery) What the person SAW when they picked a root from a basic-discovery row: the registration and RUN
+ *  it was listed in, its browse key, and the canonical type and incarnation the backend named for it. Never authority: the
+ *  backend's basic resolver judges all of it again against the current registration, run and stored row. */
+export interface BasicRootSelection {
+  source: "basic_discovery"
+  resource_type: string
+  registration_id: string
+  run_id: string
+  resource_key: string
+  observed_incarnation: { status: "provided"; source: string; value: string }
+}
+
+/** A root picked from the published (deep) inventory. */
+export type InventoryDeclaredRoot = SeedIdentity & { selection: RootSelection }
+
+/** A root a save attaches: its identity and the selection it was picked under (deep, or basic discovery). */
+export type DeclaredRoot = InventoryDeclaredRoot | (SeedIdentity & { selection: BasicRootSelection })
 
 /** What the backend stored of a root's admission on its seed (N2): what the resolver judged it against and found. */
 export interface RootProvenance {
@@ -251,7 +266,7 @@ export function rootFromInventory(
   accountId: string,
   row: { resource_uid: string; resource_type: string; region: string; observed_incarnation: Record<string, unknown> },
   publication: { attempt: string; generation: number; source_identity: string; authority_digest: string },
-): DeclaredRoot {
+): InventoryDeclaredRoot {
   return {
     account_id: accountId,
     region: row.region,
@@ -261,6 +276,25 @@ export function rootFromInventory(
       publication: { attempt: publication.attempt, generation: publication.generation, source_identity: publication.source_identity,
                      authority_digest: publication.authority_digest },
       observed_incarnation: structuredClone(row.observed_incarnation) as ObservedIncarnation,
+    },
+  }
+}
+
+/** (Wizard on discovery) A root picked from a basic-discovery row: the canonical identity the backend named for it, and the
+ *  registration and run (the basic page's pseudo publication: ``attempt`` is the run) it was listed under -- copied. */
+export function rootFromBasic(
+  accountId: string,
+  root: { resource_uid: string; resource_type: string; region: string; resource_key: string;
+          observed_incarnation: { status: "provided"; source: string; value: string } },
+  publication: { attempt: string; registration_id: string },
+): DeclaredRoot {
+  return {
+    account_id: accountId,
+    region: root.region,
+    resource_uid: root.resource_uid,
+    selection: {
+      source: "basic_discovery", resource_type: root.resource_type, registration_id: publication.registration_id,
+      run_id: publication.attempt, resource_key: root.resource_key, observed_incarnation: { ...root.observed_incarnation },
     },
   }
 }

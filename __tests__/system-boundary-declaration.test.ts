@@ -16,6 +16,7 @@ import {
   type DeclaredRoot,
   type SaveResult,
 } from "@/lib/system-boundary-authoring"
+import type { RootSelection } from "@/lib/system-boundary-authoring"   // deep fixtures (wizard on discovery widened DeclaredRoot)
 import {
   buildDeclaration,
   cellsOf,
@@ -41,7 +42,7 @@ const REGISTRATION = (VIEW1.roots[0].body.provenance as { registration_id: strin
 
 function picked(root: DeclaredRoot): PickedRoot {
   return { root: structuredClone(root) as DeclaredRoot, label: root.resource_uid.split("/").pop() ?? root.resource_uid,
-           publication: { ...root.selection.publication, registration_id: REGISTRATION } }
+           publication: { ...(root.selection as RootSelection).publication, registration_id: REGISTRATION } }
 }
 
 function draftOf(envelope: CreateEnvelope, over: Partial<DraftDeclaration> = {}): DraftDeclaration {

@@ -10,7 +10,8 @@
  *   never "0 resources". An absence is claimed only where the listing that would have found it succeeded.
  * - While the run is moving the page refreshes every 2 seconds, only while the tab is visible; it stops once the run is
  *   complete, held or not requested.
- * - Rows are BASIC: never selectable, never "verified"; the drill-down says "Observed from AWS ... · Basic discovery".
+ * - Rows are BASIC: never "verified" and never decision-eligible; the drill-down says "Observed from AWS ... · Basic discovery".
+ *   Given the System wizard's selection hook, a row the backend named a System root for can be picked as a root (intent only).
  *
  * Everything shown is bound to ONE listing identity -- account + registration + run (Codex review of ea268c75, 1). The
  * caller mounts one view per identity (keyed), so a new account, a re-added registration or a new run starts from nothing:
@@ -27,8 +28,9 @@ import { InventoryResourceDrawer } from "@/components/accounts/inventory-resourc
 import { InventoryRowsTable } from "@/components/accounts/inventory-rows-table"
 import { InventoryTypeTile } from "@/components/accounts/inventory-type-tile"
 import { Button } from "@/components/ui/button"
-import type { InventoryRow, PublicationIdentity } from "@/lib/account-inventory"
+import type { InventoryRow, InventorySelection, PublicationIdentity } from "@/lib/account-inventory"
 import {
+  BASIC_SOURCE_IDENTITY,
   CURSOR_RESTART_REQUIRED,
   LIVE_COVERAGE,
   basicEvidence,
@@ -251,9 +253,9 @@ function scopeLine(status: DiscoveryStatus): string {
   return `Account-wide: ${regions.length} enabled ${regions.length === 1 ? "Region" : "Regions"} plus global resources.`
 }
 
-/** A pseudo publication for the shared table: a BASIC row is never selectable, so it names only the run it came from. */
-function runPublication(identity: ListingIdentity): PublicationIdentity {
-  return { attempt: identity.runId, generation: 0, source_identity: "basic-discovery", authority_digest: "",
+/** The pseudo publication a basic page's rows are shown (and picked) under: the registration and the run (``attempt``). */
+export function runPublication(identity: ListingIdentity): PublicationIdentity {
+  return { attempt: identity.runId, generation: 0, source_identity: BASIC_SOURCE_IDENTITY, authority_digest: "",
     registration_id: identity.registrationId }
 }
 
@@ -271,6 +273,9 @@ export interface BasicInventoryViewProps {
   onContradicted?: () => void
   /** Show the account afresh (a new view of whatever the status names now). */
   onRestart?: () => void
+  /** (Wizard on discovery) The System wizard's selection hook: rows the backend named a System root for can be picked as
+   *  roots (lib/account-resources.ts SystemRoot). Absent: browse only, exactly as before. */
+  selection?: InventorySelection
 }
 
 /**
@@ -280,7 +285,7 @@ export interface BasicInventoryViewProps {
  * explicit retry that reads everything afresh).
  */
 export function BasicInventoryView({ accountId, accountLabel, status, fetchPage = fetchResourcesPage, refreshFailed = false,
-  onRefreshStatus = () => {}, onContradicted = () => {}, onRestart = () => {} }: BasicInventoryViewProps) {
+  onRefreshStatus = () => {}, onContradicted = () => {}, onRestart = () => {}, selection }: BasicInventoryViewProps) {
   const [invalidated, setInvalidated] = useState(false)
   const [layout, setLayout] = useState<"grouped" | "list">("grouped")
   const [category, setCategory] = useState<InventoryCategory | null>(null)
@@ -288,6 +293,11 @@ export function BasicInventoryView({ accountId, accountLabel, status, fetchPage 
   const [opened, setOpened] = useState<{ row: InventoryRow; evidence: BasicEvidence } | null>(null)
   const [coverageOpen, setCoverageOpen] = useState(false)
   const identity: ListingIdentity = { accountId, registrationId: status.registrationId, runId: status.runId }
+  // The picker is told which listing is shown: a pick from another registration or run is then named as earlier.
+  const onPublication = selection?.onPublication
+  useEffect(() => {
+    onPublication?.(runPublication({ accountId, registrationId: status.registrationId, runId: status.runId }))
+  }, [onPublication, accountId, status.registrationId, status.runId])
   // Pages reload when the run's found-count or state moves (never more often than the status poll).
   const revision = `${status.coverageState}:${status.observedTotal}`
   const names = new Set([...Object.keys(status.totalsByType), ...problemTypes(status)])
@@ -417,7 +427,7 @@ export function BasicInventoryView({ accountId, accountLabel, status, fetchPage 
                     {isOpen ? (
                       <div className="border-t border-slate-100 px-3 py-2">
                         <BasicRows identity={identity} resourceType={meta.resourceType} revision={revision} fetchPage={fetchPage}
-                          onOpen={open} onContradicted={contradicted} />
+                          onOpen={open} onContradicted={contradicted} selection={selection} />
                       </div>
                     ) : null}
                   </li>
@@ -428,7 +438,7 @@ export function BasicInventoryView({ accountId, accountLabel, status, fetchPage 
         </div>
       ) : (
         <BasicRows identity={identity} resourceType={null} revision={revision} fetchPage={fetchPage} onOpen={open}
-          onContradicted={contradicted} />
+          onContradicted={contradicted} selection={selection} />
       )}
 
       {opened !== null ? (
@@ -438,13 +448,14 @@ export function BasicInventoryView({ accountId, accountLabel, status, fetchPage 
   )
 }
 
-function BasicRows({ identity, resourceType, revision, fetchPage, onOpen, onContradicted }: {
+function BasicRows({ identity, resourceType, revision, fetchPage, onOpen, onContradicted, selection }: {
   identity: ListingIdentity
   resourceType: string | null
   revision: unknown
   fetchPage: ResourcesFetcher
   onOpen: (item: BasicItem) => void
   onContradicted: () => void
+  selection?: InventorySelection
 }) {
   const { model, loadMore, retry } = useBasicPage(identity, resourceType, revision, fetchPage, onContradicted)
   if (model.kind === "loading") return <p className="text-xs text-slate-500">Loading…</p>
@@ -474,7 +485,7 @@ function BasicRows({ identity, resourceType, revision, fetchPage, onOpen, onCont
       ) : null}
       <InventoryRowsTable rows={model.rows.map(toInventoryRow)} resourceType={resourceType}
         onOpen={(row) => { const item = byKey.get(row.resource_uid); if (item) onOpen(item) }}
-        publication={runPublication(identity)} />
+        publication={runPublication(identity)} selection={selection} />
       {model.nextCursor !== null ? (
         <div className="flex items-center gap-2">
           <Button type="button" variant="outline" size="sm" onClick={() => void loadMore()} disabled={model.loadingMore}>

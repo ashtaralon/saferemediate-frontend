@@ -31,9 +31,11 @@ import { PendingSaves } from "@/components/system-boundary/pending-saves"
 import { StackBindingWizard } from "@/components/system-boundary/stack-binding-wizard"
 import { Button } from "@/components/ui/button"
 import { rowKey, type InventoryRow, type InventorySelection, type PublicationIdentity } from "@/lib/account-inventory"
+import { BASIC_SOURCE_IDENTITY } from "@/lib/account-resources"
 import {
   readOwnGrant,
   readView,
+  rootFromBasic,
   rootFromInventory,
   type CorrectionEnvelope,
   type CreateEnvelope,
@@ -133,8 +135,11 @@ function Declarer({ accountId, renderInventory, readDeclarations = readView, rea
       const next = new Map(current)
       const key = rowKey(row)
       if (next.has(key)) next.delete(key)
-      else next.set(key, { root: rootFromInventory(accountId, row, publication), label: row.name ?? row.native_id,
-                           publication: structuredClone(publication) })
+      // (Wizard on discovery) a basic row's pick carries the canonical root the backend named and the run it was listed in.
+      else next.set(key, { root: row.basic_root && publication.source_identity === BASIC_SOURCE_IDENTITY
+                             ? rootFromBasic(accountId, row.basic_root, publication)
+                             : rootFromInventory(accountId, row, publication),
+                           label: row.name ?? row.native_id, publication: structuredClone(publication) })
       return next
     })
   }, [accountId])

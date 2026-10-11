@@ -17,6 +17,7 @@ import { useCallback, useEffect, useState } from "react"
 import { Loader2 } from "lucide-react"
 import { BasicInventoryView, identityKey, useDiscoveryStatus } from "@/components/accounts/basic-inventory-view"
 import { DeclarableAccountInventory } from "@/components/system-boundary/declarable-account-inventory"
+import { DeclarableBasicInventory } from "@/components/system-boundary/declarable-basic-inventory"
 import { useAccountScope } from "@/lib/account-scope-context"
 import {
   fetchDiscovery,
@@ -130,7 +131,7 @@ export function DiscoveryStatusUnavailable({ reasonCode, onRetry }: { reasonCode
 /**
  * Which reader shows this account's inventory -- per REGISTRATION (basic resource discovery's rollout): a registration whose
  * confirmation started a discovery run reads its live BASIC listing (account_resources/v1), one view per account +
- * registration + run; a HELD run shows that it is held and nothing of it; a status that could not be read is named, with
+ * registration + run, with the System wizard declaring from it (D47, DeclarableBasicInventory); a HELD run shows that it is held and nothing of it; a status that could not be read is named, with
  * a retry. No run (NOT_REQUESTED), a backend without the route or a refusal keeps the published inventory reader, exactly
  * as before. Mount one per account (the gate keys it).
  */
@@ -155,11 +156,14 @@ export function InventorySource({ accountId, account, fetchStatus = fetchDiscove
   if (status.kind === "status" && status.coverageState !== "NOT_REQUESTED" && status.registrationId && status.runId) {
     const label = account?.display_name && account.display_name !== accountId ? `${account.display_name} (${accountId})` : accountId
     const bound = { ...status, registrationId: status.registrationId, runId: status.runId }
+    // (D47) The System wizard declares from the basic listing too; the listing never waits for it.
     return (
-      <BasicInventoryView key={`${identityKey({ accountId, registrationId: bound.registrationId, runId: bound.runId })}:${generation}`}
-        accountId={accountId} accountLabel={label} status={bound} fetchPage={fetchPage} refreshFailed={refreshFailed}
-        onRefreshStatus={() => void refresh()} onContradicted={() => void refresh()}
-        onRestart={() => { setGeneration((g) => g + 1); void refresh() }} />
+      <DeclarableBasicInventory accountId={accountId} renderInventory={(selection) => (
+        <BasicInventoryView key={`${identityKey({ accountId, registrationId: bound.registrationId, runId: bound.runId })}:${generation}`}
+          accountId={accountId} accountLabel={label} status={bound} fetchPage={fetchPage} refreshFailed={refreshFailed}
+          onRefreshStatus={() => void refresh()} onContradicted={() => void refresh()}
+          onRestart={() => { setGeneration((g) => g + 1); void refresh() }} selection={selection} />
+      )} />
     )
   }
   if (status.kind === "outcome" && statusFallback(status) === "unavailable") {

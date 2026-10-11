@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { DeclareFromInventory } from "@/components/system-boundary/declare-from-inventory"
 import { rowKey, type InventoryRow, type InventorySelection, type PublicationIdentity } from "@/lib/account-inventory"
 import type { CreateEnvelope, DeclarationsView, OwnGrant, ReadResult } from "@/lib/system-boundary-authoring"
+import type { RootSelection } from "@/lib/system-boundary-authoring"   // deep fixtures (wizard on discovery widened DeclaredRoot)
 import { pendingStore } from "@/lib/system-boundary-pending"
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -31,7 +32,7 @@ const ROW = {
   native_id: ROOT.resource_uid.split("/").pop(),
 } as unknown as InventoryRow
 const PUBLICATION: PublicationIdentity = {
-  ...ROOT.selection.publication,
+  ...(ROOT.selection as RootSelection).publication,
   registration_id: (golden("view_after_save").body.roots[0].body.provenance as { registration_id: string }).registration_id,
 }
 

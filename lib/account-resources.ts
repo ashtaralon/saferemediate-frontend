@@ -72,6 +72,17 @@ export interface DiscoveryStatus {
   retry: { status: string; outcome: string | null; detail: string | null } | null
 }
 
+/** (Wizard on discovery) Whether a basic row may be chosen as a System root, and the canonical identity that root carries --
+ *  judged by the backend (cyntro_data/resource_discovery/system_root.py) and judged AGAIN when the save is admitted. Intent
+ *  only: the row's decision eligibility stays BASIC_ONLY. Absent (an older backend): never offered. */
+export type SystemRoot =
+  | { status: "SELECTABLE"; resource_uid: string; resource_type: string; region: string;
+      observed_incarnation: { status: "provided"; source: string; value: string } }
+  | { status: "NOT_SELECTABLE"; reason: string }
+
+/** The pseudo publication a basic page's picks are made under: it names the registration and the RUN (``attempt``). */
+export const BASIC_SOURCE_IDENTITY = "basic-discovery"
+
 export interface BasicItem {
   resource_key: string
   resource_type: string
@@ -89,6 +100,7 @@ export interface BasicItem {
   source_api: string | null
   observed_at: string | null
   first_seen_at: string | null
+  system_root?: SystemRoot
 }
 
 export interface ResourcesPage {
@@ -249,8 +261,20 @@ function validItem(item: unknown): item is BasicItem {
   if (!isObject(item.summary) || !Object.values(item.summary).every((v) => ["string", "number", "boolean"].includes(typeof v))) {
     return false
   }
+  if ("system_root" in item && !validSystemRoot(item.system_root, item)) return false
   const eligibility = item.decision_eligibility
   return isObject(eligibility) && eligibility.eligible === false && eligibility.reason === "BASIC_ONLY"
+}
+
+/** A root candidate exactly as the backend states it, of THIS item's type and Region; anything else refuses the page. */
+function validSystemRoot(root: unknown, item: Record<string, unknown>): root is SystemRoot {
+  if (!isObject(root)) return false
+  if (root.status === "NOT_SELECTABLE") return typeof root.reason === "string" && root.reason.length > 0
+  const incarnation = root.observed_incarnation
+  return root.status === "SELECTABLE" && typeof root.resource_uid === "string" && root.resource_uid.length > 0
+    && root.resource_type === item.resource_type && root.region === item.region
+    && isObject(incarnation) && incarnation.status === "provided" && typeof incarnation.source === "string"
+    && typeof incarnation.value === "string" && incarnation.value.length > 0
 }
 
 export function parseResourcesResponse(status: number, body: unknown, accountId: string,
@@ -284,6 +308,7 @@ export function parseResourcesResponse(status: number, body: unknown, accountId:
 
 /** A BASIC item in the inventory table's row shape: nothing invented -- no hash, no verification, no tags (not read). */
 export function toInventoryRow(item: BasicItem): InventoryRow {
+  const root = item.system_root
   const details: Record<string, string | number | boolean> = { ...item.summary }
   if (item.provider_state) details.provider_state = item.provider_state
   return {
@@ -298,7 +323,12 @@ export function toInventoryRow(item: BasicItem): InventoryRow {
     observation: { configuration_hash: null, last_verified_at: null },
     observed_incarnation: { status: "BASIC" },
     assignment: { status: "NOT_EVALUATED" },
-    eligibility: { selectable: false, reason: "BASIC_ONLY" },
+    // The table's eligibility is ROOT selectability (as for a deep row): a basic row may be picked as a System root only where
+    // the backend named its canonical root; it never gains decision eligibility.
+    eligibility: root?.status === "SELECTABLE" ? { selectable: true, reason: "SUPPORTED" }
+      : { selectable: false, reason: root?.status === "NOT_SELECTABLE" ? root.reason : "BASIC_ONLY" },
+    ...(root?.status === "SELECTABLE" ? { basic_root: { resource_uid: root.resource_uid, resource_type: root.resource_type,
+      region: root.region, observed_incarnation: { ...root.observed_incarnation }, resource_key: item.resource_key } } : {}),
     details,
   }
 }

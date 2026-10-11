@@ -53,6 +53,17 @@
         "decision_eligibility": {
           "eligible": false,
           "reason": "BASIC_ONLY"
+        },
+        "system_root": {
+          "status": "SELECTABLE",
+          "resource_uid": "aws://aws/333333333333/eu-west-1/ec2/instance/i-00000000000000003",
+          "resource_type": "ec2:instance",
+          "region": "eu-west-1",
+          "observed_incarnation": {
+            "status": "provided",
+            "source": "instance_id",
+            "value": "i-00000000000000003"
+          }
         }
       },
       {
@@ -77,6 +88,17 @@
         "decision_eligibility": {
           "eligible": false,
           "reason": "BASIC_ONLY"
+        },
+        "system_root": {
+          "status": "SELECTABLE",
+          "resource_uid": "aws://aws/333333333333/eu-west-1/ec2/instance/i-00000000000000006",
+          "resource_type": "ec2:instance",
+          "region": "eu-west-1",
+          "observed_incarnation": {
+            "status": "provided",
+            "source": "instance_id",
+            "value": "i-00000000000000006"
+          }
         }
       }
     ],

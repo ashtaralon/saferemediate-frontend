@@ -84,6 +84,17 @@ export interface InventoryRow {
   details?: Record<string, string | number | boolean>
   /** Row v3: allowed attributes the fact carries but that could not be shown (their names). */
   details_withheld?: string[]
+  /** (Wizard on discovery) A BASIC row the backend named a canonical System root for: what a pick of it carries. */
+  basic_root?: BasicRoot
+}
+
+/** A basic row's System-root identity (lib/account-resources.ts SystemRoot, SELECTABLE) and the browse key it was read under. */
+export interface BasicRoot {
+  resource_uid: string
+  resource_type: string
+  region: string
+  observed_incarnation: { status: "provided"; source: string; value: string }
+  resource_key: string
 }
 
 export interface PublicationIdentity {
@@ -404,6 +415,12 @@ export const ELIGIBILITY_COPY: Record<string, string> = {
   ROOT_STATE_UNVERIFIED: "Its state is not verified",
   PUBLICATION_INCOMPLETE: "This inventory publication is partial",
   ROOT_INCARNATION_RECORD_INVALID: "Its identity record could not be verified",
+  // (Wizard on discovery) a basic row the backend names no System root for
+  BASIC_ONLY: "Basic discovery only",
+  REGION_NOT_COLLECTED: "Its Region is not one Cyntro collects deep evidence in for this account",
+  TYPE_NOT_ROOTABLE: "This resource type cannot be a system root yet",
+  IDENTITY_UNMAPPED: "Its identity cannot be matched to a system root",
+  COLLECTION_SCOPE_UNKNOWN: "This account's collection Regions could not be read",
 }
 
 export function eligibilityCopy(eligibility: Record<string, unknown>): string {

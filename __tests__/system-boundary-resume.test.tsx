@@ -12,6 +12,7 @@ import { DeclareFromInventory } from "@/components/system-boundary/declare-from-
 import { PendingSaves } from "@/components/system-boundary/pending-saves"
 import type { InventoryRow, PublicationIdentity } from "@/lib/account-inventory"
 import type { CreateEnvelope, DeclarationsView, OwnGrant, ReadResult } from "@/lib/system-boundary-authoring"
+import type { RootSelection } from "@/lib/system-boundary-authoring"   // deep fixtures (wizard on discovery widened DeclaredRoot)
 import type { InventorySelection } from "@/lib/account-inventory"
 import { PENDING_KEY, pendingFor, pendingStore, type PendingSave } from "@/lib/system-boundary-pending"
 
@@ -190,7 +191,7 @@ describe("the wrapper keeps every envelope until its outcome is definite", () =>
   const ROOT = CREATE.declaration.roots[0]
   const ROW = { resource_uid: ROOT.resource_uid, resource_type: ROOT.selection.resource_type, region: ROOT.region,
                 observed_incarnation: ROOT.selection.observed_incarnation, name: "web-role", native_id: "web-role" } as unknown as InventoryRow
-  const PUBLICATION = { ...ROOT.selection.publication, registration_id: "r" } as PublicationIdentity
+  const PUBLICATION = { ...(ROOT.selection as RootSelection).publication, registration_id: "r" } as PublicationIdentity
 
   async function declare(storage: MemoryStorage, grant: ReadResult<OwnGrant>, saveAnswer: string | Error) {
     let latest: InventorySelection | undefined

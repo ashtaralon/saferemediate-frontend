@@ -25,6 +25,12 @@ import {
 } from "@/lib/account-resources"
 import { ACTIVATION_CONSENT } from "@/lib/account-admin"
 
+// The reader switch is this file's subject: the System wizard's wrapper around the basic listing (D47) renders the listing
+// browse-only here; its own behaviour, with its readers injected, is __tests__/wizard-on-discovery.test.tsx's.
+vi.mock("@/components/system-boundary/declarable-basic-inventory", () => ({
+  DeclarableBasicInventory: ({ renderInventory }: { renderInventory: (selection: undefined) => unknown }) => renderInventory(undefined),
+}))
+
 type Name = "discovery_no_plan_yet" | "discovery_complete_with_gaps" | "resources_discovering_page1"
   | "resources_discovering_page2" | "resources_filtered_ecs_task" | "resources_held_account_removed" | "resource_drawer"
   | "discovery_access_needed" | "resources_empty_unproven_access_denied" | "resources_type_unreadable_access_denied"
@@ -89,7 +95,14 @@ describe("the strict readers", () => {
     const item = capture("resources_discovering_page1").body.items[0]
     const row = toInventoryRow(item)
     expect(row.observation).toEqual({ configuration_hash: null, last_verified_at: null })
-    expect(row.eligibility).toEqual({ selectable: false, reason: "BASIC_ONLY" })
+    // The table's eligibility is ROOT selectability: the producer named this row's System root (wizard on discovery). Its
+    // decision eligibility stays BASIC_ONLY, and an answer without system_root (an older backend) offers no root.
+    expect(item.decision_eligibility).toEqual({ eligible: false, reason: "BASIC_ONLY" })
+    expect(row.eligibility).toEqual({ selectable: true, reason: "SUPPORTED" })
+    expect(row.basic_root).toEqual({ ...item.system_root, status: undefined, resource_key: item.resource_key })
+    const { system_root: _root, ...older } = item
+    expect(toInventoryRow(older).eligibility).toEqual({ selectable: false, reason: "BASIC_ONLY" })
+    expect(toInventoryRow(older).basic_root).toBeUndefined()
     expect(row.tags).toBeUndefined()
     expect(row.details).toEqual({ ...item.summary, provider_state: item.provider_state })
   })

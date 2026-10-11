@@ -10,6 +10,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { DeclaredSystems } from "@/components/system-boundary/declared-systems"
 import type { DeclarationsView, DeclaredRoot } from "@/lib/system-boundary-authoring"
+import type { RootSelection } from "@/lib/system-boundary-authoring"   // deep fixtures (wizard on discovery widened DeclaredRoot)
 import type { PickedRoot } from "@/lib/system-boundary-declaration"
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -23,7 +24,7 @@ const view = (name: string): DeclarationsView => golden(name).body
 type Id = `${string}-${string}-${string}-${string}-${string}`
 
 function picked(root: DeclaredRoot): PickedRoot {
-  return { root, label: root.resource_uid.split("/").pop()!, publication: { ...root.selection.publication, registration_id: "r" } }
+  return { root, label: root.resource_uid.split("/").pop()!, publication: { ...(root.selection as RootSelection).publication, registration_id: "r" } }
 }
 
 function mount(current: DeclarationsView, ids: string[], answers: string[], picks: PickedRoot[] = []) {

@@ -205,6 +205,25 @@ export function proofSentence(row: ResultRow): string {
 
 /** Why a not-a-member row is not a member, as a person reads it (R9 exclusion, R6 shared cluster, R1 shared foundation,
  * retirements, listed-only and the other named outcomes). The backend's reason code stays visible. */
+/** A basic-discovery root's not-member reason (backend system_membership_project BASIC_*), in words; null for any other. */
+export function basicRootSentence(reason: string): string | null {
+  const [code, detail] = reason.split(":", 2)
+  if (code === "BASIC_REGISTRATION_UNPROVEN") {
+    return "chosen from basic discovery; not a member yet: Cyntro's deep evidence for this account has not been proven to come "
+      + `from its current connection${detail ? ` (${detail})` : ""} [${code}]`
+  }
+  if (code === "BASIC_REGISTRATION_MISMATCH") {
+    return `chosen from basic discovery under an earlier connection of this account; it is not carried over [${code}]`
+  }
+  if (code === "BASIC_INCARNATION_UNPROVEN") {
+    return `chosen from basic discovery; not a member yet: the deep evidence does not prove this resource's identity [${code}]`
+  }
+  if (code === "BASIC_INCARNATION_MISMATCH") {
+    return `chosen from basic discovery; the resource now found under this identifier is a different one (recreated) [${code}]`
+  }
+  return null
+}
+
 export function notMemberSentence(row: ResultRow): string {
   const reason = String(row.reason ?? row.state)
   const suppressed = Array.isArray(row.suppressed) ? row.suppressed.map(originWords) : []
@@ -223,6 +242,10 @@ export function notMemberSentence(row: ResultRow): string {
     return `excluded by a person's decision${setAside}${stopped} [${reason}]`
   }
   if (reason === "SHARED_FOUNDATION") return `shared foundation: a member of no business system [${reason}]`
+  // (Wizard on discovery) a root chosen from basic discovery, not yet proven in this membership generation: say what is
+  // missing -- never a member on basic discovery alone.
+  const basic = basicRootSentence(reason)
+  if (basic) return basic
   if (row.kind === "RETIRED") {
     const sinceWhen = typeof row.valid_to === "string" ? ` on ${row.valid_to}` : ""
     return `no longer a member${sinceWhen} [${reason}]`

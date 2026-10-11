@@ -10,6 +10,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { DeclarationForm } from "@/components/system-boundary/declaration-form"
 import type { CreateEnvelope, DeclarationsView, DeclaredRoot } from "@/lib/system-boundary-authoring"
+import type { RootSelection } from "@/lib/system-boundary-authoring"   // deep fixtures (wizard on discovery widened DeclaredRoot)
 import type { PickedRoot } from "@/lib/system-boundary-declaration"
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -25,7 +26,7 @@ const VIEW1: DeclarationsView = golden("view_after_save").body
 
 function picked(root: DeclaredRoot): PickedRoot {
   return { root: structuredClone(root) as DeclaredRoot, label: root.resource_uid.split("/").pop() ?? root.resource_uid,
-           publication: { ...root.selection.publication, registration_id: "r" } }
+           publication: { ...(root.selection as RootSelection).publication, registration_id: "r" } }
 }
 
 function answers(...names: (string | Error)[]) {

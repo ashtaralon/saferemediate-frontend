@@ -14,6 +14,7 @@ import {
   type DeclaredRoot,
   type SaveResult,
 } from "@/lib/system-boundary-authoring"
+import type { RootSelection } from "@/lib/system-boundary-authoring"   // deep fixtures (wizard on discovery widened DeclaredRoot)
 import { buildCorrection, declaredIn, environmentEffect, type CorrectionIntent } from "@/lib/system-boundary-correction"
 import { describeResult, type PickedRoot } from "@/lib/system-boundary-declaration"
 
@@ -27,7 +28,7 @@ const ACCOUNT: string = REQUESTS.create.declaration.roots[0].account_id
 const view = (name: string): DeclarationsView => golden(name).body
 
 function picked(root: DeclaredRoot): PickedRoot {
-  return { root, label: root.resource_uid.split("/").pop()!, publication: { ...root.selection.publication, registration_id: "r" } }
+  return { root, label: root.resource_uid.split("/").pop()!, publication: { ...(root.selection as RootSelection).publication, registration_id: "r" } }
 }
 
 function key(records: BoundaryRecord[], field: string, value: string): string {
