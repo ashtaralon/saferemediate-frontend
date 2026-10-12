@@ -40,3 +40,13 @@ export function lpConfidenceWithheldCopy(reason: string | null | undefined): str
   }
   return `Confidence withheld: ${reason}`
 }
+
+/**
+ * Sentence for a usage-derived value the backend withheld (`*_withheld_reason`).
+ * The unverified-generation code reads as the fallback sentence; any other code
+ * is printed as itself, never translated into a guess.
+ */
+export function iamUsageWithheldCopy(reason: string | null | undefined): string {
+  if (!reason || reason === IAM_USAGE_GENERATION_UNVERIFIED) return IAM_USAGE_UNKNOWN_FALLBACK
+  return iamUsageUnknownCopy([reason])
+}

@@ -47,16 +47,34 @@ export async function GET(req: NextRequest) {
     // Transform backend response to match frontend expectations
     // Backend returns: [{ roleArn, roleName, permissionsCount, unusedPermissionsCount, bloatPercentage }]
     // Frontend expects: { roles: [{ id, name, usedCount, allowedCount, unusedCount, highRiskUnused, score }] }
-    const roles = (Array.isArray(rawData) ? rawData : []).map((r: any) => ({
+    //
+    // A null (or absent) unusedPermissionsCount is WITHHELD usage, not zero
+    // unused: used, unused and score stay null — never a derived 100 — and the
+    // backend's *_withheld_reason fields pass through.
+    const roles = (Array.isArray(rawData) ? rawData : []).map((r: any) => {
+      const allowedCount = r.permissionsCount || 0
+      const unusedCount: number | null =
+        typeof r.unusedPermissionsCount === "number" && Number.isFinite(r.unusedPermissionsCount)
+          ? r.unusedPermissionsCount
+          : null
+      return {
       id: r.roleArn || r.roleName,
       name: r.roleName,
-      usedCount: (r.permissionsCount || 0) - (r.unusedPermissionsCount || 0),
-      allowedCount: r.permissionsCount || 0,
-      unusedCount: r.unusedPermissionsCount || 0,
+      usedCount: unusedCount === null ? null : allowedCount - unusedCount,
+      allowedCount,
+      unusedCount,
       highRiskUnused: r.highRiskUnused || [],
-      score: r.permissionsCount > 0
-        ? Math.round(((r.permissionsCount - r.unusedPermissionsCount) / r.permissionsCount) * 100)
-        : 100,
+      score: unusedCount === null
+        ? null
+        : r.permissionsCount > 0
+          ? Math.round(((r.permissionsCount - unusedCount) / r.permissionsCount) * 100)
+          : 100,
+      ...(r.unusedPermissionsCount_withheld_reason
+        ? { unusedPermissionsCount_withheld_reason: r.unusedPermissionsCount_withheld_reason }
+        : {}),
+      ...(r.bloatPercentage_withheld_reason
+        ? { bloatPercentage_withheld_reason: r.bloatPercentage_withheld_reason }
+        : {}),
       lastUsed: r.lastUsed,
       // Visibility / data quality
       dataQuality: r.dataQuality || "unknown",
@@ -64,7 +82,8 @@ export async function GET(req: NextRequest) {
       cloudtrailSynced: r.cloudtrailSynced || false,
       hasCrossAccountTrust: r.hasCrossAccountTrust || false,
       accessAdvisorChecked: r.accessAdvisorChecked || false,
-    }))
+      }
+    })
 
     console.log(`[LP Proxy Roles] Fetched and transformed ${roles.length} roles`)
     return NextResponse.json({ roles })

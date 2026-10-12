@@ -24,12 +24,15 @@
  *
  *   GET /api/issues/summary
  *     api/issues_summary.py — { blast_radius_score: { score: null,
- *       held_reason, ... }, integrityReason?, failed_analyzer_codes? }
+ *       error_code?, held_reason, ... }, integrityReason?,
+ *       failed_analyzer_codes? }
  *
  * The rule every consumer follows: when the score is not a finite number,
  * render the typed code(s) and the backend's own reason. Never a previous
  * score, a legacy score, a cached number, 0, or a computed stand-in.
  */
+
+import { iamUsageWithheldCopy } from "@/lib/lp-readiness-copy"
 
 /** The org-score route's error when any system is held (api/global_org_score.py). */
 export const ORG_SCORE_HELD = "system_evaluations_held"
@@ -123,6 +126,8 @@ export interface IssuesSummaryBrssFields {
   failed_analyzer_codes?: Record<string, string>
   blast_radius_score?: {
     score?: number | null
+    /** IAM_USAGE_NOT_MEASURED / IAM_USAGE_GENERATION_UNVERIFIED on a held score. */
+    error_code?: string
     held_reason?: string
     error?: string
   } | null
@@ -139,8 +144,10 @@ export function summaryAnalyzerCodes(payload: IssuesSummaryBrssFields | null | u
  * servable: a `blast_radius_score` object whose `score` is not a number.
  * Null when the score is real, or when there is no BRSS object at all.
  *
- * The V2-usage-unknown branch of api/issues_summary.py sends a reason but no
- * typed code; `codes` is then empty rather than a code guessed from prose.
+ * The typed code is the score's own `error_code` (IAM_USAGE_NOT_MEASURED,
+ * IAM_USAGE_GENERATION_UNVERIFIED), then the failed analyzers' codes. A
+ * payload that sends a reason but no code gets empty `codes` — never a code
+ * guessed from prose.
  */
 export function issuesSummaryBrssHold(
   payload: IssuesSummaryBrssFields | null | undefined,
@@ -149,7 +156,7 @@ export function issuesSummaryBrssHold(
   if (!brss || typeof brss !== "object") return null
   if (isFiniteScore(brss.score)) return null
   return {
-    codes: summaryAnalyzerCodes(payload),
+    codes: uniqueStrings([brss.error_code, ...summaryAnalyzerCodes(payload)]),
     reason:
       (typeof brss.held_reason === "string" && brss.held_reason) ||
       (typeof payload?.integrityReason === "string" && payload.integrityReason) ||
@@ -201,13 +208,144 @@ export function readyOverviewBrss<B = unknown>(
   }
 }
 
+/** `byCategory.permissions` of an issues-summary payload (api/issues_summary.py). */
+export interface PermissionTotalsFields {
+  allowed?: number | null
+  used?: number | null
+  unused?: number | null
+  gap_percentage?: number | null
+  /** Sent when the four totals are withheld (IAM_USAGE_GENERATION_UNVERIFIED). */
+  withheld_reason?: string | null
+}
+
+export interface UnusedPermissionsFields {
+  resources?: {
+    unused_permission_gaps?: number | null
+    unused_permission_gaps_withheld_reason?: string | null
+  } | null
+  byCategory?: { permissions?: PermissionTotalsFields | null } | null
+}
+
+const PERMISSION_TOTAL_KEYS = ["allowed", "used", "unused", "gap_percentage"] as const
+
+/** The permission totals are withheld: any of the four explicitly null, or a withheld reason sent. */
+export function permissionTotalsWithheld(perm: PermissionTotalsFields | null | undefined): boolean {
+  if (!perm || typeof perm !== "object") return false
+  if (typeof perm.withheld_reason === "string" && perm.withheld_reason) return true
+  return PERMISSION_TOTAL_KEYS.some((key) => perm[key] === null)
+}
+
 /**
- * `resources.unused_permission_gaps: null` — the backend saying the unused
- * count is not computable (V2 usage unknown). Only an explicit null withholds;
- * a payload without the key (older backend) does not.
+ * The backend saying the unused-permission numbers are not computable:
+ * `resources.unused_permission_gaps: null` (V2 usage unknown, or an unverified
+ * IAM usage generation), or withheld `byCategory.permissions` totals. Only an
+ * explicit null or a withheld reason withholds; a payload without the keys
+ * (older backend) does not.
  */
-export function unusedPermissionsWithheld(
-  payload: { resources?: { unused_permission_gaps?: number | null } | null } | null | undefined,
-): boolean {
-  return !!payload?.resources && payload.resources.unused_permission_gaps === null
+export function unusedPermissionsWithheld(payload: UnusedPermissionsFields | null | undefined): boolean {
+  return (
+    (!!payload?.resources && payload.resources.unused_permission_gaps === null) ||
+    permissionTotalsWithheld(payload?.byCategory?.permissions)
+  )
+}
+
+/** The typed reason the unused-permission numbers are withheld, verbatim; null when none was sent. */
+export function unusedPermissionsWithheldReason(payload: UnusedPermissionsFields | null | undefined): string | null {
+  const reasons = uniqueStrings([
+    payload?.resources?.unused_permission_gaps_withheld_reason,
+    payload?.byCategory?.permissions?.withheld_reason,
+  ])
+  return reasons[0] ?? null
+}
+
+/** Copy for withheld unused-permission numbers. Surfaces use it verbatim beside "—" / Unknown. */
+export const UNUSED_PERMISSIONS_UNAVAILABLE_COPY =
+  "Unused-permission counts unavailable. This is not zero unused permissions."
+
+/**
+ * Operator sentence for withheld unused-permission numbers when the backend sent
+ * a typed reason: the usage-withheld sentence, then that this is not zero. Null
+ * when no reason was sent (callers keep their own sentence).
+ */
+export function unusedPermissionsWithheldReasonCopy(
+  payload: UnusedPermissionsFields | null | undefined,
+): string | null {
+  const reason = unusedPermissionsWithheldReason(payload)
+  return reason ? `${iamUsageWithheldCopy(reason)}. This is not zero unused permissions.` : null
+}
+
+// ── /api/least-privilege/metrics ───────────────────────────────────────
+
+/**
+ * The usage-derived fields of `MetricsResponse` (api/least_privilege.py). The
+ * backend nulls them when the IAM usage they are read off is not verified, and
+ * says why with the same `error_code` / `held_reason` pair a held BRSS uses.
+ */
+export interface LpMetricsHeldFields {
+  averageBloatPercentage?: number | null
+  rolesWithBloat?: number | null
+  totalUnusedPermissions?: number | null
+  error_code?: string | null
+  held_reason?: string | null
+}
+
+/**
+ * Held when any usage-derived value is not a finite number — the Wildcard
+ * Bloat card then renders none of them (never 0 or 0%). Null when all three
+ * are real numbers.
+ */
+export function lpMetricsHold(payload: LpMetricsHeldFields | null | undefined): BrssHold | null {
+  if (!payload) return null
+  if (
+    isFiniteScore(payload.averageBloatPercentage) &&
+    isFiniteScore(payload.rolesWithBloat) &&
+    isFiniteScore(payload.totalUnusedPermissions)
+  ) {
+    return null
+  }
+  return {
+    codes: uniqueStrings([payload.error_code]),
+    reason: typeof payload.held_reason === "string" && payload.held_reason ? payload.held_reason : null,
+  }
+}
+
+// ── Legacy home Gap Analysis card (app/page.tsx) ───────────────────────
+
+/** The legacy home card's numbers. Null = withheld or not loaded: rendered Unknown, never 0. */
+export interface HomeGapAnalysis {
+  allowed: number | null
+  used: number | null
+  unused: number | null
+  confidence: number | null
+  roleName: string
+  /** Why the numbers are withheld, when they are. */
+  withheldCopy?: string | null
+}
+
+/**
+ * The legacy home card from an issues-summary payload. Real totals are mapped
+ * exactly as the page always mapped them. Withheld totals give nulls and the reason.
+ */
+export function homeGapAnalysisFromSummary(
+  summary: (UnusedPermissionsFields & { resources?: { iam_roles?: number } | null }) | null | undefined,
+): HomeGapAnalysis {
+  const roleName = `${summary?.resources?.iam_roles || 0} IAM Roles Analyzed`
+  if (unusedPermissionsWithheld(summary)) {
+    return {
+      allowed: null,
+      used: null,
+      unused: null,
+      confidence: null,
+      roleName,
+      withheldCopy: unusedPermissionsWithheldReasonCopy(summary) ?? UNUSED_PERMISSIONS_UNAVAILABLE_COPY,
+    }
+  }
+  const permissions = summary?.byCategory?.permissions || {}
+  const allowed = permissions.allowed || 0
+  const used = permissions.used || 0
+  const unused = permissions.unused || (allowed - used)
+  // Calculate confidence based on gap percentage
+  const gapPct = permissions.gap_percentage || 0
+  const confidence = allowed > 0 ? Math.min(99, Math.max(70, 100 - gapPct * 0.2)) : 0
+  return { allowed, used, unused, confidence: Math.round(confidence), roleName }
 }

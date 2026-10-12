@@ -399,7 +399,10 @@ export interface SimulateFixResource {
   id: string
   type: string
   system: string
-  severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO"
+  /** Null when the backend withholds a grade read off unverified IAM usage. */
+  severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO" | null
+  /** Why `severity` is withheld (e.g. IAM_USAGE_GENERATION_UNVERIFIED), when it is. */
+  severity_withheld_reason?: string | null
   shared: boolean
   shared_confidence: "high" | "medium" | "low" | "unknown"
   consumers: SimulateFixConsumer[]
@@ -407,9 +410,10 @@ export interface SimulateFixResource {
 
 export interface SimulateFixProblem {
   summary: string
-  gap_percent: number
-  unused_count: number
-  used_count: number
+  /** Null unless usage was observed (SimulateFixProblem, api/least_privilege.py). */
+  gap_percent: number | null
+  unused_count: number | null
+  used_count: number | null
   top_risk_reasons: string[]
 }
 
@@ -429,7 +433,9 @@ export interface SimulateFixVisibilitySignals {
 export interface SimulateFixEvidence {
   observation_window_days: number
   evidence_sources: string[]
-  confidence: "high" | "medium" | "low" | "unknown"
+  /** Null when withheld; `confidence_withheld_reason` then says why. */
+  confidence: "high" | "medium" | "low" | "unknown" | null
+  confidence_withheld_reason?: string | null
   completeness: "complete" | "partial" | "unknown"
   caveats: string[]
   visibility_signals: SimulateFixVisibilitySignals

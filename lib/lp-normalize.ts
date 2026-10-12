@@ -79,6 +79,8 @@ export interface NormalizedGapResource {
   isOrphan?: boolean
   attachmentCount?: number
   lpScore: number | null
+  /** Why `lpScore` is withheld (`lpScore_withheld_reason`), when it is. */
+  lpScoreWithheldReason?: string | null
   allowedCount: number | null
   usedCount: number | null
   gapCount: number | null
@@ -452,10 +454,16 @@ export function normalizeGapResource(raw: any): NormalizedGapResource {
 
   const gapPercent = asFiniteNumber(r.gapPercent) ?? asFiniteNumber(r.gap_percent)
   const lpScoreDirect = asFiniteNumber(r.lpScore) ?? asFiniteNumber(r.lp_score)
+  const lpScoreWithheldReason =
+    typeof r.lpScore_withheld_reason === 'string' && r.lpScore_withheld_reason
+      ? r.lpScore_withheld_reason
+      : null
+  // A withheld lpScore stays null: deriving 100 - gapPercent would put back the
+  // very usage-derived score the backend withheld.
   const lpScore =
     lpScoreDirect !== null
       ? lpScoreDirect
-      : gapPercent !== null
+      : lpScoreWithheldReason === null && gapPercent !== null
         ? 100 - gapPercent
         : null
 
@@ -506,6 +514,7 @@ export function normalizeGapResource(raw: any): NormalizedGapResource {
     usageNotComputedReason:
       (r.usageNotComputedReason ?? r.usage_not_computed_reason ?? null) as string | null,
     lpScore,
+    lpScoreWithheldReason,
     allowedCount: asFiniteNumber(r.allowedCount) ?? asFiniteNumber(r.allowed_count),
     usedCount: asFiniteNumber(r.usedCount) ?? asFiniteNumber(r.used_count),
     gapCount: asFiniteNumber(r.gapCount) ?? asFiniteNumber(r.gap_count),
