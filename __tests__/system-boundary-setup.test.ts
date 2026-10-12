@@ -12,6 +12,7 @@ import { NextRequest } from "next/server"
 vi.mock("@/lib/server/backend-url", () => ({ getBackendBaseUrl: () => "https://customer-backend.example" }))
 
 import { GET, POST, PUT } from "@/app/api/proxy/system-boundary/[...path]/route"
+import { contentHash } from "@/lib/content-hash"
 import {
   associatedSystemId,
   derivedSentence,
@@ -155,6 +156,21 @@ describe("the setup client reads the REAL answers, and nothing in between is inv
       perDispositionHash: altered(view, (b) => { b.dispositions_derived[0].required_facts.profile = b.requirement_profile.hash }),
       reasonOnSupported: altered(view, (b) => { of(b, "history:cloudtrail").required_facts.reason = "WHY" }),
       emptyReason: altered(view, (b) => { of(b, "iac").required_facts.reason = "" }),
+      // each check on its own (mutation run on 9285ee8f): the same reason under the other support ...
+      supportedClaimedUnsupportedWithoutReason: altered(view, (b) => {
+        of(b, "history:cloudtrail").required_facts = { support: "UNSUPPORTED", reason: null } }),
+      unsupportedClaimedSupportedWithItsReason: altered(view, (b) => {
+        of(b, "iac").required_facts = { support: "SUPPORTED", reason: "IAC_ACQUISITION_NOT_AVAILABLE" } }),
+      // ... and a profile whose hash IS its document's, refused only for its shape
+      duplicateSubjectRehashed: altered(view, (b) => {
+        b.requirement_profile.document.subjects.push(structuredClone(b.requirement_profile.document.subjects[0]))
+        b.requirement_profile.hash = contentHash(b.requirement_profile.document) }),
+      supportedWithoutPermissionRehashed: altered(view, (b) => {
+        entry(b, "history:cloudtrail").permission = null
+        b.requirement_profile.hash = contentHash(b.requirement_profile.document) }),
+      documentExtraKeyRehashed: altered(view, (b) => {
+        b.requirement_profile.document.note = "added"
+        b.requirement_profile.hash = contentHash(b.requirement_profile.document) }),
     }
     for (const [label, body] of Object.entries(views)) expect(ok(body), label).toBe("UNAVAILABLE")
     const statuses = {
@@ -162,6 +178,7 @@ describe("the setup client reads the REAL answers, and nothing in between is inv
       contradictoryReason: altered(status, (b) => {
         of(b, "history:cloudtrail", "dispositions").required_facts = { support: "UNSUPPORTED", reason: "CODE_ACQUISITION_NOT_AVAILABLE" } }),
       level2String: altered(status, (b) => { b.dispositions[0].required_facts = "PROFILE_NOT_AVAILABLE" }),
+      dispositionMalformedElsewhere: altered(status, (b) => { b.dispositions[0].consequence = "LIMITED" }),   // facts coherent
     }
     for (const [label, body] of Object.entries(statuses)) expect(ok(body, isStatus), label).toBe("UNAVAILABLE")
     // the named limitations themselves read, when the profile says them: a missing Region, an unprofiled live source

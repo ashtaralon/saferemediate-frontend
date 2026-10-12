@@ -249,13 +249,6 @@ const isStrings = (value: unknown): value is string[] => Array.isArray(value) &&
 const exactly = (value: Record<string, unknown>, keys: string[]): boolean =>
   Object.keys(value).length === keys.length && keys.every((k) => k in value)
 
-/** Supported XOR a named reason, exactly these two keys -- a level-2 string or any other shape is not level 3. */
-function isRequiredFacts(value: unknown): value is RequiredFacts {
-  return isRecord(value) && exactly(value, ["support", "reason"])
-    && (value.support === "SUPPORTED" ? value.reason === null
-      : value.support === "UNSUPPORTED" && typeof value.reason === "string" && value.reason.length > 0)
-}
-
 function isProfileSubject(value: unknown): value is ProfileSubject {
   if (!isRecord(value) || !exactly(value, ["subject", "support", "reason", "scope", "evidence", "permission"])
       || typeof value.subject !== "string" || !(SUPPORT as readonly unknown[]).includes(value.support) || !isStrings(value.scope)) return false
@@ -274,21 +267,20 @@ function isProfileSubject(value: unknown): value is ProfileSubject {
 
 function isRequirementProfile(value: unknown): value is RequirementProfile {
   if (!isRecord(value) || !exactly(value, ["hash", "document"]) || typeof value.hash !== "string" || !PROFILE_HASH.test(value.hash)
-      || !isRecord(value.document) || value.document.schema !== "cyntro-requirement-profile/v1"
+      || !isRecord(value.document) || !exactly(value.document, ["schema", "subjects"])
+      || value.document.schema !== "cyntro-requirement-profile/v1"
       || !Array.isArray(value.document.subjects) || !value.document.subjects.every(isProfileSubject)) return false
   const subjects = value.document.subjects.map((s) => s.subject)
   if (new Set(subjects).size !== subjects.length) return false
-  try {                     // (F28) the document IS the one the hash names -- canonical JSON, the backend's own content hash
-    return contentHash(value.document) === value.hash
-  } catch {
-    return false
-  }
+  // (F28) the document IS the one the hash names -- canonical JSON, the backend's own content hash. The exact shape above
+  // admits only strings, string lists, nulls and records, all of which canonical JSON states exactly: it cannot throw here.
+  return contentHash(value.document) === value.hash
 }
 
 function isDerived(value: unknown): value is DerivedDisposition {
   return isRecord(value) && typeof value.subject === "string" && isRecord(value.scope) && typeof value.choice === "string"
     && isRecord(value.resolution) && typeof value.resolution.state === "string" && isRecord(value.status_axes)
-    && isRequiredFacts(value.required_facts) && Array.isArray(value.consequence)
+    && Array.isArray(value.consequence)
 }
 
 /** (F29) What THE served profile says of ``subject`` at ``scope`` -- the backend's rule (unified/requirement_profile.py
@@ -302,11 +294,15 @@ export function expectedFacts(subject: string, scope: Record<string, unknown>, p
   return missing.length ? { support: "UNSUPPORTED", reason: `SCOPE_INCOMPLETE:${missing.join(",")}` } : { support: "SUPPORTED", reason: null }
 }
 
-/** Every derived disposition says EXACTLY what the served (hash-bound) profile says of its subject at its scope. */
+/** Every derived disposition's ``required_facts`` is EXACTLY ``{support, reason}`` and says exactly what the served
+ *  (hash-bound) profile says of its subject at its scope -- the one check of that field: a level-2 string, a per-disposition
+ *  hash or any other shape is not level 3. */
 function coherentFacts(derived: DerivedDisposition[], profile: RequirementProfile): boolean {
   return derived.every((d) => {
+    const facts: unknown = d.required_facts
     const expected = expectedFacts(d.subject, d.scope as Record<string, unknown>, profile)
-    return d.required_facts.support === expected.support && d.required_facts.reason === expected.reason
+    return isRecord(facts) && exactly(facts, ["support", "reason"])
+      && facts.support === expected.support && facts.reason === expected.reason
   })
 }
 
