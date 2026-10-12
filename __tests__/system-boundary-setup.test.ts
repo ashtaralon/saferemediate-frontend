@@ -15,6 +15,7 @@ import { GET, POST, PUT } from "@/app/api/proxy/system-boundary/[...path]/route"
 import {
   associatedSystemId,
   derivedSentence,
+  expectedFacts,
   isOperation,
   evidenceRows,
   isStatus,
@@ -116,43 +117,70 @@ describe("the setup client reads the REAL answers, and nothing in between is inv
       readAnswer({ status: 200, json: body }, parse).kind
     expect(ok(view)).toBe("OK")
     expect(ok(status, isStatus)).toBe("OK")
-    const facts = view.dispositions_derived.map((d: DerivedDisposition) => d.required_facts.support).sort()
-    expect(facts).toEqual(["SUPPORTED", "UNSUPPORTED", "UNSUPPORTED"])          // history, code, iac in the harness
-    const hash = view.requirement_profile.hash as string
-    const derived = (i: number, change: Record<string, unknown>) => {
-      const body = structuredClone(view)
-      body.dispositions_derived[i].required_facts = { ...body.dispositions_derived[i].required_facts, ...change }
-      return body
+    expect(view.dispositions_derived.map((d: DerivedDisposition) => [d.subject, d.required_facts])).toEqual([
+      ["code", { support: "UNSUPPORTED", reason: "CODE_ACQUISITION_NOT_AVAILABLE" }],
+      ["history:cloudtrail", { support: "SUPPORTED", reason: null }],
+      ["iac", { support: "UNSUPPORTED", reason: "IAC_ACQUISITION_NOT_AVAILABLE" }]])
+    const of = (body: Record<string, any>, subject: string, field = "dispositions_derived") =>  // eslint-disable-line @typescript-eslint/no-explicit-any
+      body[field].find((d: DerivedDisposition) => d.subject === subject)
+    const entry = (body: Record<string, any>, subject: string) =>                             // eslint-disable-line @typescript-eslint/no-explicit-any
+      body.requirement_profile.document.subjects.find((s: { subject: string }) => s.subject === subject)
+    const altered = (body: Record<string, any>, change: (b: Record<string, any>) => void) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      const copy = structuredClone(body)
+      change(copy)
+      return copy
     }
-    const supported = view.dispositions_derived.findIndex((d: DerivedDisposition) => d.required_facts.support === "SUPPORTED")
-    const unsupported = view.dispositions_derived.findIndex((d: DerivedDisposition) => d.required_facts.support === "UNSUPPORTED")
-    const level2 = structuredClone(view)
-    level2.dispositions_derived[0].required_facts = "PROFILE_NOT_AVAILABLE"
-    const extra = derived(0, { granted: true })
-    const noProfile = structuredClone(view)
-    delete noProfile.requirement_profile
-    const otherProfile = structuredClone(view)
-    otherProfile.requirement_profile.hash = `v1:${"0".repeat(64)}`
-    const unsupportedSubject = structuredClone(view)
-    unsupportedSubject.dispositions_derived[unsupported].required_facts = { profile: hash, support: "SUPPORTED", reason: null }
-    const noPermission = structuredClone(view)
-    noPermission.requirement_profile.document.subjects.find((s: { support: string }) => s.support === "SUPPORTED").permission = null
-    const twice = structuredClone(view)
-    twice.requirement_profile.document.subjects.push(twice.requirement_profile.document.subjects[0])
-    for (const [label, body] of Object.entries({
-      level2, extra, noProfile, otherProfile, unsupportedSubject, noPermission, twice,
-      reasonOnSupported: derived(supported, { reason: "WHY" }), noReason: derived(unsupported, { reason: null }),
-      emptyReason: derived(unsupported, { reason: "" }), notAHash: derived(0, { profile: "v1:abc" }),
-      otherSupport: derived(0, { support: "CONNECTED" }),
-    })) {
-      expect(ok(body), label).toBe("UNAVAILABLE")
+    const views = {
+      // F28: the document is the one its hash names -- a changed need under the same hash is refused before it is shown
+      evidenceSourceChanged: altered(view, (b) => { entry(b, "history:cloudtrail").evidence.source = "vpc_flow" }),
+      policyChanged: altered(view, (b) => { entry(b, "history:cloudtrail").permission.policies = ["AnyPolicy"] }),
+      reasonOfAnEntryChanged: altered(view, (b) => { entry(b, "iac").reason = "SOMETHING_ELSE" }),
+      hashChanged: altered(view, (b) => { b.requirement_profile.hash = `v1:${"0".repeat(64)}` }),
+      noProfile: altered(view, (b) => { delete b.requirement_profile }),
+      subjectTwice: altered(view, (b) => { b.requirement_profile.document.subjects.push(b.requirement_profile.document.subjects[0]) }),
+      // F29: each disposition says EXACTLY what that profile says of its subject at its scope
+      supportedWithoutItsRegion: altered(view, (b) => { delete of(b, "history:cloudtrail").scope.region }),
+      supportedClaimedUnsupported: altered(view, (b) => {
+        of(b, "history:cloudtrail").required_facts = { support: "UNSUPPORTED", reason: "CODE_ACQUISITION_NOT_AVAILABLE" } }),
+      unsupportedClaimedSupported: altered(view, (b) => { of(b, "iac").required_facts = { support: "SUPPORTED", reason: null } }),
+      anotherSubjectsReason: altered(view, (b) => {
+        of(b, "iac").required_facts = { support: "UNSUPPORTED", reason: "CODE_ACQUISITION_NOT_AVAILABLE" } }),
+      unprofiledClaimedSupported: altered(view, (b) => {
+        of(b, "code").subject = "live_source:config"; of(b, "live_source:config").required_facts = { support: "SUPPORTED", reason: null } }),
+      unprofiledMisnamed: altered(view, (b) => {
+        of(b, "code").subject = "live_source:config"
+        of(b, "live_source:config").required_facts = { support: "UNSUPPORTED", reason: "SUBJECT_NOT_PROFILED" } }),
+      // shape: exactly {support, reason}, supported XOR a named reason; a level-2 string is another level
+      level2String: altered(view, (b) => { b.dispositions_derived[0].required_facts = "PROFILE_NOT_AVAILABLE" }),
+      perDispositionHash: altered(view, (b) => { b.dispositions_derived[0].required_facts.profile = b.requirement_profile.hash }),
+      reasonOnSupported: altered(view, (b) => { of(b, "history:cloudtrail").required_facts.reason = "WHY" }),
+      emptyReason: altered(view, (b) => { of(b, "iac").required_facts.reason = "" }),
     }
-    const otherStatus = structuredClone(status)
-    otherStatus.dispositions[0].required_facts = { ...otherStatus.dispositions[0].required_facts, profile: `v1:${"1".repeat(64)}` }
-    expect(ok(otherStatus, isStatus)).toBe("UNAVAILABLE")
-    const statusLevel2 = structuredClone(status)
-    statusLevel2.dispositions[0].required_facts = "PROFILE_NOT_AVAILABLE"
-    expect(ok(statusLevel2, isStatus)).toBe("UNAVAILABLE")
+    for (const [label, body] of Object.entries(views)) expect(ok(body), label).toBe("UNAVAILABLE")
+    const statuses = {
+      permissionRoleChanged: altered(status, (b) => { entry(b, "history:cloudtrail").permission.role = "DifferentReadRole" }),
+      contradictoryReason: altered(status, (b) => {
+        of(b, "history:cloudtrail", "dispositions").required_facts = { support: "UNSUPPORTED", reason: "CODE_ACQUISITION_NOT_AVAILABLE" } }),
+      level2String: altered(status, (b) => { b.dispositions[0].required_facts = "PROFILE_NOT_AVAILABLE" }),
+    }
+    for (const [label, body] of Object.entries(statuses)) expect(ok(body, isStatus), label).toBe("UNAVAILABLE")
+    // the named limitations themselves read, when the profile says them: a missing Region, an unprofiled live source
+    const regionless = altered(view, (b) => {
+      delete of(b, "history:cloudtrail").scope.region
+      of(b, "history:cloudtrail").required_facts = { support: "UNSUPPORTED", reason: "SCOPE_INCOMPLETE:region" } })
+    const liveSource = altered(view, (b) => {
+      of(b, "code").subject = "live_source:config"
+      of(b, "live_source:config").required_facts = { support: "UNSUPPORTED", reason: "LIVE_SOURCE_NOT_PROFILED" } })
+    expect([ok(regionless), ok(liveSource)]).toEqual(["OK", "OK"])
+  })
+
+  it("(G3-G) the expected facts are the backend's rule over the served profile -- every captured disposition agrees", () => {
+    for (const name of ["read_draft", "read_finished", "finish", "update"]) {
+      const body = capture(name).body as { dispositions_derived: DerivedDisposition[]; requirement_profile: RequirementProfile }
+      for (const d of body.dispositions_derived) {
+        expect(expectedFacts(d.subject, d.scope, body.requirement_profile), `${name} ${d.subject}`).toEqual(d.required_facts)
+      }
+    }
   })
 
   it("(G3-G) what each subject requires, in words -- a requirement, never a claim that it is met, connected or granted", () => {
@@ -171,7 +199,7 @@ describe("the setup client reads the REAL answers, and nothing in between is inv
       "Not supported -- Cyntro cannot acquire infrastructure as code in this version (IAC_ACQUISITION_NOT_AVAILABLE)")
     expect(requiredFactsSentence(of("code"), profile)).toBe(
       "Not supported -- Cyntro cannot acquire source code in this version (CODE_ACQUISITION_NOT_AVAILABLE)")
-    const reason = (r: string): DerivedDisposition => ({ ...history, required_facts: { profile: profile.hash, support: "UNSUPPORTED", reason: r } })
+    const reason = (r: string): DerivedDisposition => ({ ...history, required_facts: { support: "UNSUPPORTED", reason: r } })
     expect(requiredFactsSentence(reason("SCOPE_INCOMPLETE:region"), profile)).toBe(
       "Not supported as chosen -- it needs a region (SCOPE_INCOMPLETE:region)")
     expect(requiredFactsSentence(reason("SOMETHING_NEW"), profile)).toBe(

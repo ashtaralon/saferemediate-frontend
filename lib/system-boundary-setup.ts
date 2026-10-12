@@ -12,6 +12,7 @@
  * happened -- resend the SAME request id and body, never a new one.
  */
 import { AUTHORING_BASE } from "@/lib/system-boundary-authoring"
+import { contentHash } from "@/lib/content-hash"
 
 /** The ``system_boundary_setup`` release contract this client speaks and reads (lib/release-contract.json requires and
  *  accepts it; backend unified/system_boundary_setup.SETUP_CONTRACT_LEVEL). Level 2 (onboarding G3-A): every success answer
@@ -76,10 +77,9 @@ export interface DerivedDisposition {
 }
 
 /** (Level 3) What the versioned requirement profile says of one disposition's subject at its scope: SUPPORTED (its needs
- *  are the served profile's entry for the subject) or UNSUPPORTED with the backend's named reason. Never a grant, never a
- *  claim that anything is connected. */
+ *  are the served profile's entry for the subject) or UNSUPPORTED with the backend's named reason. The profile is named once,
+ *  beside the dispositions (``requirement_profile``). Never a grant, never a claim that anything is connected. */
 export interface RequiredFacts {
-  profile: string
   support: "SUPPORTED" | "UNSUPPORTED"
   reason: string | null
 }
@@ -249,10 +249,9 @@ const isStrings = (value: unknown): value is string[] => Array.isArray(value) &&
 const exactly = (value: Record<string, unknown>, keys: string[]): boolean =>
   Object.keys(value).length === keys.length && keys.every((k) => k in value)
 
-/** Supported XOR a named reason, exactly these three keys -- a level-2 string or any other shape is not level 3. */
+/** Supported XOR a named reason, exactly these two keys -- a level-2 string or any other shape is not level 3. */
 function isRequiredFacts(value: unknown): value is RequiredFacts {
-  return isRecord(value) && exactly(value, ["profile", "support", "reason"]) && typeof value.profile === "string"
-    && PROFILE_HASH.test(value.profile)
+  return isRecord(value) && exactly(value, ["support", "reason"])
     && (value.support === "SUPPORTED" ? value.reason === null
       : value.support === "UNSUPPORTED" && typeof value.reason === "string" && value.reason.length > 0)
 }
@@ -278,7 +277,12 @@ function isRequirementProfile(value: unknown): value is RequirementProfile {
       || !isRecord(value.document) || value.document.schema !== "cyntro-requirement-profile/v1"
       || !Array.isArray(value.document.subjects) || !value.document.subjects.every(isProfileSubject)) return false
   const subjects = value.document.subjects.map((s) => s.subject)
-  return new Set(subjects).size === subjects.length
+  if (new Set(subjects).size !== subjects.length) return false
+  try {                     // (F28) the document IS the one the hash names -- canonical JSON, the backend's own content hash
+    return contentHash(value.document) === value.hash
+  } catch {
+    return false
+  }
 }
 
 function isDerived(value: unknown): value is DerivedDisposition {
@@ -287,11 +291,23 @@ function isDerived(value: unknown): value is DerivedDisposition {
     && isRequiredFacts(value.required_facts) && Array.isArray(value.consequence)
 }
 
-/** Every derived disposition was decided under THE served profile, and a SUPPORTED one is a subject that profile supports. */
+/** (F29) What THE served profile says of ``subject`` at ``scope`` -- the backend's rule (unified/requirement_profile.py
+ *  ``requirement``): its entry; a SUPPORTED entry asked without a scope key it needs is SCOPE_INCOMPLETE:<keys>; a subject
+ *  the profile does not list is LIVE_SOURCE_NOT_PROFILED (a live source) or SUBJECT_NOT_PROFILED. */
+export function expectedFacts(subject: string, scope: Record<string, unknown>, profile: RequirementProfile): RequiredFacts {
+  const entry = profile.document.subjects.find((s) => s.subject === subject)
+  if (!entry) return { support: "UNSUPPORTED", reason: subject.startsWith("live_source:") ? "LIVE_SOURCE_NOT_PROFILED" : "SUBJECT_NOT_PROFILED" }
+  if (entry.support === "UNSUPPORTED") return { support: "UNSUPPORTED", reason: entry.reason }
+  const missing = entry.scope.filter((key) => !(typeof scope[key] === "string" && (scope[key] as string).length > 0))
+  return missing.length ? { support: "UNSUPPORTED", reason: `SCOPE_INCOMPLETE:${missing.join(",")}` } : { support: "SUPPORTED", reason: null }
+}
+
+/** Every derived disposition says EXACTLY what the served (hash-bound) profile says of its subject at its scope. */
 function coherentFacts(derived: DerivedDisposition[], profile: RequirementProfile): boolean {
-  const supported = new Set(profile.document.subjects.filter((s) => s.support === "SUPPORTED").map((s) => s.subject))
-  return derived.every((d) => d.required_facts.profile === profile.hash
-    && (d.required_facts.support !== "SUPPORTED" || supported.has(d.subject)))
+  return derived.every((d) => {
+    const expected = expectedFacts(d.subject, d.scope as Record<string, unknown>, profile)
+    return d.required_facts.support === expected.support && d.required_facts.reason === expected.reason
+  })
 }
 
 export function isView(value: unknown): value is SetupView {

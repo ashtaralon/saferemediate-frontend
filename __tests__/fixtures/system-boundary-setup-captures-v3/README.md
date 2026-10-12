@@ -2,9 +2,9 @@
 
 The real answers of the backend's `/api/system-boundary/setup*` routes at setup contract level 3: every success answer carries
 `contract: system_boundary_setup/v3`, each derived disposition's `required_facts` is typed from the backend's versioned
-requirement profile (`{profile, support, reason}`), and every read and status answer serves that profile once as
-`requirement_profile` `{hash, document}`. Each file is a byte-for-byte copy of `tests/fixtures/system_boundary_setup_captures_v3/`
-at saferemediate-backend **0e97a76fe7d24f1eff36e47c83396a0a70ff1688** (branch claude/onboarding-g3-selected-work). That commit's
+requirement profile as `{support, reason}`, and every read and status answer serves that profile once as
+`requirement_profile` `{hash, document}` (a finished setup's receipt pins it once as `{hash, facts}`, each disposition an index). Each file is a byte-for-byte copy of `tests/fixtures/system_boundary_setup_captures_v3/`
+at saferemediate-backend **668753af76e998f8fafb328e5c382f437e2b3584** (branch claude/onboarding-g3-selected-work). That commit's
 `tests/test_system_boundary_setup_captures.py::test_the_real_setup_route_answers_are_exactly_the_captures` asserts the mounted
 routes still answer exactly these.
 

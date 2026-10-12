@@ -169,7 +169,6 @@
           "serving": "unknown"
         },
         "required_facts": {
-          "profile": "v1:12e6f1d6bab942e8d77010a3e4ffc449c40f04e32ca1b2ba863967626f32dbce",
           "support": "UNSUPPORTED",
           "reason": "CODE_ACQUISITION_NOT_AVAILABLE"
         },
@@ -196,7 +195,6 @@
           "serving": "unknown"
         },
         "required_facts": {
-          "profile": "v1:12e6f1d6bab942e8d77010a3e4ffc449c40f04e32ca1b2ba863967626f32dbce",
           "support": "SUPPORTED",
           "reason": null
         },
@@ -223,7 +221,6 @@
           "serving": "unknown"
         },
         "required_facts": {
-          "profile": "v1:12e6f1d6bab942e8d77010a3e4ffc449c40f04e32ca1b2ba863967626f32dbce",
           "support": "UNSUPPORTED",
           "reason": "IAC_ACQUISITION_NOT_AVAILABLE"
         },
@@ -342,11 +339,7 @@
           "consequence": [
             "code:LIMITED"
           ],
-          "required_facts": {
-            "profile": "v1:12e6f1d6bab942e8d77010a3e4ffc449c40f04e32ca1b2ba863967626f32dbce",
-            "reason": "CODE_ACQUISITION_NOT_AVAILABLE",
-            "support": "UNSUPPORTED"
-          },
+          "required_facts": 0,
           "resolution": {
             "reason": "NOT_USED",
             "state": "none"
@@ -368,11 +361,7 @@
           "consequence": [
             "history:cloudtrail:HELD"
           ],
-          "required_facts": {
-            "profile": "v1:12e6f1d6bab942e8d77010a3e4ffc449c40f04e32ca1b2ba863967626f32dbce",
-            "reason": null,
-            "support": "SUPPORTED"
-          },
+          "required_facts": 1,
           "resolution": {
             "reason": "NO_HISTORY",
             "state": "none"
@@ -395,11 +384,7 @@
           "consequence": [
             "iac:LIMITED"
           ],
-          "required_facts": {
-            "profile": "v1:12e6f1d6bab942e8d77010a3e4ffc449c40f04e32ca1b2ba863967626f32dbce",
-            "reason": "IAC_ACQUISITION_NOT_AVAILABLE",
-            "support": "UNSUPPORTED"
-          },
+          "required_facts": 2,
           "resolution": {
             "reason": "RESOLVER_NOT_AVAILABLE",
             "state": "unavailable"
@@ -425,6 +410,23 @@
       "predecessor": null,
       "registration_pins": {
         "111111111111": "55555555555555555555555555555555"
+      },
+      "requirement_profile": {
+        "facts": [
+          {
+            "reason": "CODE_ACQUISITION_NOT_AVAILABLE",
+            "support": "UNSUPPORTED"
+          },
+          {
+            "reason": null,
+            "support": "SUPPORTED"
+          },
+          {
+            "reason": "IAC_ACQUISITION_NOT_AVAILABLE",
+            "support": "UNSUPPORTED"
+          }
+        ],
+        "hash": "v1:12e6f1d6bab942e8d77010a3e4ffc449c40f04e32ca1b2ba863967626f32dbce"
       },
       "setup_id": "5e7a0000-0000-4000-8000-000000000001",
       "written_at": "2026-10-12T01:00:00.000000+00:00"
