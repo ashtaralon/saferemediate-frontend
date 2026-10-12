@@ -11,10 +11,20 @@
  * a reload does not, and the wizard says so. An operation is only ever offered to the
  * person who started it (an unknown person matches only an operation an unknown person started in this page), never
  * resent automatically, and an entry this version cannot read exactly is never resent.
+ *
+ * (S0 DR05) One storage record PER operation, under its own key (SETUP_PENDING_RECORD_PREFIX + its request id): keeping one
+ * writes only its record and settling one removes only its record, so two tabs never rewrite each other's operations (storage
+ * has no cross-tab lock; one shared list read in one tab and written back from it loses what another tab added meanwhile).
+ * The list earlier releases kept under SETUP_PENDING_KEY is still read as written; it is rewritten only to retire one of its
+ * own operations, every other entry -- one this version cannot read included -- kept. A record this version cannot read, or
+ * one whose key does not name its own request id, is never resent and never removed.
  */
 import type { SetupIntent } from "@/lib/system-boundary-setup"
 
+/** The list releases before S0 kept every operation in (read, retired from; never added to). */
 export const SETUP_PENDING_KEY = "cyntro.systemBoundary.setupPending.v1"
+/** Each operation's own record: this prefix + its request id. */
+export const SETUP_PENDING_RECORD_PREFIX = `${SETUP_PENDING_KEY}.op.`
 
 interface Common {
   version: 1
@@ -88,7 +98,7 @@ const PAGE_MEMORY = new Map<string, PendingSetupOp>()
 
 export function setupPendingStore(storage: Storage | null = browserStorage(),
                                   memory: Map<string, PendingSetupOp> = PAGE_MEMORY): SetupPendingStore {
-  const load = (): unknown[] => {
+  const legacy = (): unknown[] => {
     try {
       const raw = storage?.getItem(SETUP_PENDING_KEY)
       const parsed: unknown = raw ? JSON.parse(raw) : []
@@ -97,35 +107,59 @@ export function setupPendingStore(storage: Storage | null = browserStorage(),
       return []
     }
   }
-  const save = (values: unknown[]): boolean => {
+  /** The operation in ``requestId``'s own record, exactly, or null. */
+  const record = (requestId: string): PendingSetupOp | null => {
     try {
-      if (!storage) return false
-      if (values.length) storage.setItem(SETUP_PENDING_KEY, JSON.stringify(values))
-      else storage.removeItem(SETUP_PENDING_KEY)
-      return true
+      const raw = storage?.getItem(SETUP_PENDING_RECORD_PREFIX + requestId)
+      const op = raw ? opOf(JSON.parse(raw)) : null
+      return op !== null && op.requestId === requestId ? op : null
     } catch {
-      return false                                   // blocked or full: kept in this page's memory only
+      return null
     }
   }
+  const records = (): PendingSetupOp[] => {
+    const ids: string[] = []
+    try {
+      for (let i = 0; storage && i < storage.length; i += 1) {
+        const key = storage.key(i)
+        if (key?.startsWith(SETUP_PENDING_RECORD_PREFIX)) ids.push(key.slice(SETUP_PENDING_RECORD_PREFIX.length))
+      }
+    } catch {
+      return []
+    }
+    return ids.map(record).filter((op): op is PendingSetupOp => op !== null)
+  }
   const stored = (requestId: string): PendingSetupOp | null =>
-    load().map(opOf).find((op): op is PendingSetupOp => op !== null && op.requestId === requestId) ?? null
+    record(requestId) ?? legacy().map(opOf).find((op): op is PendingSetupOp => op !== null && op.requestId === requestId) ?? null
+  const attempt = (write: (s: Storage) => void): void => {
+    try {
+      if (storage) write(storage)
+    } catch {
+      // blocked or full: an operation is then kept in this page's memory only (put reads its record back to say so)
+    }
+  }
   return {
     read() {
-      const kept = load().map(opOf).filter((op): op is PendingSetupOp => op !== null)
-      const ids = new Set(kept.map((op) => op.requestId))
-      return [...kept, ...[...memory.values()].filter((op) => !ids.has(op.requestId))]
+      const kept = new Map<string, PendingSetupOp>()
+      for (const op of [...records(), ...legacy().map(opOf)]) if (op !== null && !kept.has(op.requestId)) kept.set(op.requestId, op)
+      return [...kept.values(), ...[...memory.values()].filter((op) => !kept.has(op.requestId))]
     },
     put(op) {
       memory.set(op.requestId, op)
       if (op.actor === null) return "memory"            // an unverified person's operation never reaches storage
-      save([...load().filter((v) => opOf(v)?.requestId !== op.requestId), op])
+      attempt((s) => s.setItem(SETUP_PENDING_RECORD_PREFIX + op.requestId, JSON.stringify(op)))
       // (G2-F19) durable only if THIS exact operation reads back from storage -- never inferred from a probe write.
-      const back = stored(op.requestId)
+      const back = record(op.requestId)
       return back !== null && JSON.stringify(back) === JSON.stringify(op) ? "storage" : "memory"
     },
     remove(requestId) {
       memory.delete(requestId)
-      save(load().filter((v) => opOf(v)?.requestId !== requestId))
+      attempt((s) => s.removeItem(SETUP_PENDING_RECORD_PREFIX + requestId))
+      const old = legacy()
+      if (old.some((v) => opOf(v)?.requestId === requestId)) {       // an earlier release's entry: retire it alone
+        const rest = old.filter((v) => opOf(v)?.requestId !== requestId)
+        attempt((s) => (rest.length ? s.setItem(SETUP_PENDING_KEY, JSON.stringify(rest)) : s.removeItem(SETUP_PENDING_KEY)))
+      }
     },
     where(requestId) {
       if (stored(requestId) !== null) return "storage"
