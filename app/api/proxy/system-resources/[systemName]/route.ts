@@ -4,10 +4,9 @@ import { getBackendBaseUrl } from "@/lib/server/backend-url"
 export const runtime = "nodejs"
 export const maxDuration = 60
 
-const BACKEND_URL =
-  process.env.BACKEND_URL_OVERRIDE ||
-  process.env.NEXT_PUBLIC_BACKEND_URL ||
-  getBackendBaseUrl()
+// Use the one server-owned backend resolver. A stale public build-time URL
+// must never override the C1 serving destination chosen by this deployment.
+const BACKEND_URL = getBackendBaseUrl()
 
 const RETRYABLE_STATUSES = new Set([500, 502, 503, 504])
 const MAX_ATTEMPTS = 3
