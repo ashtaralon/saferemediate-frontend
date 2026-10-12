@@ -184,6 +184,7 @@ describe("the setup client reads the REAL answers, and nothing in between is inv
       { ...history, observation: { ...partial, unresolved: [{ region: "us-east-2", source_scope: "b", status: "PARTIAL", reason: null }] } },
       { ...history, observation: { ...partial, not_started: [{ region: "us-east-2", source_scope: "b", reason: "no_committed_head" }] } },
       { ...history, observation: { ...observed, registration_id: "R".repeat(32) } },
+      { ...history, observation: { ...observed, publication: { read_model_generation: 7, published_at_epoch: "now" } } },   // a stamp is typed
       { ...history, observation: { ...absent, scope: { ...absent.scope, account_id: "222222222222" } } },   // an absence is its own
       { ...history, observation: { ...absent, scope: { ...absent.scope, region: "us-east-2" } } },
       { ...history, observation: { ...absent, scope: { ...absent.scope, source_scopes: [] } } },
