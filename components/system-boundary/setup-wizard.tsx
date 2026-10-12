@@ -31,6 +31,7 @@ import {
 import {
   associatedSystemId,
   derivedSentence,
+  observationSentence,
   requestSentence,
   finishSetup as finishSetupDefault,
   freshRequestId,
@@ -526,11 +527,15 @@ function Requests({ requests, testId, title }: { requests: OwnerRequest[]; testI
     <div className="text-xs" data-testid={testId}>
       <p className="text-slate-700">{title}</p>
       <ul className="text-slate-600">
-        {requests.map((r) => (
-          <li key={r.op_id}>
-            {SUBJECTS[r.subject]?.label ?? r.subject} · {r.scope.account_id}{r.scope.region ? ` / ${r.scope.region}` : ""}: {requestSentence(r)}
-          </li>
-        ))}
+        {requests.map((r) => {
+          const evidence = observationSentence(r)
+          return (
+            <li key={r.op_id}>
+              {SUBJECTS[r.subject]?.label ?? r.subject} · {r.scope.account_id}{r.scope.region ? ` / ${r.scope.region}` : ""}: {requestSentence(r)}
+              {evidence ? <div className="text-slate-500" data-testid="setup-request-observation">{evidence}</div> : null}
+            </li>
+          )
+        })}
       </ul>
     </div>
   )

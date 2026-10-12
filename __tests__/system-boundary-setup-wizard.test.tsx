@@ -603,7 +603,8 @@ describe("G3-A: owner requests on Review and on Progress", () => {
   it("a request the server holds or withdrew is shown with its reason, never as pending", async () => {
     const status = V2("status").body as SetupStatus
     const held: SetupStatus = { ...status, operations: status.operations.map((o) => (
-      { ...o, state: "WITHDRAWN" as const, reason: "ACCOUNT_REMOVED", demand: { state: "NO_CURRENT_REQUEST" as const, current_requests: 0 } })) }
+      { ...o, state: "WITHDRAWN" as const, reason: "ACCOUNT_REMOVED", demand: { state: "NO_CURRENT_REQUEST" as const, current_requests: 0 },
+        observation: { state: "UNKNOWN" as const, limitation: "REQUEST_NOT_CURRENT" } })) }
     const c = client({ readSetup: vi.fn(async () => ({ kind: "OK" as const, value: structuredClone(FINISHED) })),
                        readSetupStatus: vi.fn(async () => ({ kind: "OK" as const, value: held })) })
     mount(c)
@@ -648,6 +649,28 @@ describe("G3-A: owner requests on Review and on Progress", () => {
     await settle()
     expect(screen.getByTestId("setup-review")).toBeTruthy()
     expect(screen.queryByTestId("setup-review-requests")).toBeNull()
+  })
+
+  it("(G3-C.5) Progress shows what collected evidence shows for each made request -- in the server's words, never fulfilment", async () => {
+    const status = V2("status").body as SetupStatus
+    const fact = { source: "cloudtrail_iam_usage", region: "eu-west-1", source_scope: "all-active-trails",
+                   earliest_verified_at: "2026-09-30T23:17:26Z", earliest_verified_basis: "first_verified_digest",
+                   first_verified_collection_at: null, verified_through: "2026-10-01T05:17:26Z", committed_generation: 1,
+                   head_manifest_hash: `v1:${"a".repeat(64)}` }
+    const observed: SetupStatus = { ...status, operations: status.operations.map((o) => (
+      { ...o, observation: { state: "OBSERVED" as const, as_of: "2026-10-12T08:00:00Z", registration_id: "5".repeat(32),
+                             facts: [fact], not_started: [] } })) }
+    for (const [answer, words] of [[status, "Collected evidence cannot be read for this account now (COVERAGE_NOT_ADMITTED"],
+                                   [observed, "not a fulfilment of this request"]] as const) {
+      const c = client({ readSetup: vi.fn(async () => ({ kind: "OK" as const, value: structuredClone(FINISHED) })),
+                         readSetupStatus: vi.fn(async () => ({ kind: "OK" as const, value: answer })) })
+      const { unmount } = mount(c)
+      await settle()
+      await settle()
+      expect(screen.getByTestId("setup-request-observation").textContent).toContain(words)
+      expect(screen.getByTestId("setup-progress-requests").textContent).toContain("Requested from an account administrator -- waiting")
+      unmount()
+    }
   })
 
   it("when the requests cannot be read, Review says so instead of showing none", async () => {

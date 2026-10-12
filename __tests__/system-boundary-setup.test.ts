@@ -16,6 +16,7 @@ import {
   derivedSentence,
   isOperation,
   isStatus,
+  observationSentence,
   isView,
   readAnswer,
   requestSentence,
@@ -113,14 +114,89 @@ describe("the setup client reads the REAL answers, and nothing in between is inv
                        { ...made, state: "PENDING", superseded: { by: "x@1", at: made.requested_at } }]) {
       expect(isOperation(bad)).toBe(false)
     }
-    // the backend's own non-pending states, each with the demand its other requests leave
-    for (const good of [{ ...made, state: "HELD", reason: "REGISTRATION_CHANGED", demand: { state: "NO_CURRENT_REQUEST", current_requests: 0 } },
-                        { ...made, state: "WITHDRAWN", reason: "ACCOUNT_REMOVED", demand: { state: "PENDING", current_requests: 1 } },
+    // the backend's own non-pending states, each with the demand its other requests leave -- and, not being current,
+    // no evidence read for it (G3-C.5)
+    const notCurrent = { state: "UNKNOWN", limitation: "REQUEST_NOT_CURRENT" }
+    for (const good of [{ ...made, state: "HELD", reason: "REGISTRATION_CHANGED", demand: { state: "NO_CURRENT_REQUEST", current_requests: 0 },
+                          observation: notCurrent },
+                        { ...made, state: "WITHDRAWN", reason: "ACCOUNT_REMOVED", demand: { state: "PENDING", current_requests: 1 },
+                          observation: notCurrent },
                         { ...made, state: "SUPERSEDED", reason: "SUPERSEDED_BY_SUCCESSOR", superseded: { by: "x@1", at: made.requested_at },
-                          demand: { state: "PENDING", current_requests: 2 } }]) {
+                          demand: { state: "PENDING", current_requests: 2 }, observation: notCurrent }]) {
       expect(isOperation(good)).toBe(true)
     }
     expect(isStatus({ ...status, operations: [{ ...made, state: "DONE" }] })).toBe(false)
+  })
+
+  // (G3-C.5) What collected evidence shows. The backend's end-to-end controls (tests/test_system_boundary_setup_observation.py,
+  // backend 3a2756c9) produce these answers from the REAL producer; here each is that contract's shape on the REAL captured
+  // request, whose own answer (the capture harness has no coverage scope) is UNKNOWN COVERAGE_NOT_ADMITTED.
+  const evidence = () => {
+    const made = (capture("status").body as { operations: OwnerRequest[] }).operations[0]
+    const region = made.scope.region as string
+    const fact = { source: "cloudtrail_iam_usage", region, source_scope: "all-active-trails", earliest_verified_at: "2026-09-30T23:17:26Z",
+                   earliest_verified_basis: "first_verified_digest", first_verified_collection_at: "2026-10-01T00:07:00Z",
+                   verified_through: "2026-10-01T05:17:26Z", committed_generation: 1, head_manifest_hash: `v1:${"a".repeat(64)}` }
+    const observed = { state: "OBSERVED", as_of: "2026-10-12T08:00:00Z", registration_id: "5".repeat(32), facts: [fact], not_started: [],
+                       publication: { read_model_generation: "source_coverage:v1:v1:x", published_at_epoch: 1 } }
+    const absent = { state: "NOT_OBSERVED", as_of: "2026-10-12T08:00:00Z",
+                     scope: { account_id: made.scope.account_id, region, source: "cloudtrail_iam_usage", source_scopes: ["all-active-trails"] } }
+    const partial = { state: "UNKNOWN", limitation: "SOURCE_PARTIAL", as_of: "2026-10-12T08:00:00Z", facts: [fact],
+                      unresolved: [{ region, source_scope: "second-trail", status: "PARTIAL", reason: null }], not_started: [] }
+    return { made, region, fact, observed, absent, partial }
+  }
+
+  it("(G3-C.5) what collected evidence shows is read exactly, and only as its request allows", () => {
+    const { made, fact, observed, absent, partial } = evidence()
+    expect(made.observation).toEqual({ state: "UNKNOWN", limitation: "COVERAGE_NOT_ADMITTED",
+                                       code: "503:INVENTORY_SCOPE_UNAVAILABLE:TENANT_SCOPE_NOT_CONFIGURED" })
+    for (const observation of [observed, absent, partial]) expect(isOperation({ ...made, observation })).toBe(true)
+    const withdrawn = { ...made, state: "WITHDRAWN", reason: "ACCOUNT_REMOVED", demand: { state: "NO_CURRENT_REQUEST", current_requests: 0 } }
+    for (const bad of [
+      { ...made, observation: undefined },                                                  // a made request always answers
+      { ...made, observation: { state: "UNKNOWN", limitation: "REQUEST_NOT_CURRENT" } },    // a current one is never "not current"
+      { ...withdrawn, observation: observed },                                              // no evidence for a request not current
+      { ...withdrawn, observation: absent },
+      { ...made, observation: { ...observed, facts: [] } },                                 // OBSERVED names its facts
+      { ...made, observation: { ...observed, facts: [{ ...fact, head_manifest_hash: "" }] } },   // ... each bound to its head
+      { ...made, observation: { ...observed, facts: [{ ...fact, committed_generation: 0 }] } },
+      { ...made, observation: { ...observed, facts: [{ ...fact, region: "us-east-2" }] } },      // ... in the request's Region
+      { ...made, observation: { ...observed, registration_id: "R".repeat(32) } },
+      { ...made, observation: { ...absent, scope: { ...absent.scope, account_id: "222222222222" } } },   // an absence is its own
+      { ...made, observation: { ...absent, scope: { ...absent.scope, region: "us-east-2" } } },
+      { ...made, observation: { ...absent, scope: { ...absent.scope, source_scopes: [] } } },
+      { ...made, observation: { ...partial, unresolved: [{ region: "eu-west-1", source_scope: "x", reason: null }] } },   // status named
+      { ...made, observation: { state: "FULFILLED" } },
+      { ...made, observation: { state: "UNKNOWN", limitation: "" } },
+    ]) {
+      expect(isOperation(bad)).toBe(false)
+    }
+    const planned = { op_id: made.op_id, kind: made.kind, subject: made.subject, scope: made.scope,
+                      required_authority: made.required_authority, state: "PLANNED", reason: null }
+    expect(isOperation({ ...planned, observation: { state: "UNKNOWN", limitation: "REQUEST_NOT_CURRENT" } })).toBe(false)
+    const status = capture("status").body as { operations: OwnerRequest[] }
+    expect(isStatus({ ...status, operations: [{ ...made, observation: { ...observed, facts: [] } }] })).toBe(false)
+  })
+
+  it("(G3-C.5) what collected evidence shows, in words -- never fulfilment, use, non-use or dispatch", () => {
+    const { made, observed, absent, partial } = evidence()
+    const say = (observation: unknown) => observationSentence({ ...made, observation } as OwnerRequest) as string
+    expect(say(observed)).toBe("Collected evidence: cloudtrail_iam_usage verified eu-west-1 2026-09-30T23:17:26Z to "
+      + "2026-10-01T05:17:26Z (as of 2026-10-12T08:00:00Z) -- what Cyntro has collected, not a fulfilment of this request")
+    expect(say({ ...observed, not_started: [{ region: "eu-west-1", source_scope: "b", reason: "no_committed_head" }] }))
+      .toContain("nothing committed yet for 1 more scope(s)")
+    expect(say(absent)).toBe("No collected cloudtrail_iam_usage evidence in eu-west-1 as of 2026-10-12T08:00:00Z -- nothing "
+      + "committed yet; this does not say the source is unused")
+    expect(say(partial)).toBe("Collected evidence for this source has gaps · 1 verified scope(s), 1 not (SOURCE_PARTIAL)")
+    expect(say(made.observation)).toBe("Collected evidence cannot be read for this account now "
+      + "(COVERAGE_NOT_ADMITTED 503:INVENTORY_SCOPE_UNAVAILABLE:TENANT_SCOPE_NOT_CONFIGURED)")
+    expect(say({ state: "UNKNOWN", limitation: "REQUEST_NOT_CURRENT" })).toBe("Not checked -- this request is not current (REQUEST_NOT_CURRENT)")
+    expect(say({ state: "UNKNOWN", limitation: "SOMETHING_NEW" })).toBe("What collected evidence shows is not known now (SOMETHING_NEW)")
+    for (const observation of [observed, absent, partial, made.observation]) {
+      const words = say(observation).toLowerCase().replace("this does not say the source is unused", "")   // the disclaimer itself
+      expect(words).not.toMatch(/\bfulfilled\b|\bis used\b|\bis unused\b|\bowned\b|\bsent\b|\bdispatched\b/)
+    }
+    expect(observationSentence({ ...made, observation: undefined })).toBeNull()
   })
 
   it("(G3-A) each request state in words, from the backend's own state and reason -- the browser infers none of it", () => {

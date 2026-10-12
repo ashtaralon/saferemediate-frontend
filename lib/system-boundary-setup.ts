@@ -132,7 +132,38 @@ export interface OwnerRequest {
   superseded?: { by: string; at: string } | null
   demand?: { state: "PENDING" | "NO_CURRENT_REQUEST"; current_requests: number }
   fulfilment?: { state: string; reason: string }
+  observation?: Observation
 }
+
+/** (G3-C.5) One pinned fact of committed collection evidence, exactly as the published coverage row spells it. */
+export interface EvidenceFact {
+  source: string
+  region: string
+  source_scope: string
+  earliest_verified_at: string
+  earliest_verified_basis: string
+  first_verified_collection_at: string | null
+  verified_through: string
+  committed_generation: number
+  head_manifest_hash: string
+}
+export interface EvidenceScope { region: string; source_scope: string; reason: string | null }
+export interface UnresolvedScope extends EvidenceScope { status: string }
+export interface EvidencePublication { read_model_generation: string | null; published_at_epoch: number | null }
+
+/** (G3-C.5) What committed collection evidence shows for a made request's source -- the backend's own answer, read
+ *  exactly. OBSERVED supports only the pinned facts it lists; NOT_OBSERVED is "nothing committed in that exact scope as
+ *  of"; UNKNOWN names why nothing can be said. None of them is fulfilment, use, non-use, ownership or dispatch. */
+export type Observation =
+  | { state: "OBSERVED"; as_of: string; registration_id: string; facts: EvidenceFact[]; not_started: EvidenceScope[];
+      publication?: EvidencePublication }
+  | { state: "NOT_OBSERVED"; as_of: string; scope: { account_id: string; region: string; source: string; source_scopes: string[] };
+      publication?: EvidencePublication }
+  | { state: "UNKNOWN"; limitation: string; as_of?: string; facts?: EvidenceFact[]; unresolved?: UnresolvedScope[];
+      not_started?: EvidenceScope[]; code?: string; hold_reason?: string; publication?: EvidencePublication }
+
+/** The limitation a not-current request carries (the backend reads no evidence for it). */
+export const OBSERVATION_REQUEST_NOT_CURRENT = "REQUEST_NOT_CURRENT"
 
 export interface SetupStatus {
   setup: Pick<SetupSummary, "setup_id" | "status" | "mode" | "state_version" | "intent_revision" | "current_attempt" | "predecessor" | "successor">
@@ -195,6 +226,52 @@ export function isView(value: unknown): value is SetupView {
     && (view.receipt === null || (isRecord(view.receipt) && isAssociation(view.receipt.association)))
 }
 
+const isText = (value: unknown): value is string => typeof value === "string" && value.length > 0
+const isOptionalText = (value: unknown): boolean => value === undefined || isText(value)
+
+function isFact(value: unknown): value is EvidenceFact {
+  return isRecord(value) && isText(value.source) && isText(value.region) && isText(value.source_scope)
+    && isText(value.earliest_verified_at) && isText(value.earliest_verified_basis) && isText(value.verified_through)
+    && (value.first_verified_collection_at === null || isText(value.first_verified_collection_at))
+    && isInt(value.committed_generation) && value.committed_generation >= 1 && isText(value.head_manifest_hash)
+}
+
+const isScope = (value: unknown): value is EvidenceScope =>
+  isRecord(value) && isText(value.region) && isText(value.source_scope) && (value.reason === null || isText(value.reason))
+
+function isPublication(value: unknown): boolean {
+  return value === undefined || (isRecord(value)
+    && (value.read_model_generation === null || isText(value.read_model_generation))
+    && (value.published_at_epoch === null || isInt(value.published_at_epoch)))
+}
+
+/** (G3-C.5) An observation read exactly, and coherent with ITS request: evidence is shown only for a current (PENDING)
+ *  request, and a not-current one says so; facts and an absence lie in the request's own account and Region. */
+export function isObservation(value: unknown, op: { state: string; scope: { account_id: string; region?: string } }): value is Observation {
+  if (!isRecord(value) || !isPublication(value.publication)) return false
+  const region = op.scope.region
+  const inRegion = (r: string) => region === undefined || r === region
+  if (value.state === "OBSERVED") {
+    return op.state === "PENDING" && isText(value.as_of) && typeof value.registration_id === "string"
+      && /^[0-9a-f]{32}$/.test(value.registration_id) && Array.isArray(value.facts) && value.facts.length > 0
+      && value.facts.every((f) => isFact(f) && inRegion(f.region))
+      && Array.isArray(value.not_started) && value.not_started.every(isScope)
+  }
+  if (value.state === "NOT_OBSERVED") {
+    const scope = value.scope
+    return op.state === "PENDING" && region !== undefined && isText(value.as_of) && isRecord(scope)
+      && scope.account_id === op.scope.account_id && scope.region === region && isText(scope.source)
+      && Array.isArray(scope.source_scopes) && scope.source_scopes.length > 0 && scope.source_scopes.every(isText)
+  }
+  if (value.state !== "UNKNOWN" || !isText(value.limitation)) return false
+  if ((op.state === "PENDING") === (value.limitation === OBSERVATION_REQUEST_NOT_CURRENT)) return false
+  return isOptionalText(value.as_of) && isOptionalText(value.code) && isOptionalText(value.hold_reason)
+    && (value.facts === undefined || (Array.isArray(value.facts) && value.facts.every((f) => isFact(f) && inRegion(f.region))))
+    && (value.unresolved === undefined || (Array.isArray(value.unresolved)
+      && value.unresolved.every((u) => isRecord(u) && isScope(u) && isText(u.status))))
+    && (value.not_started === undefined || (Array.isArray(value.not_started) && value.not_started.every(isScope)))
+}
+
 export function isOperation(value: unknown): value is OwnerRequest {
   if (!isRecord(value) || typeof value.op_id !== "string" || !/^[0-9a-f]{64}$/.test(value.op_id) || value.kind !== "owner_request"
       || typeof value.subject !== "string" || !isRecord(value.scope) || typeof value.scope.account_id !== "string"
@@ -203,7 +280,7 @@ export function isOperation(value: unknown): value is OwnerRequest {
       || !(REQUEST_STATES as readonly string[]).includes(value.state) || (value.reason !== null && typeof value.reason !== "string")) {
     return false
   }
-  if (value.state === "PLANNED") return value.requested_by === undefined && value.demand === undefined
+  if (value.state === "PLANNED") return value.requested_by === undefined && value.demand === undefined && value.observation === undefined
   const demand = value.demand
   // The demand's facts must agree with each other and with this request: it stands (PENDING) exactly while some current
   // request counts, and a PENDING request is one of them. Only a SUPERSEDED request names what superseded it.
@@ -215,6 +292,7 @@ export function isOperation(value: unknown): value is OwnerRequest {
     && (value.state === "SUPERSEDED"
       ? isRecord(value.superseded) && typeof value.superseded.by === "string"
       : value.superseded === null)
+    && isObservation(value.observation, value as { state: string; scope: { account_id: string; region?: string } })
 }
 
 export function isStatus(value: unknown): value is SetupStatus {
@@ -366,6 +444,37 @@ export function requestSentence(op: OwnerRequest): string {
         : `Withdrawn -- the account is not registered${reason}`
     default: return `Superseded by a later version of this setup${op.demand?.state === "PENDING" ? " -- still requested elsewhere" : ""}`
   }
+}
+
+const UNKNOWN_WORDS: Record<string, string> = {
+  REQUEST_NOT_CURRENT: "Not checked -- this request is not current",
+  NO_EVIDENCE_FOR_SUBJECT: "Cyntro collects no evidence for this source",
+  REGISTRATION_NOT_BOUND: "Collected evidence cannot be tied to the account's current registration",
+  REGISTRATION_CHANGED: "Collected evidence belongs to another registration of the account",
+  PUBLICATION_NOT_RECORDED: "Collected evidence is not published yet",
+  PUBLICATION_STALE: "The collected-evidence record is out of date",
+  COVERAGE_NOT_ADMITTED: "Collected evidence cannot be read for this account now",
+  SOURCE_PARTIAL: "Collected evidence for this source has gaps",
+  SOURCE_UNREADABLE: "Collected evidence for this source could not be read",
+  SOURCE_UNVERIFIED: "Collected evidence for this source is not verified yet",
+}
+
+/** (G3-C.5) What collected evidence shows for a made request, in words -- the backend's answer only. It never says the
+ *  request is fulfilled, that the source is used or unused, who owns it, or that anything was sent. */
+export function observationSentence(op: OwnerRequest): string | null {
+  const obs = op.observation
+  if (!obs) return null
+  if (obs.state === "OBSERVED") {
+    const ranges = obs.facts.map((f) => `${f.region} ${f.earliest_verified_at} to ${f.verified_through}`).join("; ")
+    const idle = obs.not_started.length ? ` · nothing committed yet for ${obs.not_started.length} more scope(s)` : ""
+    return `Collected evidence: ${obs.facts[0].source} verified ${ranges} (as of ${obs.as_of})${idle} -- what Cyntro has collected, not a fulfilment of this request`
+  }
+  if (obs.state === "NOT_OBSERVED") {
+    return `No collected ${obs.scope.source} evidence in ${obs.scope.region} as of ${obs.as_of} -- nothing committed yet; this does not say the source is unused`
+  }
+  const words = UNKNOWN_WORDS[obs.limitation] ?? "What collected evidence shows is not known now"
+  const shown = obs.facts && obs.facts.length ? ` · ${obs.facts.length} verified scope(s), ${obs.unresolved?.length ?? 0} not` : ""
+  return `${words}${shown} (${obs.limitation}${obs.code ? ` ${obs.code}` : ""})`
 }
 
 /** The setup refusal codes the steps explain in words. */
