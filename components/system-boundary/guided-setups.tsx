@@ -10,7 +10,7 @@
  * reason they are not available -- never an empty list standing for "none".
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { SetupWizard, type SetupClient } from "@/components/system-boundary/setup-wizard"
+import { SetupWizard, type SetupClient, type StackOption } from "@/components/system-boundary/setup-wizard"
 import { Button } from "@/components/ui/button"
 import type { DeclarationsView } from "@/lib/system-boundary-authoring"
 import type { PickedRoot } from "@/lib/system-boundary-declaration"
@@ -31,7 +31,7 @@ import {
 } from "@/lib/system-boundary-setup-pending"
 import { fetchStacks, parseStacksResponse, stacksOutcomeSentence } from "@/lib/system-boundary-stacks"
 
-type Stacks = { state: "served"; stacks: { stack_id: string; label: string }[] } | { state: "unavailable"; reason: string }
+type Stacks = { state: "served"; stacks: StackOption[] } | { state: "unavailable"; reason: string }
 
 export interface GuidedSetupsProps {
   accountId: string
@@ -110,7 +110,8 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
       const parsed = parseStacksResponse(status, body, accountId)
       setStacks(parsed.kind === "data"
         ? { state: "served", stacks: parsed.stacks.filter((stack) => stack.settled)
-                                     .map((stack) => ({ stack_id: stack.stackId, label: `${stack.stackName} (${stack.region})` })) }
+                                     .map((stack) => ({ stack_id: stack.stackId, label: `${stack.stackName} (${stack.region})`,
+                                                        region: stack.region })) }
         : { state: "unavailable", reason: stacksOutcomeSentence(parsed) })
     })
     return () => {

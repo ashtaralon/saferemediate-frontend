@@ -46,6 +46,7 @@ import {
   type Choice,
   type DerivedDisposition,
   type OwnerRequest,
+  type RequirementProfile,
   type SetupIntent,
   type SetupRead,
   type SetupStatus,
@@ -75,7 +76,7 @@ export interface SetupWizardProps {
   onClose: () => void
   client?: Partial<SetupClient>
   /** Injectable for tests; default: the stack census read (lib/system-boundary-stacks.ts). */
-  stacks?: { state: "served"; stacks: { stack_id: string; label: string }[] } | { state: "unavailable"; reason: string }
+  stacks?: { state: "served"; stacks: StackOption[] } | { state: "unavailable"; reason: string }
   readApplied?: (accountId: string) => Promise<{ status: number; body: unknown }>
   readResult?: (accountId: string, systemKey: string) => Promise<{ status: number; body: unknown }>
   /** The verified person (the subject /authoring-grants/self names); null: not known -- an unresolved write is then kept in
@@ -85,6 +86,9 @@ export interface SetupWizardProps {
   pendingStore?: SetupPendingStore
 }
 
+/** A CloudFormation stack the census serves for this account, with the Region it is in. */
+export type StackOption = { stack_id: string; label: string; region: string }
+
 type Local = {
   displayName: string
   criticality: string
@@ -92,16 +96,19 @@ type Local = {
   environment: string
   environmentRaw: string
   roots: PickedRoot[]
-  dispositions: Record<string, AuthoredDisposition>
+  /** (S0 NSW-04) Every authored disposition, as saved: one per (subject, account, Region), so a subject chosen in two Regions
+   *  is two rows, and a row this screen does not offer is kept and saved back unchanged. */
+  dispositions: AuthoredDisposition[]
 }
 
-/** The subjects each step records a choice for, with the choices offered and what each reference names. */
-type SubjectMeta = { step: SetupStep; label: string; choices: Choice[]; refKind?: "stack_binding" | "account_source"; region?: boolean }
+/** The subjects each step records a choice for, with the choices offered and what each reference names. Whether a subject's
+ *  scope needs a Region is the SERVED requirement profile's to say (``needsRegion``), never this list's. */
+type SubjectMeta = { step: SetupStep; label: string; choices: Choice[]; refKind?: "stack_binding" | "account_source" }
 
 const SUBJECTS: Record<string, SubjectMeta> = {
   code: { step: "code_and_infrastructure", label: "Application code (GitHub)", choices: ["requested", "connect_later", "not_used"] },
   iac: { step: "code_and_infrastructure", label: "Infrastructure as code", choices: ["use_existing", "requested", "connect_later", "not_used"],
-         refKind: "stack_binding", region: true },
+         refKind: "stack_binding" },
   "live_source:observed_traffic": { step: "required_data", label: "Observed network traffic",
                                     choices: ["use_existing", "connect_later", "not_used"], refKind: "account_source" },
   "live_source:iam_usage": { step: "required_data", label: "IAM usage", choices: ["use_existing", "connect_later", "not_used"],
@@ -129,6 +136,32 @@ function record(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
 }
 
+/** (S0 NSW-04) The Region names a disposition scope may carry -- the backend's own rule (unified/system_boundary_setup._REGION). */
+const REGION = /^[a-z0-9-]{1,32}$/
+
+/** One disposition's identity: a setup holds at most one per (subject, account, Region); the backend refuses a duplicate. */
+function rowKey(d: { subject: string; scope: { account_id: string; region?: string } }): string {
+  return `${d.subject}|${d.scope.account_id}|${d.scope.region ?? ""}`
+}
+
+/** (S0 NSW-04) Whether THE served requirement profile needs a Region in this subject's scope for it to be supported. */
+function needsRegion(subject: string, profile: RequirementProfile | undefined): boolean {
+  return profile?.document.subjects.find((s) => s.subject === subject)?.scope.includes("region") ?? false
+}
+
+/** A disposition of ``subject`` at ``scope`` with ``choice``: its reference is the one the choice needs (an account source's
+ *  feature, or the stack ``previous`` named -- a reference of another kind, a Terraform state say, is never reused as a stack);
+ *  the scope is exactly the one given -- never a Region taken from elsewhere. */
+function authored(subject: string, scope: AuthoredDisposition["scope"], choice: Choice,
+                  previous?: AuthoredDisposition): AuthoredDisposition {
+  const meta = SUBJECTS[subject]
+  const kept = previous?.ref?.kind === meta?.refKind ? previous?.ref?.key : undefined
+  const ref = choice === "use_existing" && meta?.refKind
+    ? { kind: meta.refKind, key: meta.refKind === "account_source" ? SOURCE_FEATURE[subject] : kept ?? "" }
+    : undefined
+  return { subject, scope: { ...scope }, choice, reason_code: choice.toUpperCase(), ...(ref ? { ref } : {}) }
+}
+
 function fromIntent(intent: SetupIntent): Local {
   const declaration = record(intent.declaration)
   const system = record(declaration.system)
@@ -143,7 +176,7 @@ function fromIntent(intent: SetupIntent): Local {
     // A resumed root keeps the selection it was picked under; its label is its identity (the row is not re-read here).
     roots: roots.map((root) => ({ root, label: root.resource_uid,
                                   publication: { attempt: "", generation: 0, source_identity: "", authority_digest: "", registration_id: "" } })),
-    dispositions: Object.fromEntries((intent.dispositions ?? []).map((d) => [d.subject, d])),
+    dispositions: (intent.dispositions ?? []).map((d) => structuredClone(d)),
   }
 }
 
@@ -171,7 +204,7 @@ function canonical(value: unknown): string {
 }
 
 function intentKey(intent: Pick<SetupIntent, "declaration" | "dispositions">): string {
-  const dispositions = [...(intent.dispositions ?? [])].sort((a, b) => a.subject.localeCompare(b.subject))
+  const dispositions = [...(intent.dispositions ?? [])].sort((a, b) => rowKey(a).localeCompare(rowKey(b)))
   return canonical({ declaration: intent.declaration ?? {}, dispositions })
 }
 
@@ -257,7 +290,7 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
   }, [client, setup, step])
 
   const intentFor = useCallback((nextStep: SetupStep): SetupIntent => ({
-    declaration: draftDeclaration(local!), dispositions: Object.values(local!.dispositions), resume_step: nextStep,
+    declaration: draftDeclaration(local!), dispositions: local!.dispositions, resume_step: nextStep,
   }), [local])
 
   /** Send ONE frozen operation of THIS person, on THIS account and setup; keep it while its outcome is unknown, drop it on a
@@ -333,24 +366,47 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
   // (G2-F19) Where the unresolved write is ACTUALLY kept now -- its own read-back, not a guess about storage.
   const kept = pending ? store.where(pending.requestId) : null
   const others = othersForSetup(store.read(), actor, accountId, setupId)
-  const derived = new Map(setup.dispositions_derived.map((d) => [d.subject, d]))
+  const derived = new Map(setup.dispositions_derived.map((d) => [rowKey(d), d]))
   const editable = setup.status === "DRAFT"
   const set = (patch: Partial<Local>) => setLocal((current) => (current ? { ...current, ...patch } : current))
-  const choose = (subject: string, choice: Choice | "") => setLocal((current) => {
+  /** (S0 NSW-04) The row at ``index`` with ``choice`` -- its scope kept exactly as authored -- or, with no choice, removed. */
+  const chooseAt = (index: number, choice: Choice | "") => setLocal((current) => {
     if (!current) return current
-    const dispositions = { ...current.dispositions }
-    if (!choice) delete dispositions[subject]
-    else {
-      const meta = SUBJECTS[subject]
-      const scope = meta.region && current.roots[0] ? { account_id: accountId, region: current.roots[0].root.region } : { account_id: accountId }
-      const previous = current.dispositions[subject]
-      const ref = choice === "use_existing" && meta.refKind
-        ? { kind: meta.refKind, key: meta.refKind === "account_source" ? SOURCE_FEATURE[subject] : previous?.ref?.key ?? "" }
-        : undefined
-      dispositions[subject] = { subject, scope, choice, reason_code: choice.toUpperCase(), ...(ref ? { ref } : {}) }
-    }
+    const dispositions = [...current.dispositions]
+    if (!choice) dispositions.splice(index, 1)
+    else dispositions[index] = authored(dispositions[index].subject, dispositions[index].scope, choice, dispositions[index])
     return { ...current, dispositions }
   })
+  /** The stack the iac row at ``index`` uses: its reference, and the Region of THAT stack (the backend holds a reference whose
+   *  Region is not its stack's) -- never the Region of some root. */
+  const stackAt = (index: number, stackId: string) => setLocal((current) => {
+    if (!current) return current
+    const dispositions = [...current.dispositions]
+    const d = dispositions[index]
+    const stack = stacks?.state === "served" ? stacks.stacks.find((s) => s.stack_id === stackId) : undefined
+    const scope = stack ? { account_id: d.scope.account_id, region: stack.region } : d.scope
+    dispositions[index] = { ...d, scope, ref: { kind: "stack_binding", key: stackId } }
+    return { ...current, dispositions }
+  })
+  /** A NEW row of ``subject`` for this account at ``region`` (all of the account when none), or why not: a Region the backend
+   *  would refuse, a scope already chosen, or a request without the Region the served profile needs for it. */
+  const addRow = (subject: string, region: string, choice: Choice): string | null => {
+    if (region && !REGION.test(region)) return `"${region}" is not a Region name.`
+    if (!region && choice === "requested" && needsRegion(subject, setup.requirement_profile)) {
+      return "A request needs a Region: the requirement profile asks for one."
+    }
+    const scope = region ? { account_id: accountId, region } : { account_id: accountId }
+    if (local.dispositions.some((d) => rowKey(d) === rowKey({ subject, scope }))) {
+      return region ? `${region} already has a choice here; change that one.` : "All of the account already has a choice here; change that one."
+    }
+    setLocal((current) => (current ? { ...current, dispositions: [...current.dispositions, authored(subject, scope, choice)] } : current))
+    return null
+  }
+  // Regions this setup already names, offered (never chosen) for a Region a subject needs.
+  const knownRegions = [...new Set([
+    ...cellsOf(local.roots.map((p) => p.root)).filter((c) => c.account_id === accountId).map((c) => c.region),
+    ...(stacks?.state === "served" ? stacks.stacks.map((s) => s.region) : []),
+  ])].sort()
 
   return (
     <Panel onClose={onClose}>
@@ -434,13 +490,11 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
             ) : null}
             {Object.entries(SUBJECTS).filter(([, meta]) => meta.step === step).map(([subject, meta]) => (
               <Subject key={subject} subject={subject} label={meta.label} choices={meta.choices} editable={editable}
-                authored={local.dispositions[subject]} derived={derived.get(subject)} onChoose={(choice) => choose(subject, choice)}
+                rows={local.dispositions.flatMap((d, index) => (d.subject === subject ? [{ index, d, derived: derived.get(rowKey(d)) }] : []))}
+                regional={needsRegion(subject, setup.requirement_profile)} regions={knownRegions}
+                onChoose={chooseAt} onAdd={(region, choice) => addRow(subject, region, choice)}
                 stackOptions={meta.refKind === "stack_binding" && stacks?.state === "served" ? stacks.stacks : null}
-                onStack={(key) => setLocal((current) => {
-                  if (!current || !current.dispositions[subject]) return current
-                  const d = current.dispositions[subject]
-                  return { ...current, dispositions: { ...current.dispositions, [subject]: { ...d, ref: { kind: "stack_binding", key } } } }
-                })} />
+                onStack={stackAt} />
             ))}
           </>
         ) : null}
@@ -499,40 +553,90 @@ function Panel({ children, onClose }: { children: React.ReactNode; onClose: () =
   )
 }
 
-function Subject({ subject, label, choices, editable, authored, derived, onChoose, stackOptions, onStack }: {
+/** Where one row applies: a Region of its account, or all of it. */
+function scopeWords(scope: AuthoredDisposition["scope"]): string {
+  return `${scope.account_id} / ${scope.region ?? "all Regions"}`
+}
+
+/** A derived row named so two Regions of one subject are told apart. */
+function rowLabel(d: DerivedDisposition): string {
+  return `${SUBJECTS[d.subject]?.label ?? d.subject}${d.scope.region ? ` (${d.scope.region})` : ""}`
+}
+
+/** (S0 NSW-04) One subject's rows -- each its own (account, Region), never merged -- and, where THE served profile scopes the
+ *  subject by Region, a way to add it for a Region the person names (rows of the setup's Regions are offered, never chosen). */
+function Subject({ subject, label, choices, editable, rows, regional, regions, onChoose, onAdd, stackOptions, onStack }: {
   subject: string
   label: string
   choices: Choice[]
   editable: boolean
-  authored: AuthoredDisposition | undefined
-  derived: DerivedDisposition | undefined
-  onChoose: (choice: Choice | "") => void
-  stackOptions: { stack_id: string; label: string }[] | null
-  onStack: (key: string) => void
+  rows: { index: number; d: AuthoredDisposition; derived: DerivedDisposition | undefined }[]
+  regional: boolean
+  regions: string[]
+  onChoose: (index: number, choice: Choice | "") => void
+  onAdd: (region: string, choice: Choice) => string | null
+  stackOptions: StackOption[] | null
+  onStack: (index: number, key: string) => void
 }) {
+  const [region, setRegion] = useState("")
+  const [problem, setProblem] = useState<string | null>(null)
+  const listId = `setup-regions-${subject.replace(/[^A-Za-z0-9_-]/g, "-")}`         // an id a selector can name
+  const options = (empty: string) => (
+    <>
+      <option value="">{empty}</option>
+      {choices.map((choice) => (
+        <option key={choice} value={choice} disabled={choice === "use_existing" && subject === "iac" && !stackOptions}>
+          {CHOICE_WORDS[choice]}
+        </option>
+      ))}
+    </>
+  )
+  const add = (choice: Choice | "") => {
+    if (!choice) return
+    const refused = onAdd(region.trim(), choice)
+    setProblem(refused)
+    if (!refused) setRegion("")
+  }
   return (
     <div className="rounded border p-2 text-sm" data-testid={`setup-subject-${subject}`}>
-      <label className="block">{label}
-        <select className="ml-2 rounded border px-2 py-1" value={authored?.choice ?? ""} disabled={!editable}
-          onChange={(e) => onChoose(e.target.value as Choice | "")}>
-          <option value="">Choose…</option>
-          {choices.map((choice) => (
-            <option key={choice} value={choice} disabled={choice === "use_existing" && subject === "iac" && !stackOptions}>
-              {CHOICE_WORDS[choice]}
-            </option>
-          ))}
-        </select>
-      </label>
-      {authored?.choice === "use_existing" && subject === "iac" && stackOptions ? (
-        <select className="mt-1 block rounded border px-2 py-1" value={authored.ref?.key ?? ""} disabled={!editable}
-          onChange={(e) => onStack(e.target.value)} aria-label="CloudFormation stack">
-          <option value="">Choose a stack…</option>
-          {stackOptions.map((stack) => <option key={stack.stack_id} value={stack.stack_id}>{stack.label}</option>)}
-        </select>
+      <p>{label}</p>
+      {rows.map(({ index, d, derived }) => (
+        <div key={rowKey(d)} className="mt-1" data-testid={`setup-row-${subject}-${d.scope.region ?? "all"}`}>
+          <label className="block">
+            <span className="text-xs text-slate-600">{scopeWords(d.scope)}</span>
+            <select className="ml-2 rounded border px-2 py-1" value={d.choice} disabled={!editable}
+              aria-label={`${label}, ${scopeWords(d.scope)}`} onChange={(e) => onChoose(index, e.target.value as Choice | "")}>
+              {options("Remove this choice")}
+            </select>
+          </label>
+          {d.choice === "use_existing" && subject === "iac" && stackOptions ? (
+            <select className="mt-1 block rounded border px-2 py-1" value={d.ref?.key ?? ""} disabled={!editable}
+              onChange={(e) => onStack(index, e.target.value)} aria-label="CloudFormation stack">
+              <option value="">Choose a stack…</option>
+              {stackOptions.map((stack) => <option key={stack.stack_id} value={stack.stack_id}>{stack.label}</option>)}
+            </select>
+          ) : null}
+          {derived ? <p className="mt-1 text-xs text-slate-600" data-testid={`setup-derived-${subject}`}>{derivedSentence(derived)}</p> : (
+            <p className="mt-1 text-xs text-slate-400">What Cyntro finds is shown once this step is saved.</p>
+          )}
+        </div>
+      ))}
+      {editable && (regional || rows.length === 0) ? (
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          {regional ? (
+            <>
+              <input className="rounded border px-2 py-1" value={region} list={listId} placeholder="all Regions"
+                aria-label={`Region for ${label}`} onChange={(e) => setRegion(e.target.value)} />
+              <datalist id={listId}>{regions.map((r) => <option key={r} value={r} />)}</datalist>
+            </>
+          ) : null}
+          <select className="rounded border px-2 py-1" value="" aria-label={regional ? `${label} for this Region` : label}
+            onChange={(e) => add(e.target.value as Choice | "")}>
+            {options("Choose…")}
+          </select>
+        </div>
       ) : null}
-      {derived ? <p className="mt-1 text-xs text-slate-600" data-testid={`setup-derived-${subject}`}>{derivedSentence(derived)}</p> : (
-        <p className="mt-1 text-xs text-slate-400">What Cyntro finds is shown once this step is saved.</p>
-      )}
+      {problem ? <p role="alert" className="mt-1 text-xs text-amber-800">{problem}</p> : null}
     </div>
   )
 }
@@ -588,7 +692,7 @@ function Review({ local, view, setup, dirty, status, statusProblem }: { local: L
       {!built.ok ? <ul className="text-xs text-amber-800">{built.problems.map((p) => <li key={p}>{p}</li>)}</ul> : null}
       <ul className="text-xs text-slate-600">
         {setup.dispositions_derived.map((d) => (
-          <li key={d.subject}>{SUBJECTS[d.subject]?.label ?? d.subject}: {derivedSentence(d)}
+          <li key={rowKey(d)}>{rowLabel(d)}: {derivedSentence(d)}
             <div className="text-slate-500" data-testid="setup-required-facts">{requiredFactsSentence(d, setup.requirement_profile)}</div>
           </li>
         ))}
@@ -624,7 +728,7 @@ function Progress({ setup, status, statusProblem, accountId, readApplied, readRe
       {systemId ? <SystemResult systemKey={systemId} accountIds={[accountId]} {...(readResult ? { fetcher: readResult } : {})} /> : null}
       <ul className="text-xs text-slate-600">
         {setup.dispositions_derived.map((d) => (
-          <li key={d.subject}>{SUBJECTS[d.subject]?.label ?? d.subject}: {derivedSentence(d)}
+          <li key={rowKey(d)}>{rowLabel(d)}: {derivedSentence(d)}
             <div className="text-slate-500" data-testid="setup-required-facts">{requiredFactsSentence(d, setup.requirement_profile)}</div>
           </li>
         ))}
