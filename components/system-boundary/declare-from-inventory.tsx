@@ -27,6 +27,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { DeclarationForm } from "@/components/system-boundary/declaration-form"
 import { DeclaredSystems } from "@/components/system-boundary/declared-systems"
+import { GuidedSetups, type GuidedSetupsProps } from "@/components/system-boundary/guided-setups"
 import { PendingSaves } from "@/components/system-boundary/pending-saves"
 import { StackBindingWizard } from "@/components/system-boundary/stack-binding-wizard"
 import { Button } from "@/components/ui/button"
@@ -69,6 +70,8 @@ export interface DeclareFromInventoryProps {
   readCapability?: () => Promise<{ status: number; body: unknown }>
   /** The page was opened to declare a system (Systems > Add System): open the declare flow where its checks pass. */
   openDeclareFlow?: boolean
+  /** (Onboarding G2) Injectable for tests; default: the authoring proxy's setup routes and the census stack read. */
+  guided?: Pick<GuidedSetupsProps, "listSetups" | "createSetup" | "readStacks" | "client">
 }
 
 type ViewState = { kind: "loading" } | ReadResult<DeclarationsView>
@@ -78,7 +81,7 @@ export function DeclareFromInventory(props: DeclareFromInventoryProps) {
 }
 
 function Declarer({ accountId, renderInventory, readDeclarations = readView, readGrant = readOwnGrant, save, onEnvelope,
-                    store: injected, readCapability = fetchCapability, openDeclareFlow = false }: DeclareFromInventoryProps) {
+                    store: injected, readCapability = fetchCapability, openDeclareFlow = false, guided }: DeclareFromInventoryProps) {
   const [view, setView] = useState<ViewState>({ kind: "loading" })
   const [store] = useState<PendingStore>(() => injected ?? pendingStore())
   const [actor, setActor] = useState<string | null>(null)
@@ -186,6 +189,10 @@ function Declarer({ accountId, renderInventory, readDeclarations = readView, rea
               </Button>
             ) : null}
           </div>
+          {view.kind === "OK" ? (
+            <GuidedSetups accountId={accountId} view={view.value} picks={[...picks.values()]} actor={actor}
+              open={openDeclareFlow} {...guided} />
+          ) : null}
           {openDeclareFlow ? (
             <p className="text-xs text-slate-600" data-testid="declare-flow-guide">
               {capability?.kind === "enabled"

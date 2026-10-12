@@ -3,8 +3,9 @@ import { accountAdminIdentityHeaders, accountAdminWriteFromOwnOrigin } from "@/l
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 /**
- * The System Boundary authoring proxy (Phase 2 F1): a NAMED proxy for exactly ten backend routes, never a relay -- F1's
- * seven, and (A7 rev 4) the wizard's capability read, the declarations' applied status and one system's result.
+ * The System Boundary authoring proxy (Phase 2 F1): a NAMED proxy for exactly eighteen backend routes, never a relay -- F1's
+ * seven, (A7 rev 4) the wizard's capability read, the declarations' applied status and one system's result, and (onboarding
+ * G2) the eight routes of the resumable System setup (create, list, read, status, update, finish, cancel, amend).
  *
  * The backend verifies the person on these routes by the console transport (api/system_boundary.py::_console_person,
  * backend a3c945b0): the IdP access token alone, against the keys installed on the issuer's trust block, else its
@@ -32,9 +33,17 @@ export const AUTHORING_MAX_SYSTEM_KEY_BYTES = 512
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
-type Route = { method: "GET" | "POST"; matches: (suffix: string) => boolean; query: readonly string[] }
+type Route = { method: "GET" | "POST" | "PUT"; matches: (suffix: string) => boolean; query: readonly string[] }
 
-/** The ten routes, by exact method and path below /api/system-boundary/, with the query each may carry. */
+/** (Onboarding G2) ``setup/<uuid>`` exactly, optionally followed by one of ``tails``: nothing else under setup/. */
+function setupPath(suffix: string, tails: readonly string[]): boolean {
+  if (!suffix.startsWith("setup/")) return false
+  const rest = suffix.slice("setup/".length)
+  const id = rest.slice(0, 36)
+  return UUID.test(id) && tails.includes(rest.slice(36))
+}
+
+/** The eighteen routes, by exact method and path below /api/system-boundary/, with the query each may carry. */
 const ROUTES: readonly Route[] = [
   { method: "GET", matches: (s) => s === "declarations/view", query: [] },
   { method: "GET", matches: (s) => s === "declarations/head", query: [] },
@@ -52,6 +61,13 @@ const ROUTES: readonly Route[] = [
   { method: "GET", matches: (s) => s === "declarations/applied", query: ["account_id"] },
   // A7 rev 4 C-D: what the served membership says about one system in one account (the wizard's result screen).
   { method: "GET", matches: (s) => s === "result", query: ["account_id", "system_key"] },
+  // Onboarding G2: the resumable System setup (backend api/system_boundary.py /setup routes). The list is setup/list: the
+  // backend's one-segment GET /setup is another route's.
+  { method: "POST", matches: (s) => s === "setup", query: [] },
+  { method: "GET", matches: (s) => s === "setup/list", query: ["cursor"] },
+  { method: "GET", matches: (s) => setupPath(s, ["", "/status"]), query: [] },
+  { method: "PUT", matches: (s) => setupPath(s, [""]), query: [] },
+  { method: "POST", matches: (s) => setupPath(s, ["/finish", "/cancel", "/amend"]), query: [] },
 ]
 
 function refused(status: number, detail: Record<string, unknown>): NextResponse {
@@ -138,7 +154,7 @@ export async function proxyAuthoring(request: NextRequest): Promise<NextResponse
   if (resident && !accountAdminWriteFromOwnOrigin(request)) return refused(403, { code: "AUTHORING_ORIGIN_REFUSED" })
 
   let body: Uint8Array<ArrayBuffer> | undefined
-  if (method === "POST") {
+  if (method === "POST" || method === "PUT") {
     const mediaType = (request.headers.get("content-type") || "").split(";")[0].trim().toLowerCase()
     if (mediaType !== "application/json") return refused(415, { code: "AUTHORING_CONTENT_TYPE_INVALID" })
     const bounded = await boundedBody(request)
