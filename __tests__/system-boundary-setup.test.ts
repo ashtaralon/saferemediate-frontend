@@ -104,8 +104,21 @@ describe("the setup client reads the REAL answers, and nothing in between is inv
                        { ...made, requested_at: undefined },
                        { ...made, demand: { state: "PENDING", current_requests: -1 } },
                        { ...made, demand: { state: "PENDING", current_requests: 1.5 } },
-                       { ...made, demand: { state: "PENDING", current_requests: "1" } }]) {
+                       { ...made, demand: { state: "PENDING", current_requests: "1" } },
+                       // (F22) contradictory demand facts: standing with no current request, or a current request not standing
+                       { ...made, demand: { state: "PENDING", current_requests: 0 } },
+                       { ...made, demand: { state: "NO_CURRENT_REQUEST", current_requests: 2 } },
+                       { ...made, state: "PENDING", demand: { state: "NO_CURRENT_REQUEST", current_requests: 0 } },
+                       { ...made, state: "SUPERSEDED", superseded: null },
+                       { ...made, state: "PENDING", superseded: { by: "x@1", at: made.requested_at } }]) {
       expect(isOperation(bad)).toBe(false)
+    }
+    // the backend's own non-pending states, each with the demand its other requests leave
+    for (const good of [{ ...made, state: "HELD", reason: "REGISTRATION_CHANGED", demand: { state: "NO_CURRENT_REQUEST", current_requests: 0 } },
+                        { ...made, state: "WITHDRAWN", reason: "ACCOUNT_REMOVED", demand: { state: "PENDING", current_requests: 1 } },
+                        { ...made, state: "SUPERSEDED", reason: "SUPERSEDED_BY_SUCCESSOR", superseded: { by: "x@1", at: made.requested_at },
+                          demand: { state: "PENDING", current_requests: 2 } }]) {
+      expect(isOperation(good)).toBe(true)
     }
     expect(isStatus({ ...status, operations: [{ ...made, state: "DONE" }] })).toBe(false)
   })
@@ -114,7 +127,8 @@ describe("the setup client reads the REAL answers, and nothing in between is inv
     const made = (capture("status").body as { operations: OwnerRequest[] }).operations[0]
     const as = (state: OwnerRequest["state"], reason: string | null, extra: Partial<OwnerRequest> = {}) =>
       requestSentence({ ...made, state, reason, ...extra })
-    expect(requestSentence(made)).toBe("Requested from an account administrator -- waiting; nothing in the account has changed")
+    expect(requestSentence(made)).toBe("Requested from an account administrator -- waiting; this setup has not connected or changed "
+      + "the source, and other changes in the account are not known here")
     expect(as("PENDING", null, { demand: { state: "PENDING", current_requests: 2 } })).toContain("2 current requests for it in all")
     expect(as("HELD", "REGISTRATION_CHANGED")).toContain("registered again since it was requested")
     expect(as("HELD", "REQUESTER_AUTHORITY_REVOKED")).toContain("may no longer author for this account")

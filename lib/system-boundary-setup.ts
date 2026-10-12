@@ -205,10 +205,16 @@ export function isOperation(value: unknown): value is OwnerRequest {
   }
   if (value.state === "PLANNED") return value.requested_by === undefined && value.demand === undefined
   const demand = value.demand
+  // The demand's facts must agree with each other and with this request: it stands (PENDING) exactly while some current
+  // request counts, and a PENDING request is one of them. Only a SUPERSEDED request names what superseded it.
   return typeof value.requested_by === "string" && typeof value.requested_at === "string" && isRecord(demand)
     && (demand.state === "PENDING" || demand.state === "NO_CURRENT_REQUEST") && isInt(demand.current_requests)
-    && demand.current_requests >= 0 && isRecord(value.fulfilment) && typeof value.fulfilment.state === "string"
-    && (value.superseded === null || (isRecord(value.superseded) && typeof value.superseded.by === "string"))
+    && demand.current_requests >= 0 && (demand.state === "PENDING") === (demand.current_requests > 0)
+    && (value.state !== "PENDING" || demand.state === "PENDING")
+    && isRecord(value.fulfilment) && typeof value.fulfilment.state === "string"
+    && (value.state === "SUPERSEDED"
+      ? isRecord(value.superseded) && typeof value.superseded.by === "string"
+      : value.superseded === null)
 }
 
 export function isStatus(value: unknown): value is SetupStatus {
@@ -349,7 +355,8 @@ export function requestSentence(op: OwnerRequest): string {
   const others = op.demand && op.demand.current_requests > 1 ? ` · ${op.demand.current_requests} current requests for it in all` : ""
   switch (op.state) {
     case "PLANNED": return "Will be requested from an account administrator when you finish -- nothing is asked before"
-    case "PENDING": return `Requested from an account administrator -- waiting; nothing in the account has changed${others}`
+    case "PENDING":
+      return `Requested from an account administrator -- waiting; this setup has not connected or changed the source, and other changes in the account are not known here${others}`
     case "HELD":
       if (op.reason === "REGISTRATION_CHANGED") return `On hold -- the account was registered again since it was requested; amend this setup to ask again${reason}`
       if (op.reason === "REQUESTER_AUTHORITY_REVOKED") return `On hold -- the person who requested it may no longer author for this account${reason}`
