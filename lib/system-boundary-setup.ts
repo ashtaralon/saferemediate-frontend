@@ -13,6 +13,13 @@
  */
 import { AUTHORING_BASE } from "@/lib/system-boundary-authoring"
 
+/** The ``system_boundary_setup`` release contract this client speaks and reads (lib/release-contract.json requires and
+ *  accepts it; backend unified/system_boundary_setup.SETUP_CONTRACT_LEVEL). Level 1 answers carry no ``contract`` tag (as the
+ *  Systems list's level 1): an answer that carries ANY is a later level this frontend does not read -- never parsed as level
+ *  1. The bundle builder refuses that pair; this is the same rule at runtime. */
+export const SETUP_CONTRACT_LEVEL = 1
+export const SETUP_CONTRACT_UNKNOWN = "SETUP_CONTRACT_UNKNOWN"
+
 /** Rev 7 section 6.2 -- the eight steps, in order (Inventory is context, not a step). Same spelling as the backend. */
 export const SETUP_STEPS = [
   "system_details",
@@ -197,9 +204,13 @@ function refusal(json: unknown): { code: string; detail: Record<string, unknown>
   return { code, detail }
 }
 
+/** A 200/201/202 answer tagged with a setup contract: a later level than this frontend reads. */
+const tagged = (json: unknown): boolean => isRecord(json) && "contract" in json
+
 /** One read's answer, parsed by ``valid``; a malformed 200 is UNAVAILABLE, never a guessed value. */
 export function readAnswer<T>(raw: Raw, valid: (json: unknown) => json is T): SetupRead<T> {
   if (raw.status === null) return { kind: "UNAVAILABLE", status: null, code: "NETWORK_ERROR" }
+  if (raw.status === 200 && tagged(raw.json)) return { kind: "UNAVAILABLE", status: 200, code: SETUP_CONTRACT_UNKNOWN }
   if (raw.status === 200) {
     return valid(raw.json) ? { kind: "OK", value: raw.json } : { kind: "UNAVAILABLE", status: 200, code: "MALFORMED_RESPONSE" }
   }
@@ -213,6 +224,10 @@ export function readAnswer<T>(raw: Raw, valid: (json: unknown) => json is T): Se
  *  is RESEND_SAME with the view, so the caller resends the same Finish. */
 export function writeAnswer(raw: Raw): SetupWrite {
   if (raw.status === null) return { kind: "RESEND_SAME", status: null, code: "NETWORK_ERROR", detail: {} }
+  if ((raw.status === 200 || raw.status === 201) && tagged(raw.json)) {
+    // The write may have happened, but this answer is not one this frontend reads: never SAVED on a guess.
+    return { kind: "RESEND_SAME", status: raw.status, code: SETUP_CONTRACT_UNKNOWN, detail: {} }
+  }
   if (raw.status === 200 || raw.status === 201) {
     return isView(raw.json) ? { kind: "SAVED", status: raw.status, view: raw.json }
       : { kind: "RESEND_SAME", status: raw.status, code: "MALFORMED_RESPONSE", detail: {} }
