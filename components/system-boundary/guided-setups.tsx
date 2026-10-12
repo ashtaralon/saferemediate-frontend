@@ -47,13 +47,20 @@ export interface GuidedSetupsProps {
   client?: Partial<SetupClient>
   /** Injectable for tests; default: this browser's storage (guarded) and this page's memory. */
   pendingStore?: SetupPendingStore
+  /** Passed to the wizard's Progress and results (its applied-state and result reads); default: the wizard's own. */
+  readApplied?: (accountId: string) => Promise<{ status: number; body: unknown }>
+  readResult?: (accountId: string, systemKey: string) => Promise<{ status: number; body: unknown }>
 }
 
 export function GuidedSetups({ accountId, view, picks, actor, open = false, listSetups = listSetupsDefault,
                                createSetup = createSetupDefault, readStacks = fetchStacks, client,
-                               pendingStore }: GuidedSetupsProps) {
+                               pendingStore, readApplied, readResult }: GuidedSetupsProps) {
   const store = useMemo(() => pendingStore ?? setupPendingStore(), [pendingStore])
   const [mine, setMine] = useState<SetupSummary[] | null>(null)
+  // (installed QA 0.10.10) This person's FINISHED setups, listed apart: the wizard opens a finished setup on Progress and
+  // results, so after a reload a person can return to it. A superseded setup has a later version (its successor), a cancelled
+  // one has nothing to show, and a successor (correction mode) has no steps here yet -- none of them is offered.
+  const [finished, setFinished] = useState<SetupSummary[] | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [openId, setOpenId] = useState<string | null>(null)
   const [stacks, setStacks] = useState<Stacks | undefined>(undefined)
@@ -72,6 +79,7 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
     setUnconfirmed(pendingCreate(ops, actor, accountId))
     setHeld(othersCreate(ops, actor, accountId).length)
     setMine(null)
+    setFinished(null)
     setProblem(null)
   }, [actor, accountId, store])
 
@@ -82,8 +90,9 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
       return
     }
     // This slice edits a NEW system's setup; a successor (correction mode) has no steps here yet and is not offered.
-    setMine(answer.value.setups.filter((s) => actor !== null && s.owner === actor && s.mode === "create"
-                                         && (s.status === "DRAFT" || s.status === "FINISHING")))
+    const own = answer.value.setups.filter((s) => actor !== null && s.owner === actor && s.mode === "create")
+    setMine(own.filter((s) => s.status === "DRAFT" || s.status === "FINISHING"))
+    setFinished(own.filter((s) => s.status === "FINISHED"))
   }, [actor, listSetups])
   // Nothing is read until the person asks: the list when they choose "Your setups", the stacks when a setup opens.
   useEffect(() => {
@@ -130,7 +139,7 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
   if (openId) {
     return (
       <SetupWizard setupId={openId} accountId={accountId} view={view} picks={picks} stacks={stacks} client={client}
-        actor={actor} pendingStore={store}
+        actor={actor} pendingStore={store} readApplied={readApplied} readResult={readResult}
         onClose={() => {
           setOpenId(null)
           if (mine !== null) void refresh()
@@ -167,6 +176,17 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
             <li key={s.setup_id}>
               <button type="button" className="underline" onClick={() => setOpenId(s.setup_id)}>
                 Resume setup from {new Date(s.updated_at).toLocaleString()} ({s.status.toLowerCase()})
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {finished && finished.length ? (
+        <ul className="text-xs" data-testid="setup-finished-list">
+          {finished.map((s) => (
+            <li key={s.setup_id}>
+              <button type="button" className="underline" onClick={() => setOpenId(s.setup_id)}>
+                Progress and results of the setup finished {new Date(s.updated_at).toLocaleString()}
               </button>
             </li>
           ))}

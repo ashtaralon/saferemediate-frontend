@@ -5,13 +5,13 @@
  */
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
-import { act, fireEvent, render, screen } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { SetupWizard, type SetupClient } from "@/components/system-boundary/setup-wizard"
 import type { DeclarationsView, DeclaredRoot, RootSelection } from "@/lib/system-boundary-authoring"
 import type { PickedRoot } from "@/lib/system-boundary-declaration"
 import { isStatus, readAnswer } from "@/lib/system-boundary-setup"
-import type { SetupIntent, SetupStatus, SetupView, SetupWrite } from "@/lib/system-boundary-setup"
+import type { SetupIntent, SetupRead, SetupStatus, SetupView, SetupWrite } from "@/lib/system-boundary-setup"
 import { freezeOp, setupPendingStore, type PendingSetupOp, type SetupPendingStore } from "@/lib/system-boundary-setup-pending"
 import { GuidedSetups } from "@/components/system-boundary/guided-setups"
 
@@ -712,5 +712,74 @@ describe("G3-A: owner requests on Review and on Progress", () => {
     await settle()
     expect(screen.queryByTestId("setup-review-requests")).toBeNull()
     expect(screen.getByTestId("setup-review").textContent).toContain("The requests could not be read (SETUP_CONTRACT_UNKNOWN).")
+  })
+})
+
+// ── installed QA 0.10.10 (Codex Chrome E2E): after a reload a person returns to a FINISHED setup's Progress and results ──
+
+describe("installed QA 0.10.10: a finished setup is returned to from Your setups", () => {
+  const summary = (over: Partial<SetupView>): SetupView => ({ ...structuredClone(DRAFT), ...over })
+  const mixed = (owner: string) => [
+    summary({ setup_id: "5e7a0000-0000-4000-8000-0000000000a1", status: "DRAFT", owner }),
+    summary({ setup_id: FINISHED.setup_id, status: "FINISHED", owner }),
+    summary({ setup_id: "5e7a0000-0000-4000-8000-0000000000a2", status: "SUPERSEDED", owner }),
+    summary({ setup_id: "5e7a0000-0000-4000-8000-0000000000a3", status: "CANCELLED", owner }),
+    summary({ setup_id: "5e7a0000-0000-4000-8000-0000000000a4", status: "FINISHED", mode: "correct", owner }),
+    summary({ setup_id: "5e7a0000-0000-4000-8000-0000000000a5", status: "FINISHED", owner: BOB }),
+  ]
+
+  function panel(actor: string, listSetups: () => Promise<SetupRead<{ setups: SetupView[]; next_cursor: string | null }>>,
+                 c: SetupClient) {
+    return render(<GuidedSetups accountId="111111111111" view={VIEW} picks={[]} actor={actor} listSetups={listSetups} client={c}
+      pendingStore={freshStore()} readStacks={async () => ({ status: 503, body: {} })}
+      readApplied={async () => ({ status: 503, body: { state: "unavailable" } })} readResult={async () => ({ status: 503, body: {} })} />)
+  }
+
+  it("lists this person's finished setups apart and opens one on Progress and results; nothing else is offered", async () => {
+    const listSetups = vi.fn(async () => ({ kind: "OK" as const, value: { setups: mixed(ALICE), next_cursor: null } }))
+    const c = client({ readSetup: vi.fn(async () => ({ kind: "OK" as const, value: structuredClone(FINISHED) })) })
+    panel(ALICE, listSetups, c)
+    expect(listSetups).not.toHaveBeenCalled()                                  // nothing is read until the person asks
+    fireEvent.click(screen.getByTestId("setup-mine"))
+    await settle()
+    expect(screen.getByTestId("setup-resume-list").querySelectorAll("li")).toHaveLength(1)      // the draft only
+    const finishedList = screen.getByTestId("setup-finished-list")
+    expect(finishedList.querySelectorAll("li")).toHaveLength(1)               // not superseded / cancelled / correct / Bob's
+    expect(finishedList.textContent).toContain("Progress and results of the setup finished")
+    fireEvent.click(finishedList.querySelector("button")!)
+    await settle()
+    await settle()
+    expect(c.readSetup).toHaveBeenCalledWith(FINISHED.setup_id)
+    expect(screen.getByTestId("setup-progress").textContent).toContain("Setup finished")
+  })
+
+  it("another person is offered none of them, and a finished setup alone is not called in progress", async () => {
+    const c = client()
+    panel(BOB, vi.fn(async () => ({ kind: "OK" as const, value: { setups: mixed(ALICE).slice(0, 5), next_cursor: null } })), c)
+    fireEvent.click(screen.getByTestId("setup-mine"))
+    await settle()
+    expect(screen.queryByTestId("setup-resume-list")).toBeNull()
+    expect(screen.queryByTestId("setup-finished-list")).toBeNull()
+    cleanup()
+    panel(ALICE, vi.fn(async () => ({ kind: "OK" as const, value: { setups: [mixed(ALICE)[1]], next_cursor: null } })), c)
+    fireEvent.click(screen.getByTestId("setup-mine"))
+    await settle()
+    expect(screen.getByText("You have no setup in progress.")).toBeTruthy()
+    expect(screen.getByTestId("setup-finished-list").querySelectorAll("li")).toHaveLength(1)
+  })
+
+  it("when the person changes, the previous person's finished setups are gone at once -- nothing is shown for someone else", async () => {
+    const listSetups = vi.fn(async () => ({ kind: "OK" as const, value: { setups: mixed(ALICE), next_cursor: null } }))
+    const c = client()
+    const props = { accountId: "111111111111", view: VIEW, picks: [] as PickedRoot[], listSetups, client: c,
+                    pendingStore: freshStore(), readStacks: async () => ({ status: 503, body: {} }) }
+    const ui = render(<GuidedSetups {...props} actor={ALICE} />)
+    fireEvent.click(screen.getByTestId("setup-mine"))
+    await settle()
+    expect(screen.getByTestId("setup-finished-list")).toBeTruthy()
+    ui.rerender(<GuidedSetups {...props} actor={BOB} />)
+    await settle()
+    expect(screen.queryByTestId("setup-finished-list")).toBeNull()
+    expect(screen.queryByTestId("setup-resume-list")).toBeNull()
   })
 })
