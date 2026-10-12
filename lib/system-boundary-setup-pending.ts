@@ -53,7 +53,9 @@ export type Kept = "storage" | "memory"
 export interface SetupPendingStore {
   /** Every readable operation (storage and this page's memory). */
   read(): PendingSetupOp[]
-  /** Keep ``op``; answers where it was ACTUALLY kept -- "storage" only when the exact operation was written and read back. */
+  /** Keep a NEW ``op``; answers where it was ACTUALLY kept -- "storage" only when the exact operation reads back. (S0-R06) It
+   *  never writes over a record already at its request id that is not exactly ``op`` -- one this version cannot read
+   *  included: ``op`` is then kept in this page's memory only. A recovered operation is resent as kept, never put again. */
   put(op: PendingSetupOp): Kept
   /** Settle ``op`` -- EXACTLY that tuple, wherever it is kept; any other tuple, even under its request id, stays. */
   remove(op: PendingSetupOp): void
@@ -182,7 +184,13 @@ export function setupPendingStore(storage: Storage | null = browserStorage(),
     put(op) {
       memory.set(op.requestId, op)
       if (op.actor === null) return "memory"            // an unverified person's operation never reaches storage
-      attempt((s) => s.setItem(SETUP_PENDING_RECORD_PREFIX + op.requestId, JSON.stringify(op)))
+      let present: string | null
+      try {
+        present = storage ? storage.getItem(SETUP_PENDING_RECORD_PREFIX + op.requestId) : null
+      } catch {
+        present = null
+      }
+      if (present === null) attempt((s) => s.setItem(SETUP_PENDING_RECORD_PREFIX + op.requestId, JSON.stringify(op)))
       // (G2-F19) durable only if THIS exact operation reads back from storage -- never inferred from a probe write.
       const back = record(op.requestId)
       return back !== null && JSON.stringify(back) === JSON.stringify(op) ? "storage" : "memory"

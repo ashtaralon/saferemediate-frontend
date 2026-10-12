@@ -121,10 +121,13 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
 
   const start = useCallback(async () => {
     const sentIn = context
-    // Read now, not from the last render: only THIS person's own unconfirmed start is resent.
-    const op = pendingCreate(store.read(), actor, accountId)
+    // Read now, not from the last render: only THIS person's own unconfirmed start is resent -- EXACTLY as it is kept, never
+    // kept again (S0-R06: re-keeping a recovered start could write over another record under its request id). Only a NEW
+    // start is kept, before it is sent.
+    const recovered = pendingCreate(store.read(), actor, accountId)
+    const op = recovered
       ?? freezeOp({ version: 1, kind: "create", actor, accountId, requestId: freshRequestId(), startedAt: new Date().toISOString() })
-    store.put(op)
+    if (!recovered) store.put(op)
     setUnconfirmed(op)
     setStarting(true)
     const answer = await createSetup(op.requestId)
