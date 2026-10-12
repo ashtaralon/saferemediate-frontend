@@ -658,7 +658,7 @@ describe("G3-A: owner requests on Review and on Progress", () => {
                    first_verified_collection_at: null, verified_through: "2026-10-01T05:17:26Z", committed_generation: 1,
                    head_manifest_hash: `v1:${"a".repeat(64)}` }
     const observed: SetupStatus = { ...status, operations: status.operations.map((o) => (
-      { ...o, observation: { state: "OBSERVED" as const, as_of: "2026-10-12T08:00:00Z", registration_id: "5".repeat(32),
+      { ...o, subject: "history:cloudtrail", observation: { state: "OBSERVED" as const, as_of: "2026-10-12T08:00:00Z", registration_id: "5".repeat(32),
                              facts: [fact], not_started: [] } })) }
     for (const [answer, words] of [[status, "Collected evidence cannot be read for this account now (COVERAGE_NOT_ADMITTED"],
                                    [observed, "not a fulfilment of this request"]] as const) {

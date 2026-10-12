@@ -129,10 +129,12 @@ describe("the setup client reads the REAL answers, and nothing in between is inv
   })
 
   // (G3-C.5) What collected evidence shows. The backend's end-to-end controls (tests/test_system_boundary_setup_observation.py,
-  // backend 3a2756c9) produce these answers from the REAL producer; here each is that contract's shape on the REAL captured
-  // request, whose own answer (the capture harness has no coverage scope) is UNKNOWN COVERAGE_NOT_ADMITTED.
+  // backend 3a2756c9) produce these answers from the REAL producer for a history:cloudtrail request; here each is that
+  // contract's shape on the REAL captured request made a history:cloudtrail one (``history``) -- the captured request itself
+  // is IaC, whose own answer (the capture harness has no coverage scope) is UNKNOWN COVERAGE_NOT_ADMITTED.
   const evidence = () => {
     const made = (capture("status").body as { operations: OwnerRequest[] }).operations[0]
+    const history = { ...made, subject: "history:cloudtrail" }
     const region = made.scope.region as string
     const fact = { source: "cloudtrail_iam_usage", region, source_scope: "all-active-trails", earliest_verified_at: "2026-09-30T23:17:26Z",
                    earliest_verified_basis: "first_verified_digest", first_verified_collection_at: "2026-10-01T00:07:00Z",
@@ -143,46 +145,67 @@ describe("the setup client reads the REAL answers, and nothing in between is inv
                      scope: { account_id: made.scope.account_id, region, source: "cloudtrail_iam_usage", source_scopes: ["all-active-trails"] } }
     const partial = { state: "UNKNOWN", limitation: "SOURCE_PARTIAL", as_of: "2026-10-12T08:00:00Z", facts: [fact],
                       unresolved: [{ region, source_scope: "second-trail", status: "PARTIAL", reason: null }], not_started: [] }
-    return { made, region, fact, observed, absent, partial }
+    return { made, history, region, fact, observed, absent, partial }
   }
 
-  it("(G3-C.5) what collected evidence shows is read exactly, and only as its request allows", () => {
-    const { made, fact, observed, absent, partial } = evidence()
+  it("(G3-C.5, F25) what collected evidence shows is read exactly, and only as its request allows", () => {
+    const { made, history, fact, observed, absent, partial } = evidence()
+    expect(made.subject).toBe("iac")
     expect(made.observation).toEqual({ state: "UNKNOWN", limitation: "COVERAGE_NOT_ADMITTED",
                                        code: "503:INVENTORY_SCOPE_UNAVAILABLE:TENANT_SCOPE_NOT_CONFIGURED" })
-    for (const observation of [observed, absent, partial]) expect(isOperation({ ...made, observation })).toBe(true)
-    const withdrawn = { ...made, state: "WITHDRAWN", reason: "ACCOUNT_REMOVED", demand: { state: "NO_CURRENT_REQUEST", current_requests: 0 } }
+    expect(isOperation(made)).toBe(true)                                   // the captured IaC request's own answer
+    expect(isOperation({ ...made, observation: { state: "UNKNOWN", limitation: "NO_EVIDENCE_FOR_SUBJECT" } })).toBe(true)
+    for (const observation of [observed, absent, partial]) expect(isOperation({ ...history, observation })).toBe(true)
+    const wide = { ...history, scope: { account_id: history.scope.account_id } }          // account-wide: any Region's facts
+    expect(isOperation({ ...wide, observation: { ...observed, facts: [fact, { ...fact, region: "us-east-2" }] } })).toBe(true)
+    const notCurrent = { state: "UNKNOWN", limitation: "REQUEST_NOT_CURRENT" }
+    const withdrawn = { ...history, state: "WITHDRAWN", reason: "ACCOUNT_REMOVED", demand: { state: "NO_CURRENT_REQUEST", current_requests: 0 } }
+    expect(isOperation({ ...withdrawn, observation: notCurrent })).toBe(true)
     for (const bad of [
-      { ...made, observation: undefined },                                                  // a made request always answers
-      { ...made, observation: { state: "UNKNOWN", limitation: "REQUEST_NOT_CURRENT" } },    // a current one is never "not current"
+      { ...history, observation: undefined },                                               // a made request always answers
+      { ...history, observation: notCurrent },                                              // a current one is never "not current"
       { ...withdrawn, observation: observed },                                              // no evidence for a request not current
       { ...withdrawn, observation: absent },
-      { ...made, observation: { ...observed, facts: [] } },                                 // OBSERVED names its facts
-      { ...made, observation: { ...observed, facts: [{ ...fact, head_manifest_hash: "" }] } },   // ... each bound to its head
-      { ...made, observation: { ...observed, facts: [{ ...fact, committed_generation: 0 }] } },
-      { ...made, observation: { ...observed, facts: [{ ...fact, region: "us-east-2" }] } },      // ... in the request's Region
-      { ...made, observation: { ...observed, registration_id: "R".repeat(32) } },
-      { ...made, observation: { ...absent, scope: { ...absent.scope, account_id: "222222222222" } } },   // an absence is its own
-      { ...made, observation: { ...absent, scope: { ...absent.scope, region: "us-east-2" } } },
-      { ...made, observation: { ...absent, scope: { ...absent.scope, source_scopes: [] } } },
-      { ...made, observation: { ...partial, unresolved: [{ region: "eu-west-1", source_scope: "x", reason: null }] } },   // status named
-      { ...made, observation: { state: "FULFILLED" } },
-      { ...made, observation: { state: "UNKNOWN", limitation: "" } },
+      { ...withdrawn, observation: { ...notCurrent, facts: [fact] } },                      // ... not even under UNKNOWN
+      { ...withdrawn, observation: { ...notCurrent, publication: { read_model_generation: "x", published_at_epoch: 1 } } },
+      { ...withdrawn, observation: { ...notCurrent, as_of: "2026-10-12T08:00:00Z" } },
+      { ...made, observation: observed },                                                   // IaC: CloudTrail is not its evidence
+      { ...made, observation: absent },
+      { ...made, observation: partial },
+      { ...history, observation: { ...observed, facts: [{ ...fact, source: "vpc_flow" }] } },   // another source's facts
+      { ...history, subject: "history:vpc_flow", observation: observed },
+      { ...history, observation: { ...absent, scope: { ...absent.scope, source: "vpc_flow" } } },
+      { ...history, observation: { ...partial, facts: [{ ...fact, source: "vpc_flow" }] } },
+      { ...history, observation: { ...observed, facts: [] } },                              // OBSERVED names its facts
+      { ...history, observation: { ...observed, facts: [{ ...fact, head_manifest_hash: "" }] } },   // ... each bound to its head
+      { ...history, observation: { ...observed, facts: [{ ...fact, committed_generation: 0 }] } },
+      { ...history, observation: { ...observed, facts: [{ ...fact, region: "us-east-2" }] } },      // ... in the request's Region
+      { ...history, observation: { ...observed, not_started: [{ region: "us-east-2", source_scope: "b", reason: "no_committed_head" }] } },
+      { ...history, observation: { ...partial, unresolved: [{ region: "us-east-2", source_scope: "b", status: "PARTIAL", reason: null }] } },
+      { ...history, observation: { ...partial, not_started: [{ region: "us-east-2", source_scope: "b", reason: "no_committed_head" }] } },
+      { ...history, observation: { ...observed, registration_id: "R".repeat(32) } },
+      { ...history, observation: { ...absent, scope: { ...absent.scope, account_id: "222222222222" } } },   // an absence is its own
+      { ...history, observation: { ...absent, scope: { ...absent.scope, region: "us-east-2" } } },
+      { ...history, observation: { ...absent, scope: { ...absent.scope, source_scopes: [] } } },
+      { ...wide, observation: absent },                                                     // an absence needs an exact Region
+      { ...history, observation: { ...partial, unresolved: [{ region: "eu-west-1", source_scope: "x", reason: null }] } },   // status named
+      { ...history, observation: { state: "FULFILLED" } },
+      { ...history, observation: { state: "UNKNOWN", limitation: "" } },
       // a state the backend never sends, even with the answer a not-current request carries
-      { ...made, state: "DONE", observation: { state: "UNKNOWN", limitation: "REQUEST_NOT_CURRENT" } },
+      { ...history, state: "DONE", observation: notCurrent },
     ]) {
       expect(isOperation(bad)).toBe(false)
     }
     const planned = { op_id: made.op_id, kind: made.kind, subject: made.subject, scope: made.scope,
                       required_authority: made.required_authority, state: "PLANNED", reason: null }
-    expect(isOperation({ ...planned, observation: { state: "UNKNOWN", limitation: "REQUEST_NOT_CURRENT" } })).toBe(false)
+    expect(isOperation({ ...planned, observation: notCurrent })).toBe(false)
     const status = capture("status").body as { operations: OwnerRequest[] }
-    expect(isStatus({ ...status, operations: [{ ...made, observation: { ...observed, facts: [] } }] })).toBe(false)
+    expect(isStatus({ ...status, operations: [{ ...made, observation: observed }] })).toBe(false)   // the whole status refused
   })
 
   it("(G3-C.5) what collected evidence shows, in words -- never fulfilment, use, non-use or dispatch", () => {
-    const { made, observed, absent, partial } = evidence()
-    const say = (observation: unknown) => observationSentence({ ...made, observation } as OwnerRequest) as string
+    const { made, history, observed, absent, partial } = evidence()
+    const say = (observation: unknown, op: OwnerRequest = history) => observationSentence({ ...op, observation } as OwnerRequest) as string
     expect(say(observed)).toBe("Collected evidence: cloudtrail_iam_usage verified eu-west-1 2026-09-30T23:17:26Z to "
       + "2026-10-01T05:17:26Z (as of 2026-10-12T08:00:00Z) -- what Cyntro has collected, not a fulfilment of this request")
     expect(say({ ...observed, not_started: [{ region: "eu-west-1", source_scope: "b", reason: "no_committed_head" }] }))
@@ -190,7 +213,7 @@ describe("the setup client reads the REAL answers, and nothing in between is inv
     expect(say(absent)).toBe("No collected cloudtrail_iam_usage evidence in eu-west-1 as of 2026-10-12T08:00:00Z -- nothing "
       + "committed yet; this does not say the source is unused")
     expect(say(partial)).toBe("Collected evidence for this source has gaps · 1 verified scope(s), 1 not (SOURCE_PARTIAL)")
-    expect(say(made.observation)).toBe("Collected evidence cannot be read for this account now "
+    expect(say(made.observation, made)).toBe("Collected evidence cannot be read for this account now "
       + "(COVERAGE_NOT_ADMITTED 503:INVENTORY_SCOPE_UNAVAILABLE:TENANT_SCOPE_NOT_CONFIGURED)")
     expect(say({ state: "UNKNOWN", limitation: "REQUEST_NOT_CURRENT" })).toBe("Not checked -- this request is not current (REQUEST_NOT_CURRENT)")
     expect(say({ state: "UNKNOWN", limitation: "SOMETHING_NEW" })).toBe("What collected evidence shows is not known now (SOMETHING_NEW)")

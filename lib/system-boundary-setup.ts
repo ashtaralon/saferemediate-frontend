@@ -164,6 +164,10 @@ export type Observation =
 
 /** The limitation a not-current request carries (the backend reads no evidence for it). */
 export const OBSERVATION_REQUEST_NOT_CURRENT = "REQUEST_NOT_CURRENT"
+/** The only subjects collected evidence can speak for, each with the ONE published source that is its evidence -- the
+ *  backend's own mapping (unified/owner_request_resolution.SUBJECT_SOURCES). Any other subject's answer is UNKNOWN. */
+export const SUBJECT_SOURCES: Readonly<Record<string, string>> = { "history:cloudtrail": "cloudtrail_iam_usage",
+                                                                   "history:vpc_flow": "vpc_flow" }
 
 export interface SetupStatus {
   setup: Pick<SetupSummary, "setup_id" | "status" | "mode" | "state_version" | "intent_revision" | "current_attempt" | "predecessor" | "successor">
@@ -245,31 +249,38 @@ function isPublication(value: unknown): boolean {
     && (value.published_at_epoch === null || isInt(value.published_at_epoch)))
 }
 
-/** (G3-C.5) An observation read exactly, and coherent with ITS request: evidence is shown only for a current (PENDING)
- *  request, and a not-current one says so; facts and an absence lie in the request's own account and Region. */
-export function isObservation(value: unknown, op: { state: string; scope: { account_id: string; region?: string } }): value is Observation {
-  if (!isRecord(value) || !isPublication(value.publication)) return false
+/** (G3-C.5, F25) An observation read exactly, and coherent with ITS request: evidence is shown only for a current (PENDING)
+ *  request, and only of the ONE source its subject maps to (SUBJECT_SOURCES); every fact, absence, not-started and
+ *  unresolved scope lies in the request's own account and Region; a not-current request carries exactly its limitation
+ *  -- no facts, scopes, publication or time. A subject with no evidence source is only ever UNKNOWN. */
+export function isObservation(value: unknown, op: { state: string; subject: string; scope: { account_id: string; region?: string } }): value is Observation {
+  if (!isRecord(value)) return false
+  const source = SUBJECT_SOURCES[op.subject]
   const region = op.scope.region
   const inRegion = (r: string) => region === undefined || r === region
+  const ours = (f: unknown) => isFact(f) && source !== undefined && f.source === source && inRegion(f.region)
+  const scoped = (s: unknown) => isScope(s) && inRegion(s.region)
+  if (value.state === "UNKNOWN" && value.limitation === OBSERVATION_REQUEST_NOT_CURRENT) {
+    return op.state !== "PENDING" && Object.keys(value).length === 2                 // {state, limitation}: nothing was read
+  }
+  if (op.state !== "PENDING" || !isPublication(value.publication)) return false     // anything else answers a CURRENT request
   if (value.state === "OBSERVED") {
-    return op.state === "PENDING" && isText(value.as_of) && typeof value.registration_id === "string"
-      && /^[0-9a-f]{32}$/.test(value.registration_id) && Array.isArray(value.facts) && value.facts.length > 0
-      && value.facts.every((f) => isFact(f) && inRegion(f.region))
-      && Array.isArray(value.not_started) && value.not_started.every(isScope)
+    return isText(value.as_of) && typeof value.registration_id === "string" && /^[0-9a-f]{32}$/.test(value.registration_id)
+      && Array.isArray(value.facts) && value.facts.length > 0 && value.facts.every(ours)
+      && Array.isArray(value.not_started) && value.not_started.every(scoped)
   }
   if (value.state === "NOT_OBSERVED") {
     const scope = value.scope
-    return op.state === "PENDING" && region !== undefined && isText(value.as_of) && isRecord(scope)
-      && scope.account_id === op.scope.account_id && scope.region === region && isText(scope.source)
+    return source !== undefined && region !== undefined && isText(value.as_of) && isRecord(scope)
+      && scope.account_id === op.scope.account_id && scope.region === region && scope.source === source
       && Array.isArray(scope.source_scopes) && scope.source_scopes.length > 0 && scope.source_scopes.every(isText)
   }
   if (value.state !== "UNKNOWN" || !isText(value.limitation)) return false
-  if ((op.state === "PENDING") === (value.limitation === OBSERVATION_REQUEST_NOT_CURRENT)) return false
   return isOptionalText(value.as_of) && isOptionalText(value.code) && isOptionalText(value.hold_reason)
-    && (value.facts === undefined || (Array.isArray(value.facts) && value.facts.every((f) => isFact(f) && inRegion(f.region))))
+    && (value.facts === undefined || (Array.isArray(value.facts) && value.facts.every(ours)))
     && (value.unresolved === undefined || (Array.isArray(value.unresolved)
-      && value.unresolved.every((u) => isRecord(u) && isScope(u) && isText(u.status))))
-    && (value.not_started === undefined || (Array.isArray(value.not_started) && value.not_started.every(isScope)))
+      && value.unresolved.every((u) => isRecord(u) && scoped(u) && isText(u.status))))
+    && (value.not_started === undefined || (Array.isArray(value.not_started) && value.not_started.every(scoped)))
 }
 
 export function isOperation(value: unknown): value is OwnerRequest {
@@ -292,7 +303,7 @@ export function isOperation(value: unknown): value is OwnerRequest {
     && (value.state === "SUPERSEDED"
       ? isRecord(value.superseded) && typeof value.superseded.by === "string"
       : value.superseded === null)
-    && isObservation(value.observation, value as { state: string; scope: { account_id: string; region?: string } })
+    && isObservation(value.observation, value as { state: string; subject: string; scope: { account_id: string; region?: string } })
 }
 
 export function isStatus(value: unknown): value is SetupStatus {
