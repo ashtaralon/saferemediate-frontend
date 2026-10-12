@@ -286,6 +286,43 @@ describe("G2-F16: an unconfirmed write is frozen and resent exactly until it is 
     expect(screen.getByTestId("setup-pending").textContent).toContain("only until this page is reloaded")
   })
 
+  it("the frozen body cannot be changed after it was sent: a resend carries the original even if something tried", async () => {
+    let calls = 0
+    const c = client({ updateSetup: vi.fn(async (id: string, rid: string, base: number, steps: SetupIntent): Promise<SetupWrite> => {
+      c.updates.push([id, rid, base, structuredClone(steps)])
+      calls += 1
+      if (calls === 1) {
+        try {
+          (steps.declaration as { system: { display_name: string } }).system.display_name = "mutated in flight"
+        } catch {
+          // frozen: the attempt to change it throws, and the stored request stays as sent
+        }
+        return UNKNOWN
+      }
+      return UNKNOWN
+    }) })
+    mount(c)
+    await settle()
+    fireEvent.click(screen.getByRole("button", { name: "1. System details" }))
+    fireEvent.click(screen.getByRole("button", { name: "Save and continue" }))
+    await settle()
+    fireEvent.click(screen.getByRole("button", { name: "Save and continue" }))
+    await settle()
+    expect((c.updates[1][3].declaration?.system as { display_name?: string }).display_name).toBe("Payments")
+  })
+
+  it("an unknown person's unconfirmed save is kept in this page only, even where storage works -- and it says so", async () => {
+    const storage = memoryStorage()
+    const c = client({ updateSetup: vi.fn(async (): Promise<SetupWrite> => UNKNOWN) })
+    mount(c, [], freshStore(storage), null)
+    await settle()
+    fireEvent.click(screen.getByRole("button", { name: "1. System details" }))
+    fireEvent.click(screen.getByRole("button", { name: "Save and continue" }))
+    await settle()
+    expect(screen.getByTestId("setup-pending").textContent).toContain("only until this page is reloaded")
+    expect(storage.length).toBe(0)                                   // nothing of an unverified person reaches storage
+  })
+
   it("a start whose answer was lost is retried with the same request id after Close", async () => {
     const store = freshStore()
     const ids: string[] = []
