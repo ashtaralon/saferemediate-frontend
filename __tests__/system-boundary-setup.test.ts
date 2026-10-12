@@ -15,6 +15,7 @@ import {
   associatedSystemId,
   derivedSentence,
   isOperation,
+  evidenceRows,
   isStatus,
   observationSentence,
   isView,
@@ -223,6 +224,23 @@ describe("the setup client reads the REAL answers, and nothing in between is inv
       expect(words).not.toMatch(/\bfulfilled\b|\bis used\b|\bis unused\b|\bowned\b|\bsent\b|\bdispatched\b/)
     }
     expect(observationSentence({ ...made, observation: undefined })).toBeNull()
+  })
+
+  it("(G3-D.4) every pinned fact and every named scope stays in the details -- the summary never stands alone", () => {
+    const { made, history, fact, observed, absent, partial } = evidence()
+    const rows = (observation: unknown, op: OwnerRequest = history) => evidenceRows({ ...op, observation } as OwnerRequest)
+    const factRow = "eu-west-1 · all-active-trails: verified 2026-09-30T23:17:26Z (first_verified_digest) to 2026-10-01T05:17:26Z"
+      + ` · generation 1 · v1:${"a".repeat(64)}`
+    expect(rows({ ...observed, not_started: [{ region: "eu-west-1", source_scope: "second-trail", reason: "no_committed_head" }] }))
+      .toEqual([factRow, "eu-west-1 · second-trail: nothing committed (no_committed_head)", `registration ${"5".repeat(32)}`,
+                "read from source_coverage:v1:v1:x (published 1970-01-01T00:00:01.000Z)"])
+    expect(rows(partial)).toEqual([factRow, "eu-west-1 · second-trail: PARTIAL"])               // facts AND every unresolved scope
+    expect(rows(absent)).toEqual(["eu-west-1 · all-active-trails: nothing committed"])
+    expect(rows({ state: "UNKNOWN", limitation: "PUBLICATION_NOT_RECORDED", hold_reason: "CONSUMER_NOT_READY" }))
+      .toEqual(["held: CONSUMER_NOT_READY"])
+    expect(rows({ state: "UNKNOWN", limitation: "REQUEST_NOT_CURRENT" })).toEqual([])
+    expect(rows(made.observation, made)).toEqual([])                                     // the captured IaC answer has none
+    expect(fact.source).toBe("cloudtrail_iam_usage")
   })
 
   it("(G3-A) each request state in words, from the backend's own state and reason -- the browser infers none of it", () => {

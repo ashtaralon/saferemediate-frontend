@@ -668,6 +668,11 @@ describe("G3-A: owner requests on Review and on Progress", () => {
       await settle()
       await settle()
       expect(screen.getByTestId("setup-request-observation").textContent).toContain(words)
+      if (answer === observed) {                                            // the details carry every pinned fact
+        expect(screen.getByTestId("setup-request-evidence").textContent).toContain("eu-west-1 · all-active-trails: verified 2026-09-30T23:17:26Z")
+      } else {
+        expect(screen.queryByTestId("setup-request-evidence")).toBeNull()   // an answer with no detail shows none
+      }
       expect(screen.getByTestId("setup-progress-requests").textContent).toContain("Requested from an account administrator -- waiting")
       unmount()
     }

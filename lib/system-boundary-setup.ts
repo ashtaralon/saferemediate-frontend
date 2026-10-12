@@ -488,6 +488,35 @@ export function observationSentence(op: OwnerRequest): string | null {
   return `${words}${shown} (${obs.limitation}${obs.code ? ` ${obs.code}` : ""})`
 }
 
+/** (G3-D.4) Every detail an observation carries, one line each, so the summary never stands alone: each pinned fact
+ *  (Region, scope, verified range and its basis, committed generation, manifest hash), each named unresolved and
+ *  not-started scope, an absence's scopes, and the publication it was read from. Nothing is added or inferred. */
+export function evidenceRows(op: OwnerRequest): string[] {
+  const obs = op.observation
+  if (!obs) return []
+  const rows: string[] = []
+  const facts = obs.state === "NOT_OBSERVED" ? [] : (obs.facts ?? [])
+  for (const f of facts) {
+    rows.push(`${f.region} · ${f.source_scope}: verified ${f.earliest_verified_at} (${f.earliest_verified_basis}) to `
+      + `${f.verified_through} · generation ${f.committed_generation} · ${f.head_manifest_hash}`)
+  }
+  if (obs.state === "UNKNOWN") {
+    for (const u of obs.unresolved ?? []) rows.push(`${u.region} · ${u.source_scope}: ${u.status}${u.reason ? ` (${u.reason})` : ""}`)
+  }
+  if (obs.state === "NOT_OBSERVED") {
+    for (const s of obs.scope.source_scopes) rows.push(`${obs.scope.region} · ${s}: nothing committed`)
+  } else {
+    for (const s of obs.not_started ?? []) rows.push(`${s.region} · ${s.source_scope}: nothing committed${s.reason ? ` (${s.reason})` : ""}`)
+  }
+  if (obs.state === "UNKNOWN" && obs.hold_reason) rows.push(`held: ${obs.hold_reason}`)
+  if (obs.state === "OBSERVED") rows.push(`registration ${obs.registration_id}`)
+  if (obs.publication?.read_model_generation) {
+    rows.push(`read from ${obs.publication.read_model_generation}${obs.publication.published_at_epoch !== null
+      ? ` (published ${new Date(obs.publication.published_at_epoch * 1000).toISOString()})` : ""}`)
+  }
+  return rows
+}
+
 /** The setup refusal codes the steps explain in words. */
 export const SETUP_CODES = {
   incomplete: "SETUP_INCOMPLETE",

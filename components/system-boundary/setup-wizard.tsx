@@ -31,6 +31,7 @@ import {
 import {
   associatedSystemId,
   derivedSentence,
+  evidenceRows,
   observationSentence,
   requestSentence,
   finishSetup as finishSetupDefault,
@@ -529,10 +530,17 @@ function Requests({ requests, testId, title }: { requests: OwnerRequest[]; testI
       <ul className="text-slate-600">
         {requests.map((r) => {
           const evidence = observationSentence(r)
+          const details = evidenceRows(r)
           return (
             <li key={r.op_id}>
               {SUBJECTS[r.subject]?.label ?? r.subject} · {r.scope.account_id}{r.scope.region ? ` / ${r.scope.region}` : ""}: {requestSentence(r)}
               {evidence ? <div className="text-slate-500" data-testid="setup-request-observation">{evidence}</div> : null}
+              {details.length ? (
+                <details className="text-slate-500" data-testid="setup-request-evidence">
+                  <summary>Evidence details ({details.length})</summary>
+                  <ul>{details.map((row) => <li key={row}>{row}</li>)}</ul>
+                </details>
+              ) : null}
             </li>
           )
         })}
