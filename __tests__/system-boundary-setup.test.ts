@@ -17,6 +17,7 @@ import {
   isOperation,
   evidenceRows,
   isStatus,
+  MAX_RENDERABLE_EPOCH_SECONDS,
   observationSentence,
   isView,
   readAnswer,
@@ -241,6 +242,22 @@ describe("the setup client reads the REAL answers, and nothing in between is inv
     expect(rows({ state: "UNKNOWN", limitation: "REQUEST_NOT_CURRENT" })).toEqual([])
     expect(rows(made.observation, made)).toEqual([])                                     // the captured IaC answer has none
     expect(fact.source).toBe("cloudtrail_iam_usage")
+  })
+
+  it("(F26) a publication time is read only when it can be shown -- the details never throw", () => {
+    const { history, observed } = evidence()
+    const at = (published_at_epoch: unknown) => ({ ...history, observation: { ...observed,
+      publication: { read_model_generation: "source_coverage:v1:v1:x", published_at_epoch } } })
+    expect(MAX_RENDERABLE_EPOCH_SECONDS).toBe(8_640_000_000_000)
+    expect(isOperation(at(MAX_RENDERABLE_EPOCH_SECONDS))).toBe(true)                    // the last whole second a Date holds
+    expect(evidenceRows(at(MAX_RENDERABLE_EPOCH_SECONDS) as OwnerRequest).at(-1))
+      .toBe("read from source_coverage:v1:v1:x (published +275760-09-13T00:00:00.000Z)")
+    expect(isOperation(at(0))).toBe(true)
+    expect(isOperation(at(null))).toBe(true)
+    expect(evidenceRows(at(null) as OwnerRequest).at(-1)).toBe("read from source_coverage:v1:v1:x")
+    for (const epoch of [MAX_RENDERABLE_EPOCH_SECONDS + 1, 1e20, -1, 1.5, "1760000000"]) {
+      expect(isOperation(at(epoch))).toBe(false)                                         // refused, never rendered
+    }
   })
 
   it("(G3-A) each request state in words, from the backend's own state and reason -- the browser infers none of it", () => {

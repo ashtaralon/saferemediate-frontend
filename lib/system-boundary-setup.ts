@@ -243,10 +243,16 @@ function isFact(value: unknown): value is EvidenceFact {
 const isScope = (value: unknown): value is EvidenceScope =>
   isRecord(value) && isText(value.region) && isText(value.source_scope) && (value.reason === null || isText(value.reason))
 
+/** The last second a JavaScript Date can hold (8.64e15 ms): a later or negative epoch cannot be rendered as a time. */
+export const MAX_RENDERABLE_EPOCH_SECONDS = 8_640_000_000_000
+
 function isPublication(value: unknown): boolean {
+  // (F26) A publication time is read only when it can be shown: a non-negative whole second a Date can hold. Anything else
+  // is a malformed answer (the status is refused), never a render that throws.
   return value === undefined || (isRecord(value)
     && (value.read_model_generation === null || isText(value.read_model_generation))
-    && (value.published_at_epoch === null || isInt(value.published_at_epoch)))
+    && (value.published_at_epoch === null || (isInt(value.published_at_epoch) && value.published_at_epoch >= 0
+                                              && value.published_at_epoch <= MAX_RENDERABLE_EPOCH_SECONDS)))
 }
 
 /** (G3-C.5, F25) An observation read exactly, and coherent with ITS request: evidence is shown only for a current (PENDING)

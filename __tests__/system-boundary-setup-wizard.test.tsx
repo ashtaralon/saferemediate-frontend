@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { SetupWizard, type SetupClient } from "@/components/system-boundary/setup-wizard"
 import type { DeclarationsView, DeclaredRoot, RootSelection } from "@/lib/system-boundary-authoring"
 import type { PickedRoot } from "@/lib/system-boundary-declaration"
+import { isStatus, readAnswer } from "@/lib/system-boundary-setup"
 import type { SetupIntent, SetupStatus, SetupView, SetupWrite } from "@/lib/system-boundary-setup"
 import { freezeOp, setupPendingStore, type PendingSetupOp, type SetupPendingStore } from "@/lib/system-boundary-setup-pending"
 import { GuidedSetups } from "@/components/system-boundary/guided-setups"
@@ -676,6 +677,24 @@ describe("G3-A: owner requests on Review and on Progress", () => {
       expect(screen.getByTestId("setup-progress-requests").textContent).toContain("Requested from an account administrator -- waiting")
       unmount()
     }
+  })
+
+  it("(F26) an unrenderable publication time is refused by the client's own parser -- Progress names it, never throws", async () => {
+    const body = V2("status").body as SetupStatus & { contract: string }
+    const bad = { ...body, operations: body.operations.map((o) => ({ ...o, subject: "history:cloudtrail", observation: {
+      state: "OBSERVED", as_of: "2026-10-12T08:00:00Z", registration_id: "5".repeat(32), not_started: [],
+      facts: [{ source: "cloudtrail_iam_usage", region: "eu-west-1", source_scope: "all-active-trails",
+                earliest_verified_at: "2026-09-30T23:17:26Z", earliest_verified_basis: "first_verified_digest",
+                first_verified_collection_at: null, verified_through: "2026-10-01T05:17:26Z", committed_generation: 1,
+                head_manifest_hash: `v1:${"a".repeat(64)}` }],
+      publication: { read_model_generation: "source_coverage:v1:v1:x", published_at_epoch: 8_640_000_000_001 } } })) }
+    const readSetupStatus = vi.fn(async () => readAnswer({ status: 200, json: bad }, isStatus))   // the real client path
+    const c = client({ readSetup: vi.fn(async () => ({ kind: "OK" as const, value: structuredClone(FINISHED) })), readSetupStatus })
+    mount(c)
+    await settle()
+    await settle()
+    expect(screen.getByTestId("setup-progress").textContent).toContain("The requests could not be read (MALFORMED_RESPONSE).")
+    expect(screen.queryByTestId("setup-request-evidence")).toBeNull()
   })
 
   it("when the requests cannot be read, Review says so instead of showing none", async () => {
