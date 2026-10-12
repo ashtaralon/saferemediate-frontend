@@ -100,7 +100,11 @@ describe("the setup client reads the REAL answers, and nothing in between is inv
     expect(isOperation(planned)).toBe(true)
     for (const bad of [{ ...made, kind: "dispatch" }, { ...made, state: "DONE" }, { ...made, op_id: "x" },
                        { ...planned, requested_by: made.requested_by }, { ...made, demand: undefined },
-                       { ...made, scope: { account_id: "1" } }]) {
+                       { ...made, scope: { account_id: "1" } }, { ...made, requested_by: undefined },
+                       { ...made, requested_at: undefined },
+                       { ...made, demand: { state: "PENDING", current_requests: -1 } },
+                       { ...made, demand: { state: "PENDING", current_requests: 1.5 } },
+                       { ...made, demand: { state: "PENDING", current_requests: "1" } }]) {
       expect(isOperation(bad)).toBe(false)
     }
     expect(isStatus({ ...status, operations: [{ ...made, state: "DONE" }] })).toBe(false)

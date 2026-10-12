@@ -614,6 +614,27 @@ describe("G3-A: owner requests on Review and on Progress", () => {
     expect(requests).not.toContain("waiting")
   })
 
+  it("after Finish, Review's planned list is dropped -- never shown as the finished setup's requests while they are read", async () => {
+    const status = V2("status").body as SetupStatus
+    const planned: SetupStatus = { ...status, setup: { ...status.setup, status: "DRAFT" }, operations: status.operations.map((o) => (
+      { op_id: o.op_id, kind: o.kind, subject: o.subject, scope: o.scope, required_authority: o.required_authority,
+        state: "PLANNED" as const, reason: null })) }
+    const readSetupStatus = vi.fn()
+      .mockImplementationOnce(async () => ({ kind: "OK" as const, value: planned }))
+      .mockImplementation(() => new Promise(() => undefined))                    // the finished setup's read has not answered
+    const c = client({ readSetupStatus })
+    mount(c)
+    await settle()
+    expect(screen.getByTestId("setup-review-requests").textContent).toContain("Will be requested")
+    fireEvent.click(screen.getByTestId("setup-finish"))
+    await settle()
+    await settle()
+    expect(screen.getByTestId("setup-progress")).toBeTruthy()
+    expect(readSetupStatus).toHaveBeenCalledTimes(2)
+    expect(screen.queryByTestId("setup-progress-requests")).toBeNull()
+    expect(screen.getByTestId("setup-progress").textContent).not.toContain("Will be requested")
+  })
+
   it("when the requests cannot be read, Review says so instead of showing none", async () => {
     const c = client({ readSetupStatus: vi.fn(async () => ({ kind: "UNAVAILABLE" as const, status: 200, code: "SETUP_CONTRACT_UNKNOWN" })) })
     mount(c)
