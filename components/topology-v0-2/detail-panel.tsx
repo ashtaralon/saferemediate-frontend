@@ -19,6 +19,7 @@ import {
   Wrench,
   X,
 } from "lucide-react"
+import { SemanticReadStatus } from "@/components/semantic-read-status"
 import { ResourceConfigTab } from "@/components/inventory/resource-config-tab"
 import { ServiceTypeBadge } from "@/lib/service-type"
 import type {
@@ -814,6 +815,7 @@ export function DetailPanel({
                   </span>
                   Operator summary
                 </div>
+                <SemanticReadStatus payload={narration} />
                 {narration ? (
                   <span
                     className="rounded-full border px-2 py-1 text-[9px] font-semibold uppercase tracking-wide"
