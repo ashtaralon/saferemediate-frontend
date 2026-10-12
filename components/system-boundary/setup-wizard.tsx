@@ -14,12 +14,19 @@
  * The roots come from the account inventory below (the person's picks), each with the selection it was picked under; the
  * backend admits every root again when the setup finishes.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { AppliedStatus } from "@/components/system-boundary/applied-status"
 import { SystemResult } from "@/components/system-boundary/system-result"
 import { Button } from "@/components/ui/button"
 import type { DeclarationsView, DeclaredRoot } from "@/lib/system-boundary-authoring"
 import { buildDeclaration, cellsOf, type PickedRoot } from "@/lib/system-boundary-declaration"
+import {
+  freezeOp,
+  pendingForSetup,
+  setupPendingStore,
+  type PendingSetupOp,
+  type SetupPendingStore,
+} from "@/lib/system-boundary-setup-pending"
 import {
   associatedSystemId,
   derivedSentence,
@@ -65,6 +72,11 @@ export interface SetupWizardProps {
   stacks?: { state: "served"; stacks: { stack_id: string; label: string }[] } | { state: "unavailable"; reason: string }
   readApplied?: (accountId: string) => Promise<{ status: number; body: unknown }>
   readResult?: (accountId: string, systemKey: string) => Promise<{ status: number; body: unknown }>
+  /** The verified person (the subject /authoring-grants/self names); null: not known -- an unresolved write is then kept in
+   *  this page's memory only, never across a reload. */
+  actor?: string | null
+  /** Injectable for tests; default: this browser's storage (guarded) and this page's memory. */
+  pendingStore?: SetupPendingStore
 }
 
 type Local = {
@@ -142,9 +154,24 @@ function draftDeclaration(local: Local): Record<string, unknown> {
   return { system, deployment, roots }
 }
 
+/** A stable rendering for comparing intents: object keys sorted, dispositions by subject; never sent anywhere. */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value as Record<string, unknown>).sort()
+      .map((key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`).join(",")}}`
+  }
+  return JSON.stringify(value)
+}
+
+function intentKey(intent: Pick<SetupIntent, "declaration" | "dispositions">): string {
+  const dispositions = [...(intent.dispositions ?? [])].sort((a, b) => a.subject.localeCompare(b.subject))
+  return canonical({ declaration: intent.declaration ?? {}, dispositions })
+}
+
 /** Words for a write that did not save: what to do next, never a guess at what the backend did. */
 function explain(answer: Exclude<SetupWrite, { kind: "SAVED" }>): string {
-  if (answer.kind === "RESEND_SAME") return `Not confirmed yet (${answer.code}). Try again: the same request is resent.`
+  if (answer.kind === "RESEND_SAME") return `Not confirmed yet (${answer.code}). Try again: the same request is resent, unchanged.`
   if (answer.code === "VERSION_CONFLICT") return "This setup changed elsewhere. It was reloaded; your typing is kept, save again."
   if (answer.code === "SETUP_INCOMPLETE") {
     const at = typeof answer.detail.step === "string" ? STEP_TITLES[answer.detail.step as SetupStep] ?? answer.detail.step : "a step"
@@ -153,16 +180,19 @@ function explain(answer: Exclude<SetupWrite, { kind: "SAVED" }>): string {
   return `Not saved: ${answer.code}.`
 }
 
-export function SetupWizard({ setupId, accountId, view, picks, onClose, client: injected, stacks, readApplied, readResult }: SetupWizardProps) {
+export function SetupWizard({ setupId, accountId, view, picks, onClose, client: injected, stacks, readApplied, readResult,
+                             actor = null, pendingStore }: SetupWizardProps) {
   const client = useMemo(() => ({ ...DEFAULT_CLIENT, ...injected }), [injected])
+  const store = useMemo(() => pendingStore ?? setupPendingStore(), [pendingStore])
   const [setup, setSetup] = useState<SetupView | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [local, setLocal] = useState<Local | null>(null)
   const [step, setStep] = useState<SetupStep>("system_details")
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<SetupStatus | null>(null)
-  // A write whose outcome is unknown keeps its request id and body: the person's next attempt resends exactly it.
-  const pending = useRef<{ key: string; requestId: string } | null>(null)
+  // (G2-F16) The unresolved write of THIS person on THIS setup, frozen before it was first sent and kept (storage, or this
+  // page's memory) until a definite answer: every Save / Finish resends exactly it until then. Typing stays in ``local``.
+  const [pending, setPending] = useState<PendingSetupOp | null>(() => pendingForSetup(store.read(), actor, accountId, setupId))
 
   const load = useCallback(async (keepTyping: boolean) => {
     const answer = await client.readSetup(setupId)
@@ -194,55 +224,64 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
     declaration: draftDeclaration(local!), dispositions: Object.values(local!.dispositions), resume_step: nextStep,
   }), [local])
 
-  const requestIdFor = useCallback((key: string): string => {
-    if (pending.current?.key !== key) pending.current = { key, requestId: freshRequestId() }
-    return pending.current.requestId
-  }, [])
+  /** Send ONE frozen operation; keep it while its outcome is unknown, drop it on a definite answer. */
+  const send = useCallback(async (op: PendingSetupOp) => {
+    setBusy(true)
+    const answer = op.kind === "update" ? await client.updateSetup(op.setupId, op.requestId, op.base, op.steps)
+      : op.kind === "finish" ? await client.finishSetup(op.setupId, op.requestId, op.base) : null
+    setBusy(false)
+    if (answer === null) return
+    if (answer.kind === "RESEND_SAME") {
+      setProblem(explain(answer))
+      return
+    }
+    store.remove(op.requestId)
+    setPending(null)
+    if (answer.kind === "SAVED") {
+      setProblem(null)
+      setSetup(answer.view)
+      setStep(op.kind === "finish" ? "progress_and_results" : (op.kind === "update" ? op.steps.resume_step : step))
+      return
+    }
+    setProblem(explain(answer))
+    await load(true)
+  }, [client, load, step, store])
 
-  const save = useCallback(async (nextStep: SetupStep) => {
+  /** Freeze a NEW operation and send it -- or, while one is unresolved, resend exactly that one instead. */
+  const dispatch = useCallback(async (make: () => PendingSetupOp) => {
+    if (pending) return send(pending)
+    const op = freezeOp(make())
+    store.put(op)
+    setPending(op)
+    return send(op)
+  }, [pending, send, store])
+
+  const save = useCallback((nextStep: SetupStep) => {
     if (!setup || !local) return
-    const steps = intentFor(nextStep)
-    const key = JSON.stringify(["update", setup.state_version, steps])
-    setBusy(true)
-    const answer = await client.updateSetup(setup.setup_id, requestIdFor(key), setup.state_version, steps)
-    setBusy(false)
-    if (answer.kind === "SAVED") {
-      pending.current = null
-      setProblem(null)
-      setSetup(answer.view)
-      setStep(nextStep)
-      return
-    }
-    if (answer.kind === "REFUSED") pending.current = null
-    setProblem(explain(answer))
-    if (answer.kind === "REFUSED" && answer.code === "VERSION_CONFLICT") await load(true)
-  }, [client, intentFor, load, local, requestIdFor, setup])
+    return dispatch(() => ({ version: 1, kind: "update", actor, accountId, setupId: setup.setup_id, requestId: freshRequestId(),
+                             base: setup.state_version, steps: intentFor(nextStep), startedAt: new Date().toISOString() }))
+  }, [accountId, actor, dispatch, intentFor, local, setup])
 
-  const finish = useCallback(async () => {
+  const finish = useCallback(() => {
     if (!setup) return
-    const key = JSON.stringify(["finish", setup.setup_id, setup.state_version])
-    setBusy(true)
-    const answer = await client.finishSetup(setup.setup_id, requestIdFor(key), setup.state_version)
-    setBusy(false)
-    if (answer.kind === "SAVED") {
-      pending.current = null
-      setProblem(null)
-      setSetup(answer.view)
-      setStep("progress_and_results")
-      return
-    }
-    if (answer.kind === "REFUSED") {
-      pending.current = null
-      await load(true)
-    }
-    setProblem(explain(answer))
-  }, [client, load, requestIdFor, setup])
+    return dispatch(() => ({ version: 1, kind: "finish", actor, accountId, setupId: setup.setup_id, requestId: freshRequestId(),
+                             base: setup.state_version, startedAt: new Date().toISOString() }))
+  }, [accountId, actor, dispatch, setup])
+
+  /** FINISHING: resend THIS browser's own Finish if it holds it; otherwise only read again (never a new Finish request). */
+  const checkAgain = useCallback(async () => {
+    if (pending?.kind === "finish") return send(pending)
+    await load(true)
+  }, [load, pending, send])
 
   if (problem && !setup) return <Panel onClose={onClose}><p role="alert" className="text-sm text-red-700">{problem}</p></Panel>
   if (!setup || !local) return <Panel onClose={onClose}><p className="text-sm text-slate-500">Opening the setup…</p></Panel>
 
   const index = SETUP_STEPS.indexOf(step)
   const next = SETUP_STEPS[Math.min(index + 1, SETUP_STEPS.length - 1)]
+  // (G2-F17) What is on screen differs from the SAVED revision: Finish would commit the saved one, so it waits for a Save.
+  const dirty = intentKey(intentFor(step)) !== intentKey(setup.intent)
+  const durable = store.durable(actor)
   const derived = new Map(setup.dispositions_derived.map((d) => [d.subject, d]))
   const editable = setup.status === "DRAFT"
   const set = (patch: Partial<Local>) => setLocal((current) => (current ? { ...current, ...patch } : current))
@@ -281,6 +320,14 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
         {setup.reconciliation ? ` · ${setup.reconciliation.state.toLowerCase().replace(/_/g, " ")}` : ""}
       </p>
       {problem ? <p role="alert" className="text-sm text-amber-800">{problem}</p> : null}
+      {pending ? (
+        <p className="text-xs text-amber-800" data-testid="setup-pending">
+          {pending.kind === "finish" ? "A Finish" : "A save"} of this setup is not confirmed yet. The next
+          {pending.kind === "finish" ? " Finish or Check" : " Save"} resends exactly that request, unchanged, before anything
+          else{pending.kind === "update" ? "; later changes stay on screen and are saved after it is answered" : ""}.
+          {durable ? "" : " This browser keeps it only until this page is reloaded."}
+        </p>
+      ) : null}
 
       <section aria-label={STEP_TITLES[step]} className="space-y-3" data-testid={`setup-step-${step}`}>
         <h3 className="text-sm font-semibold">{STEP_TITLES[step]}</h3>
@@ -352,7 +399,7 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
             <p className="text-xs text-slate-500">Which resources belong to the system is computed after the setup is finished.</p>
           </>
         ) : null}
-        {step === "review_and_start" ? <Review local={local} view={view} setup={setup} /> : null}
+        {step === "review_and_start" ? <Review local={local} view={view} setup={setup} dirty={dirty} /> : null}
         {step === "progress_and_results" ? <Progress setup={setup} status={status} accountId={accountId}
                                                      readApplied={readApplied} readResult={readResult} /> : null}
       </section>
@@ -363,12 +410,18 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
         ) : null}
         {editable && step === "review_and_start" ? (
           <>
-            <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void save("review_and_start")}>Save</Button>
-            <Button type="button" size="sm" disabled={busy} onClick={() => void finish()} data-testid="setup-finish">Finish setup</Button>
+            <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void save("review_and_start")}>
+              Save
+            </Button>
+            <Button type="button" size="sm" data-testid="setup-finish" onClick={() => void finish()}
+              disabled={busy || dirty || (pending !== null && pending.kind !== "finish")}
+              title={dirty ? "Save your changes first: Finish commits the saved revision." : undefined}>
+              Finish setup
+            </Button>
           </>
         ) : null}
         {setup.status === "FINISHING" ? (
-          <Button type="button" size="sm" disabled={busy} onClick={() => void finish()}>Check the save again</Button>
+          <Button type="button" size="sm" disabled={busy} onClick={() => void checkAgain()}>Check the save again</Button>
         ) : null}
       </div>
     </Panel>
@@ -425,17 +478,24 @@ function Subject({ subject, label, choices, editable, authored, derived, onChoos
   )
 }
 
-function Review({ local, view, setup }: { local: Local; view: DeclarationsView; setup: SetupView }) {
-  // The server is the judge at Finish; this only names what the served limits already rule out, before anything is sent.
+function Review({ local, view, setup, dirty }: { local: Local; view: DeclarationsView; setup: SetupView; dirty: boolean }) {
+  // Finish commits the SAVED revision. What is staged on screen is shown apart, and Finish waits until it is saved.
+  const saved = fromIntent(setup.intent)
   const built = buildDeclaration({
-    roots: local.roots,
-    system: { mode: "new", displayName: local.displayName, criticality: local.criticality || null },
-    deployment: { mode: "new", deploymentKey: local.deploymentKey, environment: local.environment, environmentRaw: local.environmentRaw },
+    roots: saved.roots,
+    system: { mode: "new", displayName: saved.displayName, criticality: saved.criticality || null },
+    deployment: { mode: "new", deploymentKey: saved.deploymentKey, environment: saved.environment, environmentRaw: saved.environmentRaw },
   }, view)
+  const line = (l: Local) => `${l.displayName || "(no name)"} · ${l.criticality || "(no criticality)"} · ${l.deploymentKey || "(no deployment)"}`
+    + ` · ${l.environment || "(no environment)"} · ${l.roots.length} root(s) · ${Object.keys(l.dispositions).length} choice(s)`
   return (
     <div className="space-y-2 text-sm" data-testid="setup-review">
-      <p>{local.displayName || "(no name)"} · {local.criticality || "(no criticality)"} · {local.deploymentKey || "(no deployment)"}
-        {" "}· {local.environment || "(no environment)"} · {local.roots.length} root(s)</p>
+      <p>Saved revision {setup.intent_revision}: {line(saved)}</p>
+      {dirty ? (
+        <p className="text-amber-800" data-testid="setup-review-unsaved">
+          Unsaved changes on screen: {line(local)}. Save them before finishing -- Finish commits the saved revision above.
+        </p>
+      ) : null}
       {!built.ok ? <ul className="text-xs text-amber-800">{built.problems.map((p) => <li key={p}>{p}</li>)}</ul> : null}
       <ul className="text-xs text-slate-600">
         {setup.dispositions_derived.map((d) => <li key={d.subject}>{SUBJECTS[d.subject]?.label ?? d.subject}: {derivedSentence(d)}</li>)}

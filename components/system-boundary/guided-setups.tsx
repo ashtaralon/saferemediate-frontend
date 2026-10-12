@@ -9,7 +9,7 @@
  * The wizard (setup-wizard.tsx) gets this account's CloudFormation stacks as the census serves them, or the census's own
  * reason they are not available -- never an empty list standing for "none".
  */
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { SetupWizard, type SetupClient } from "@/components/system-boundary/setup-wizard"
 import { Button } from "@/components/ui/button"
 import type { DeclarationsView } from "@/lib/system-boundary-authoring"
@@ -22,6 +22,7 @@ import {
   type SetupSummary,
   type SetupWrite,
 } from "@/lib/system-boundary-setup"
+import { freezeOp, pendingCreate, setupPendingStore, type SetupPendingStore } from "@/lib/system-boundary-setup-pending"
 import { fetchStacks, parseStacksResponse, stacksOutcomeSentence } from "@/lib/system-boundary-stacks"
 
 type Stacks = { state: "served"; stacks: { stack_id: string; label: string }[] } | { state: "unavailable"; reason: string }
@@ -38,16 +39,22 @@ export interface GuidedSetupsProps {
   createSetup?: (requestId: string) => Promise<SetupWrite>
   readStacks?: (accountId: string) => Promise<{ status: number; body: unknown }>
   client?: Partial<SetupClient>
+  /** Injectable for tests; default: this browser's storage (guarded) and this page's memory. */
+  pendingStore?: SetupPendingStore
 }
 
 export function GuidedSetups({ accountId, view, picks, actor, open = false, listSetups = listSetupsDefault,
-                               createSetup = createSetupDefault, readStacks = fetchStacks, client }: GuidedSetupsProps) {
+                               createSetup = createSetupDefault, readStacks = fetchStacks, client,
+                               pendingStore }: GuidedSetupsProps) {
+  const store = useMemo(() => pendingStore ?? setupPendingStore(), [pendingStore])
   const [mine, setMine] = useState<SetupSummary[] | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [openId, setOpenId] = useState<string | null>(null)
   const [stacks, setStacks] = useState<Stacks | undefined>(undefined)
   const [starting, setStarting] = useState(false)
-  const [startRequest, setStartRequest] = useState<string | null>(null)
+  // (G2-F16) An unconfirmed start of THIS person from THIS account, frozen before it was sent and kept until it is answered:
+  // a retry resends its request id, after Close and (for a verified person) after a reload too.
+  const [unconfirmed, setUnconfirmed] = useState(() => pendingCreate(store.read(), actor, accountId))
 
   const refresh = useCallback(async () => {
     const answer = await listSetups()
@@ -77,26 +84,31 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
   }, [accountId, openId, readStacks])
 
   const start = useCallback(async () => {
-    // One request id per start until its outcome is known: a retry after an unknown outcome resends the same request.
-    const requestId = startRequest ?? freshRequestId()
-    setStartRequest(requestId)
+    const op = unconfirmed ?? freezeOp({ version: 1, kind: "create", actor, accountId, requestId: freshRequestId(),
+                                         startedAt: new Date().toISOString() })
+    store.put(op)
+    setUnconfirmed(op)
     setStarting(true)
-    const answer = await createSetup(requestId)
+    const answer = await createSetup(op.requestId)
     setStarting(false)
+    if (answer.kind === "RESEND_SAME") {
+      setProblem(`Not confirmed yet (${answer.code}). Try again: the same request is resent.`)
+      return
+    }
+    store.remove(op.requestId)
+    setUnconfirmed(null)
     if (answer.kind === "SAVED") {
-      setStartRequest(null)
       setProblem(null)
       setOpenId(answer.view.setup_id)
       return
     }
-    if (answer.kind === "REFUSED") setStartRequest(null)
-    setProblem(answer.kind === "REFUSED" ? `A setup cannot be started (${answer.code}).`
-      : `Not confirmed yet (${answer.code}). Try again: the same request is resent.`)
-  }, [createSetup, refresh, startRequest])
+    setProblem(`A setup cannot be started (${answer.code}).`)
+  }, [accountId, actor, createSetup, store, unconfirmed])
 
   if (openId) {
     return (
       <SetupWizard setupId={openId} accountId={accountId} view={view} picks={picks} stacks={stacks} client={client}
+        actor={actor} pendingStore={store}
         onClose={() => {
           setOpenId(null)
           if (mine !== null) void refresh()
@@ -107,7 +119,7 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
     <div className="space-y-1 text-sm" data-testid="guided-setups">
       <div className="flex items-center gap-2">
         <Button type="button" size="sm" disabled={starting} onClick={() => void start()} data-testid="setup-start">
-          Set up a system
+          {unconfirmed ? "Retry the unconfirmed start" : "Set up a system"}
         </Button>
         <Button type="button" size="sm" variant="ghost" onClick={() => void refresh()} data-testid="setup-mine">
           Your setups

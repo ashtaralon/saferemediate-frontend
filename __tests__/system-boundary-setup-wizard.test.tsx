@@ -11,6 +11,8 @@ import { SetupWizard, type SetupClient } from "@/components/system-boundary/setu
 import type { DeclarationsView, DeclaredRoot, RootSelection } from "@/lib/system-boundary-authoring"
 import type { PickedRoot } from "@/lib/system-boundary-declaration"
 import type { SetupIntent, SetupView, SetupWrite } from "@/lib/system-boundary-setup"
+import { setupPendingStore, type PendingSetupOp, type SetupPendingStore } from "@/lib/system-boundary-setup-pending"
+import { GuidedSetups } from "@/components/system-boundary/guided-setups"
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function json(file: string): any {
@@ -42,9 +44,14 @@ function client(overrides: Partial<SetupClient> = {}): SetupClient & { updates: 
   }
 }
 
-function mount(c: SetupClient, picks: PickedRoot[] = []) {
+/** A store of this test's own: page memory that no other test shares, and no browser storage unless given. */
+function freshStore(storage: Storage | null = null): SetupPendingStore {
+  return setupPendingStore(storage, new Map<string, PendingSetupOp>())
+}
+
+function mount(c: SetupClient, picks: PickedRoot[] = [], store: SetupPendingStore = freshStore(), actor: string | null = null) {
   return render(<SetupWizard setupId={SID} accountId="111111111111" view={VIEW} picks={picks} onClose={() => undefined}
-    client={c} stacks={{ state: "unavailable", reason: "The account census is not published yet." }}
+    client={c} pendingStore={store} actor={actor} stacks={{ state: "unavailable", reason: "The account census is not published yet." }}
     readApplied={async () => ({ status: 503, body: { state: "unavailable" } })}
     readResult={async () => ({ status: 503, body: {} })} />)
 }
@@ -156,5 +163,182 @@ describe("the setup wizard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save and continue" }))
     await settle()
     expect((c.updates[0][3].declaration as { roots: DeclaredRoot[] }).roots).toEqual([root])
+  })
+})
+
+
+// ── Codex FE review 90b4ce21: G2-F16 (a frozen request until its outcome is known), G2-F17 (Finish the saved intent) ──
+
+function memoryStorage(): Storage {
+  const data = new Map<string, string>()
+  return { get length() { return data.size }, clear: () => data.clear(), getItem: (k: string) => data.get(k) ?? null,
+           key: (i: number) => [...data.keys()][i] ?? null, removeItem: (k: string) => void data.delete(k),
+           setItem: (k: string, v: string) => void data.set(k, v) } as Storage
+}
+
+const UNKNOWN: SetupWrite = { kind: "RESEND_SAME", status: null, code: "NETWORK_ERROR", detail: {} }
+
+describe("G2-F16: an unconfirmed write is frozen and resent exactly until it is answered", () => {
+  it("an edit after an unknown save does not change the request: the same id, base and body are resent", async () => {
+    const c = client({ updateSetup: vi.fn(async (id: string, rid: string, base: number, steps: SetupIntent): Promise<SetupWrite> => {
+      c.updates.push([id, rid, base, steps])
+      return UNKNOWN
+    }) })
+    mount(c)
+    await settle()
+    fireEvent.click(screen.getByRole("button", { name: "1. System details" }))
+    fireEvent.click(screen.getByRole("button", { name: "Save and continue" }))
+    await settle()
+    fireEvent.change(screen.getByLabelText("System name"), { target: { value: "Edited after unknown" } })
+    expect(screen.getByTestId("setup-pending").textContent).toContain("A save of this setup is not confirmed yet")
+    fireEvent.click(screen.getByRole("button", { name: "Save and continue" }))
+    await settle()
+    expect(c.updates).toHaveLength(2)
+    expect(c.updates[1]).toEqual(c.updates[0])
+    expect((screen.getByLabelText("System name") as HTMLInputElement).value).toBe("Edited after unknown")   // typing kept apart
+  })
+
+  it("after the frozen save is answered, the later typing is saved as a NEW request on the new version", async () => {
+    let calls = 0
+    const c = client({ updateSetup: vi.fn(async (id: string, rid: string, base: number, steps: SetupIntent): Promise<SetupWrite> => {
+      c.updates.push([id, rid, base, steps])
+      calls += 1
+      return calls === 1 ? UNKNOWN : { kind: "SAVED", status: 200, view: { ...structuredClone(DRAFT), state_version: base + 1, intent: steps } }
+    }) })
+    mount(c)
+    await settle()
+    fireEvent.click(screen.getByRole("button", { name: "1. System details" }))
+    fireEvent.click(screen.getByRole("button", { name: "Save and continue" }))
+    await settle()
+    fireEvent.change(screen.getByLabelText("System name"), { target: { value: "Later" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save and continue" }))   // answered: the ORIGINAL body
+    await settle()
+    fireEvent.click(screen.getByRole("button", { name: "1. System details" }))
+    fireEvent.click(screen.getByRole("button", { name: "Save and continue" }))             // the later typing, new request
+    await settle()
+    expect(c.updates.map((u) => [u[2], (u[3].declaration?.system as { display_name?: string })?.display_name])).toEqual(
+      [[3, "Payments"], [3, "Payments"], [4, "Later"]])
+    expect(c.updates[2][1]).not.toBe(c.updates[0][1])
+  })
+
+  it("an unknown Finish survives Close: reopened FINISHING, the ORIGINAL request is resent", async () => {
+    const store = freshStore()
+    const c = client({ finishSetup: vi.fn(async (): Promise<SetupWrite> => ({ kind: "RESEND_SAME", status: 202, code: "OUTCOME_UNKNOWN", detail: {} })) })
+    const first = mount(c, [], store)
+    await settle()
+    fireEvent.click(screen.getByTestId("setup-finish"))
+    await settle()
+    const original = vi.mocked(c.finishSetup).mock.calls[0]
+    first.unmount()
+    c.readSetup = vi.fn(async () => ({ kind: "OK" as const, value: { ...structuredClone(DRAFT), status: "FINISHING" as const, state_version: 4, current_attempt: 1 } }))
+    mount(c, [], store)
+    await settle()
+    fireEvent.click(screen.getByRole("button", { name: "Check the save again" }))
+    await settle()
+    expect(vi.mocked(c.finishSetup).mock.calls[1]).toEqual(original)
+  })
+
+  it("without the original Finish in this browser, checking again only reads -- never a new Finish request", async () => {
+    const c = client()
+    c.readSetup = vi.fn(async () => ({ kind: "OK" as const, value: { ...structuredClone(DRAFT), status: "FINISHING" as const, state_version: 4, current_attempt: 1 } }))
+    mount(c)
+    await settle()
+    fireEvent.click(screen.getByRole("button", { name: "Check the save again" }))
+    await settle()
+    expect(c.finishSetup).not.toHaveBeenCalled()
+    expect(c.readSetup).toHaveBeenCalledTimes(2)
+  })
+
+  it("a verified person's unknown save survives a reload; another person is never offered it", async () => {
+    const storage = memoryStorage()
+    const alice = "https://idp#alice"
+    const c = client({ updateSetup: vi.fn(async (id: string, rid: string, base: number, steps: SetupIntent): Promise<SetupWrite> => {
+      c.updates.push([id, rid, base, steps])
+      return UNKNOWN
+    }) })
+    const first = mount(c, [], freshStore(storage), alice)
+    await settle()
+    fireEvent.click(screen.getByRole("button", { name: "1. System details" }))
+    fireEvent.click(screen.getByRole("button", { name: "Save and continue" }))
+    await settle()
+    first.unmount()
+    const reloaded = mount(c, [], freshStore(storage), alice)        // a reload: new page memory, the same browser storage
+    await settle()
+    expect(screen.getByTestId("setup-pending").textContent).not.toContain("only until this page is reloaded")
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))                // reopened at Review: its Save resends it
+    await settle()
+    expect(c.updates[1]).toEqual(c.updates[0])
+    reloaded.unmount()
+    mount(c, [], freshStore(storage), "https://idp#bob")
+    await settle()
+    expect(screen.queryByTestId("setup-pending")).toBeNull()
+  })
+
+  it("without a verified person or with storage blocked, it says the unconfirmed request is kept only until a reload", async () => {
+    const c = client({ updateSetup: vi.fn(async (): Promise<SetupWrite> => UNKNOWN) })
+    const blocked = { getItem: () => { throw new Error("blocked") }, setItem: () => { throw new Error("blocked") },
+                      removeItem: () => { throw new Error("blocked") } } as unknown as Storage
+    mount(c, [], freshStore(blocked), "https://idp#alice")
+    await settle()
+    fireEvent.click(screen.getByRole("button", { name: "1. System details" }))
+    fireEvent.click(screen.getByRole("button", { name: "Save and continue" }))
+    await settle()
+    expect(screen.getByTestId("setup-pending").textContent).toContain("only until this page is reloaded")
+  })
+
+  it("a start whose answer was lost is retried with the same request id after Close", async () => {
+    const store = freshStore()
+    const ids: string[] = []
+    const createSetup = vi.fn(async (rid: string): Promise<SetupWrite> => {
+      ids.push(rid)
+      return ids.length === 1 ? UNKNOWN : { kind: "SAVED", status: 201, view: structuredClone(DRAFT) }
+    })
+    const props = { accountId: "111111111111", view: VIEW, picks: [], actor: null, createSetup, pendingStore: store,
+                    readStacks: async () => ({ status: 503, body: {} }), client: client() }
+    const first = render(<GuidedSetups {...props} />)
+    fireEvent.click(screen.getByTestId("setup-start"))
+    await settle()
+    first.unmount()
+    render(<GuidedSetups {...props} />)
+    expect(screen.getByTestId("setup-start").textContent).toBe("Retry the unconfirmed start")
+    fireEvent.click(screen.getByTestId("setup-start"))
+    await settle()
+    expect(ids).toHaveLength(2)
+    expect(ids[1]).toBe(ids[0])
+  })
+})
+
+describe("G2-F17: Finish commits exactly the saved intent that Review shows as saved", () => {
+  it("unsaved edits are shown apart and Finish waits for a confirmed Save; then it finishes on the saved version", async () => {
+    const c = client()
+    mount(c)
+    await settle()
+    fireEvent.click(screen.getByRole("button", { name: "1. System details" }))
+    fireEvent.change(screen.getByLabelText("System name"), { target: { value: "Review name not yet saved" } })
+    fireEvent.click(screen.getByRole("button", { name: "7. Review and start" }))
+    expect(screen.getByTestId("setup-review").textContent).toContain("Saved revision 3: Payments")
+    expect(screen.getByTestId("setup-review-unsaved").textContent).toContain("Review name not yet saved")
+    expect((screen.getByTestId("setup-finish") as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByTestId("setup-finish"))
+    await settle()
+    expect(c.finishSetup).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await settle()
+    expect(c.updates).toHaveLength(1)
+    expect(screen.queryByTestId("setup-review-unsaved")).toBeNull()
+    expect((screen.getByTestId("setup-finish") as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(screen.getByTestId("setup-finish"))
+    await settle()
+    expect(c.finishSetup).toHaveBeenCalledWith(SID, expect.stringMatching(/^[0-9a-f-]{36}$/), 4)
+  })
+
+  it("an unconfirmed save blocks Finish until it is answered", async () => {
+    const c = client({ updateSetup: vi.fn(async (): Promise<SetupWrite> => UNKNOWN) })
+    mount(c)
+    await settle()
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await settle()
+    expect((screen.getByTestId("setup-finish") as HTMLButtonElement).disabled).toBe(true)
+    expect(c.finishSetup).not.toHaveBeenCalled()
   })
 })
