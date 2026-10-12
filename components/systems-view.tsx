@@ -244,19 +244,15 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
             
             // Use criticality and environment from backend (Neo4j source of truth).
             // Absent = not classified: never a default tier.
+            // (S0 F31) The label is the tier as the backend sent it -- each of the seven authored tiers (and a legacy
+            // value) shown as itself, never renamed to another tier. Only ranking and colour use the shared buckets below.
             const rawCriticality = sys.criticality || ""
-            const criticalityMap: Record<string, { score: number; label: string }> = {
-              "MISSION CRITICAL": { score: 5, label: "MISSION CRITICAL" },
-              "CRITICAL": { score: 5, label: "MISSION CRITICAL" },
-              "BUSINESS CRITICAL": { score: 4, label: "BUSINESS CRITICAL" },
-              "HIGH": { score: 4, label: "BUSINESS CRITICAL" },
-              "IMPORTANT": { score: 3, label: "IMPORTANT" },
-              "MEDIUM": { score: 3, label: "IMPORTANT" },
-              "STANDARD": { score: 2, label: "STANDARD" },
-              "LOW": { score: 2, label: "STANDARD" },
+            const criticalityRank: Record<string, number> = {
+              "MISSION CRITICAL": 5, "CRITICAL": 5, "BUSINESS CRITICAL": 4, "HIGH": 4, "IMPORTANT": 3, "MEDIUM": 3,
+              "STANDARD": 2, "LOW": 2,
             }
             const critInfo = rawCriticality
-              ? criticalityMap[rawCriticality] || { score: 3, label: rawCriticality }
+              ? { score: criticalityRank[rawCriticality] ?? 3, label: rawCriticality }
               : { score: 0, label: "Not classified" }
 
             return {
