@@ -635,6 +635,21 @@ describe("G3-A: owner requests on Review and on Progress", () => {
     expect(screen.getByTestId("setup-progress").textContent).not.toContain("Will be requested")
   })
 
+  it("a FINISHED setup's Review lists nothing as still to be requested -- its made requests are not re-announced there", async () => {
+    const status = V2("status").body as SetupStatus
+    const c = client({ readSetup: vi.fn(async () => ({ kind: "OK" as const, value: structuredClone(FINISHED) })),
+                       readSetupStatus: vi.fn(async () => ({ kind: "OK" as const, value: status })) })
+    mount(c)
+    await settle()
+    await settle()
+    expect(screen.getByTestId("setup-progress-requests").textContent).toContain("waiting")
+    fireEvent.click(screen.getByRole("button", { name: /Review and start/ }))       // the step list lets a finished setup look back
+    await settle()
+    await settle()
+    expect(screen.getByTestId("setup-review")).toBeTruthy()
+    expect(screen.queryByTestId("setup-review-requests")).toBeNull()
+  })
+
   it("when the requests cannot be read, Review says so instead of showing none", async () => {
     const c = client({ readSetupStatus: vi.fn(async () => ({ kind: "UNAVAILABLE" as const, status: 200, code: "SETUP_CONTRACT_UNKNOWN" })) })
     mount(c)
