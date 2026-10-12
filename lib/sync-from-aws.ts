@@ -13,19 +13,102 @@ export interface DeferredSyncSource {
   missing_env?: string[]
 }
 
+/** One lane's serving proof, read off the authoritative graph pointer.
+ *
+ *  `projection_receipt_hash` is the validated receipt the activation CAS
+ *  wrote in the same statement as the generation, so a receipt naming a
+ *  generation always names the receipt that authorised it. It is never
+ *  optional on a real receipt: the backend refuses rather than emit a null.
+ *
+ *  `heads_record_agrees` is CORROBORATION ONLY. The producers activate the
+ *  graph pointer first and treat a conflict on the bookkeeping head as
+ *  non-fatal, so `false` means the head is behind — not that nothing is
+ *  served. Rendering it as a failure would report a served generation as a
+ *  failed sync. */
+export interface SyncLaneActivationReceipt {
+  active_generation: number
+  projection_receipt_hash: string
+  active_staging_run_id?: string
+  projected_through?: string
+  source_vector_hash?: string | null
+  activated_at?: string | null
+  /** Absent for lanes activated through the generic pointer CAS, which does
+   *  not write it. Absence is not a defect. */
+  activation_attempt_id?: string | null
+  heads_record_agrees?: boolean | null
+  scope_tenant_id?: string
+  scope_account_id?: string
+  scope_projection?: string
+  lifecycle_stage?: "SERVING_ACTIVE_GENERATION"
+  asserts_staged_projection?: boolean
+  asserts_validated?: boolean
+  asserts_serving?: boolean
+  is_terminal?: boolean
+}
+
 /** Proof that a validated generation is ACTIVE for this scope.
  *
  *  Its presence is the only evidence of success this client accepts. A
  *  `completed` status without it means a worker exited, which says nothing
- *  about what the tenant is being served. */
+ *  about what the tenant is being served.
+ *
+ *  A round can refresh SEVERAL lanes, and each carries its own receipt. The
+ *  scalar `projection_receipt_hash` is therefore populated only when the
+ *  round produced exactly one distinct hash; on a multi-lane round it is
+ *  `null` and the set lives in `projection_receipt_hashes`. Electing one
+ *  lane's hash to stand for the round would be a claim about the others.
+ *  Any consumer reading only the scalar must treat `null` as "several", not
+ *  as "none" — see `isActivated`. */
 export interface SyncActivationReceipt {
   activated?: boolean
+  lifecycle_stage?: "SERVING_ACTIVE_GENERATION"
+  /** Lanes that produced a serving receipt in this round. */
+  lanes?: SyncLane[]
+  /** Populated only for a single-lane round. `null` means several. */
+  projection_receipt_hash?: string | null
+  /** Every distinct validated receipt hash this round activated. */
+  projection_receipt_hashes?: string[]
+  /** Active generation per lane. Lanes do not share a generation counter. */
+  active_generations?: Record<string, number | null>
+  per_lane?: Record<string, SyncLaneActivationReceipt>
+  asserts_serving?: boolean
+
+  /** Single-lane spellings the managed Inspector payload still uses. */
   projection_generation?: number
   staging_run_id?: string
   source_vector_hash?: string
   projected_through?: string
-  projection_receipt_hash?: string
   evidence_manifest_hash?: string
+}
+
+/** Where one lane has reached in the durable lifecycle.
+ *
+ *    acquire -> EVIDENCE_COMMITTED -> staged -> validated -> CAS activate
+ *            -> SERVING_ACTIVE_GENERATION
+ *
+ *  Only the last is terminal. EVIDENCE_COMMITTED is the FIRST stage, not a
+ *  near-miss of the last, and must never render as success. */
+export type SyncLaneState =
+  | "SERVING_ACTIVE_GENERATION"
+  | "EVIDENCE_COMMITTED"
+  | "UNCONFIRMED"
+  | "NOT_CONNECTED"
+
+export interface SyncLaneStatus {
+  state: SyncLaneState | string
+  lifecycle_stage?: SyncLaneState | null
+  /** The receipt this lane can produce, or `"none"`. */
+  receipt?: string
+  evidence?: Array<Record<string, unknown>>
+  unconfirmed?: Array<{ run_id?: string; code?: string; detail?: string }>
+  activation?: SyncLaneActivationReceipt
+  is_terminal?: boolean
+  /** Typed code naming what is missing. Never a free-text excuse. */
+  reason?: string
+  detail?: string
+  /** Lifecycle stages this lane has not reached yet. */
+  awaiting?: string[]
+  work_items_enqueued?: number
 }
 
 export interface SyncJobStatus {
@@ -41,6 +124,12 @@ export interface SyncJobStatus {
   message: string
   /** Present only on a genuinely activated run. */
   activation?: SyncActivationReceipt
+  /** Per-lane lifecycle state for a v2 round. A lane missing from here was
+   *  not part of the round; a lane present with `state` other than
+   *  SERVING_ACTIVE_GENERATION has NOT completed, whatever the round says. */
+  lanes?: Record<string, SyncLaneStatus>
+  /** The exact tenant/account/region the round is bound to. */
+  scope?: { tenant_id?: string; account_id?: string; region?: string }
   results?: Record<string, unknown>
   deferred_sources?: DeferredSyncSource[]
   serving_store?: "neptune" | string
@@ -259,7 +348,84 @@ export function isActivated(status: SyncJobStatus | null | undefined): boolean {
   if (!status || status.status !== "completed") {
     return false
   }
-  return Boolean(status.activation?.projection_receipt_hash)
+  const activation = status.activation
+  if (!activation) {
+    return false
+  }
+  // A multi-lane round leaves the scalar null ON PURPOSE and puts the set in
+  // `projection_receipt_hashes`. Reading only the scalar reported every
+  // multi-lane activation as unproven -- a false negative that renders a
+  // served estate as a failed sync, which is worse than a refusal because the
+  // customer re-runs work that already succeeded.
+  const hashes = activation.projection_receipt_hashes
+  if (Array.isArray(hashes)) {
+    // Every entry must be a real hash. One empty string among them means a
+    // lane activated without a validated receipt, and the round cannot be
+    // reported as proven on the strength of its siblings.
+    return hashes.length > 0 && hashes.every((hash) => Boolean(hash && hash.trim()))
+  }
+  return Boolean(activation.projection_receipt_hash)
+}
+
+/** The lane the MANAGED Inspector refresh plane serves.
+ *
+ *  Mirrors `NEPTUNE_MANAGED_SOURCE` in api/v2_sync.py. That payload predates
+ *  multi-lane rounds: it reports a scalar `activation.projection_generation`
+ *  and carries no `lanes` array, because there has only ever been one lane it
+ *  can serve. Naming it here is reading the producer's own constant, not
+ *  guessing a default -- and it is the ONE lane that may be assumed, which is
+ *  why it is a named constant rather than a fallback inside the formatter. */
+export const MANAGED_SYNC_LANE = "vulnerability_findings"
+
+/** Lanes this round proved it is SERVING, in order. Never the queued set.
+ *
+ *  `sources` on a round means "asked for", which has changed nothing. */
+export function activatedLanes(status: SyncJobStatus | null | undefined): string[] {
+  if (!isActivated(status)) {
+    return []
+  }
+  const named = status?.activation?.lanes
+  if (Array.isArray(named) && named.length > 0) {
+    return [...named].map(String).sort()
+  }
+  const lanes = status?.lanes
+  if (lanes) {
+    const serving = Object.keys(lanes)
+      .filter((name) => lanes[name]?.state === "SERVING_ACTIVE_GENERATION")
+      .sort()
+    if (serving.length > 0) {
+      return serving
+    }
+  }
+  // The managed Inspector shape: a scalar generation and no lane map at all.
+  // Returning [] here would make the success copy fall back to an anonymous
+  // subject for the one round whose lane is never in doubt.
+  if (typeof status?.activation?.projection_generation === "number") {
+    return [MANAGED_SYNC_LANE]
+  }
+  return []
+}
+
+/** Lanes that are in the round but NOT serving, with the typed reason why.
+ *
+ *  Rendered so a partial round names what is still missing instead of
+ *  presenting itself as a whole-estate refresh. */
+export function unservedLanes(
+  status: SyncJobStatus | null | undefined,
+): Array<{ lane: string; state: string; reason?: string; detail?: string }> {
+  const lanes = status?.lanes
+  if (!lanes) {
+    return []
+  }
+  return Object.keys(lanes)
+    .filter((name) => lanes[name]?.state !== "SERVING_ACTIVE_GENERATION")
+    .sort()
+    .map((lane) => ({
+      lane,
+      state: String(lanes[lane]?.state ?? "UNKNOWN"),
+      reason: lanes[lane]?.reason,
+      detail: lanes[lane]?.detail,
+    }))
 }
 
 /** Reject a status that is not about the run we asked for.
@@ -288,7 +454,7 @@ export function isForRun(status: SyncJobStatus | null | undefined, jobId: string
  *  describe rows; the receipt is what says a generation is being served.
  */
 export function formatSyncSuccessMessage(status: SyncJobStatus): string {
-  const generation = status.activation?.projection_generation
+  const activation = status.activation
   const vulnerability = status.results?.vulnerability_findings as
     | Record<string, unknown>
     | undefined
@@ -305,16 +471,81 @@ export function formatSyncSuccessMessage(status: SyncJobStatus): string {
   const deferred = Array.isArray(status.deferred_sources)
     ? status.deferred_sources.length
     : 0
-  const suffix = deferred
+  const deferredSuffix = deferred
     ? ` ${deferred} other data ${deferred === 1 ? "source was" : "sources were"} not refreshed by this run.`
     : ""
 
+  // A round that did not serve every lane it requested says so. Presenting a
+  // partial round as a whole-estate refresh is the same lie as a green tick
+  // on an evidence commit, one level up.
+  const unserved = unservedLanes(status)
+  const unservedSuffix = unserved.length
+    ? ` ${unserved.length} requested ${unserved.length === 1 ? "lane is" : "lanes are"} ` +
+      `not being served yet: ${unserved.map((row) => `${row.lane} (${row.reason || row.state})`).join(", ")}.`
+    : ""
+
+  const lanes = activatedLanes(status)
+  const generations = activation?.active_generations
+
+  /** One lane's generation, or undefined. Explicit because TypeScript does
+   *  not narrow an element access whose index is a non-literal `const`, so
+   *  `typeof generations[lane] === "number" ? generations[lane] : undefined`
+   *  stays `number | null | undefined` under `strict` -- and a null would
+   *  render as the literal text "null" in the sentence below. */
+  const generationOf = (lane: string): number | undefined => {
+    const value = generations?.[lane]
+    return typeof value === "number" ? value : undefined
+  }
+
+  // MULTI-LANE. Each lane has its own generation counter, so there is no
+  // single "generation N" to name for the round.
+  if (lanes.length > 1) {
+    const perLane = lanes
+      .map((lane) => ({ lane, generation: generationOf(lane) }))
+      .filter((row): row is { lane: string; generation: number } =>
+        row.generation !== undefined,
+      )
+      .map((row) => `${row.lane} generation ${row.generation}`)
+    const scope = perLane.length
+      ? `${perLane.join(", ")} ${perLane.length === 1 ? "is" : "are"} active in Neptune.`
+      : `${lanes.length} lanes are active in Neptune: ${lanes.join(", ")}.`
+    return `${scope}${counts}${deferredSuffix}${unservedSuffix}`
+  }
+
+  // SINGLE LANE. Name the lane rather than assuming vulnerabilities: this
+  // copy is reached from the IAM, least-privilege, behavioral, dependency and
+  // inventory controls too, and naming findings on those was a claim about
+  // data the round never touched.
+  const lane: string | undefined = lanes[0]
+  const generation: number | undefined =
+    (lane === undefined ? undefined : generationOf(lane)) ??
+    (typeof activation?.projection_generation === "number"
+      ? activation.projection_generation
+      : undefined)
+
+  const subject = lane === undefined ? "This refresh" : laneSubject(lane)
   const scope =
     generation === undefined
-      ? "Vulnerability findings are active in Neptune."
-      : `Vulnerability findings generation ${generation} is active in Neptune.`
+      ? `${subject} is active in Neptune.`
+      : `${subject} generation ${generation} is active in Neptune.`
 
-  return `${scope}${counts}${suffix}`
+  return `${scope}${counts}${deferredSuffix}${unservedSuffix}`
+}
+
+/** Human subject for one lane. Unknown lanes are named, never renamed.
+ *
+ *  A default of "Vulnerability findings" is how every control on every screen
+ *  came to claim a vulnerability refresh it had not run. An unrecognised lane
+ *  gets its own identifier, which is accurate and obviously unpolished,
+ *  rather than a confident wrong noun. */
+export function laneSubject(lane: string): string {
+  const known: Record<string, string> = {
+    vulnerability_findings: "Vulnerability findings",
+    inventory_reconcile: "AWS inventory",
+    network_flow: "VPC network flow",
+    api_activity: "CloudTrail API activity",
+  }
+  return known[lane] ?? lane
 }
 
 /** Why a run that reached `completed` is still not success.
