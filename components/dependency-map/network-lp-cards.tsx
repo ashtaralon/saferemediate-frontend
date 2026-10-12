@@ -192,6 +192,9 @@ export function NetworkLpCards({
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       setData((await res.json()) as NetworkLpResponse)
     } catch (e: unknown) {
+      // Drop the previous read: its observation window would otherwise stay
+      // in the header beside the error, as if it were current.
+      setData(null)
       setError(e instanceof Error ? e.message : "Failed to load route findings")
     } finally {
       setLoading(false)

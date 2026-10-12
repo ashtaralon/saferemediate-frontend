@@ -64,6 +64,9 @@ export function NetworkLpPanel({
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       setData((await res.json()) as FindingsResponse)
     } catch (e: unknown) {
+      // Drop the previous read: its counts, pills and filters would otherwise
+      // stay on screen beside the error, as if they were current.
+      setData(null)
       setError(e instanceof Error ? e.message : "Failed to load findings")
     } finally {
       setLoading(false)
