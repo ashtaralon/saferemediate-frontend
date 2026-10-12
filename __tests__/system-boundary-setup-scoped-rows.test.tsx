@@ -177,6 +177,59 @@ describe("NSW-04: Regions the profile needs are asked for, row by row, never tak
     expect((await saved(updates)).find((d) => d.subject === "iac")!.ref).toEqual({ kind: "stack_binding", key: "" })
   })
 
+  it("(S0-R04) changing an all-of-the-account history row to a request is refused without a Region; another choice is not", async () => {
+    const { c, updates } = client()
+    await open(c)
+    step("6. Historical data")
+    addFor("history:vpc_flow", "VPC Flow Log history", "", "no_history")
+    const row = () => subject("history:vpc_flow").getByLabelText(`VPC Flow Log history, ${ACCOUNT} / all Regions`)
+    fireEvent.change(row(), { target: { value: "requested" } })
+    expect(subject("history:vpc_flow").getByRole("alert").textContent).toBe("A request needs a Region: the requirement profile asks for one.")
+    expect((row() as HTMLSelectElement).value).toBe("no_history")                      // the row stays as it was
+    fireEvent.change(row(), { target: { value: "connect_later" } })                    // positive: a choice that needs no Region
+    expect(subject("history:vpc_flow").queryByRole("alert")).toBeNull()
+    expect(rows(await saved(updates), "history:vpc_flow")).toEqual([[null, "connect_later"]])
+  })
+
+  it("(S0-R05) a stack whose Region another iac row already has is refused; one in the row's own Region is taken", async () => {
+    const options = stacks()
+    const elsewhere = options.find((s) => s.region !== ROOT_REGION)!, here = options.find((s) => s.region === ROOT_REGION)!
+    // The draft capture with a second iac row in the other Region (an edit): two rows of one subject.
+    const view = structuredClone(DRAFT)
+    view.intent.dispositions.push({ subject: "iac", scope: { account_id: ACCOUNT, region: elsewhere.region }, choice: "connect_later",
+                                    reason_code: "CONNECT_LATER" })
+    const { c, updates } = client(view)
+    await open(c, options)
+    step("3. Code and infrastructure")
+    fireEvent.change(subject("iac").getByLabelText(`Infrastructure as code, ${ACCOUNT} / ${ROOT_REGION}`), { target: { value: "use_existing" } })
+    fireEvent.change(subject("iac").getByLabelText("CloudFormation stack"), { target: { value: elsewhere.stack_id } })
+    expect(subject("iac").getByRole("alert").textContent).toBe(`${elsewhere.region} already has a choice here; change that one.`)
+    expect((subject("iac").getByLabelText("CloudFormation stack") as HTMLSelectElement).value).toBe("")   // the row as it was
+    fireEvent.change(subject("iac").getByLabelText("CloudFormation stack"), { target: { value: here.stack_id } })
+    expect(subject("iac").queryByRole("alert")).toBeNull()
+    const sent = (await saved(updates)).filter((d) => d.subject === "iac")
+    expect(sent.map((d) => [d.scope.region, d.choice, d.ref?.key ?? null]).sort()).toEqual([
+      [ROOT_REGION, "use_existing", here.stack_id], [elsewhere.region, "connect_later", null]].sort())
+  })
+
+  it("(S0-R05) a row of another account is offered none of this account's stacks, and keeps what it has", async () => {
+    const foreign = "222222222222"
+    // The draft capture with its iac row moved to another account (an edit), as a setup saved elsewhere could hold it.
+    const view = structuredClone(DRAFT)
+    const index = view.intent.dispositions.findIndex((d) => d.subject === "iac")
+    view.intent.dispositions[index] = { ...view.intent.dispositions[index], scope: { account_id: foreign, region: ROOT_REGION } }
+    const { c, updates } = client(view)
+    await open(c, stacks())
+    step("3. Code and infrastructure")
+    const row = subject("iac").getByLabelText(`Infrastructure as code, ${foreign} / ${ROOT_REGION}`)
+    expect((within(row).getByRole("option", { name: "Use what this account already has" }) as HTMLOptionElement).disabled).toBe(true)
+    fireEvent.change(row, { target: { value: "use_existing" } })
+    expect(subject("iac").getByRole("alert").textContent)
+      .toBe(`No CloudFormation stacks of account ${foreign} are listed here, so none can be used for it.`)
+    expect(subject("iac").queryByLabelText("CloudFormation stack")).toBeNull()
+    expect((await saved(updates)).find((d) => d.subject === "iac")).toEqual(view.intent.dispositions[index])
+  })
+
   it("a saved setup with one subject in two Regions, and a row this screen does not offer, is resumed and saved back whole", async () => {
     // The draft capture with a second CloudTrail row (us-east-1, requested) and a live source row this screen offers no control
     // for -- an edit of the capture, each derived row its authored one's as the server reads it.
