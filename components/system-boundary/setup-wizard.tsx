@@ -34,6 +34,7 @@ import {
   evidenceRows,
   observationSentence,
   requestSentence,
+  requiredFactsSentence,
   finishSetup as finishSetupDefault,
   freshRequestId,
   readSetup as readSetupDefault,
@@ -571,7 +572,11 @@ function Review({ local, view, setup, dirty, status, statusProblem }: { local: L
       ) : null}
       {!built.ok ? <ul className="text-xs text-amber-800">{built.problems.map((p) => <li key={p}>{p}</li>)}</ul> : null}
       <ul className="text-xs text-slate-600">
-        {setup.dispositions_derived.map((d) => <li key={d.subject}>{SUBJECTS[d.subject]?.label ?? d.subject}: {derivedSentence(d)}</li>)}
+        {setup.dispositions_derived.map((d) => (
+          <li key={d.subject}>{SUBJECTS[d.subject]?.label ?? d.subject}: {derivedSentence(d)}
+            <div className="text-slate-500" data-testid="setup-required-facts">{requiredFactsSentence(d, setup.requirement_profile)}</div>
+          </li>
+        ))}
       </ul>
       <Requests requests={(status?.operations ?? []).filter((r) => r.state === "PLANNED")} testId="setup-review-requests"
         title="Finishing the saved revision will ask an account administrator for:" />
@@ -603,7 +608,11 @@ function Progress({ setup, status, statusProblem, accountId, readApplied, readRe
         {...(readApplied ? { fetcher: readApplied } : {})} />
       {systemId ? <SystemResult systemKey={systemId} accountIds={[accountId]} {...(readResult ? { fetcher: readResult } : {})} /> : null}
       <ul className="text-xs text-slate-600">
-        {setup.dispositions_derived.map((d) => <li key={d.subject}>{SUBJECTS[d.subject]?.label ?? d.subject}: {derivedSentence(d)}</li>)}
+        {setup.dispositions_derived.map((d) => (
+          <li key={d.subject}>{SUBJECTS[d.subject]?.label ?? d.subject}: {derivedSentence(d)}
+            <div className="text-slate-500" data-testid="setup-required-facts">{requiredFactsSentence(d, setup.requirement_profile)}</div>
+          </li>
+        ))}
       </ul>
       <Requests requests={status?.operations ?? []} testId="setup-progress-requests" title="Requested from an account administrator:" />
       {statusProblem ? <p className="text-xs text-amber-800">{statusProblem}</p> : null}

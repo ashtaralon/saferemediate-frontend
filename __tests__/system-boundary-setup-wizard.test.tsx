@@ -1,6 +1,6 @@
 /**
  * Onboarding G2: the eight-step setup wizard (components/system-boundary/setup-wizard.tsx) over the REAL backend answers
- * (__tests__/fixtures/system-boundary-setup-captures/) and the REAL declarations view golden. The client is injected so each
+ * (__tests__/fixtures/system-boundary-setup-captures-v3/, setup contract level 3) and the REAL declarations view golden. The client is injected so each
  * test sees exactly the requests the wizard sends; every answer it gets back is a capture.
  */
 import { readFileSync } from "node:fs"
@@ -19,7 +19,7 @@ import { GuidedSetups } from "@/components/system-boundary/guided-setups"
 function json(file: string): any {
   return JSON.parse(readFileSync(resolve(process.cwd(), file), "utf8"))
 }
-const capture = (name: string) => json(`__tests__/fixtures/system-boundary-setup-captures/${name}.json`)
+const capture = (name: string) => json(`__tests__/fixtures/system-boundary-setup-captures-v3/${name}.json`)
 const VIEW: DeclarationsView = json("__tests__/fixtures/system-boundary/view_after_save.json").body
 const DRAFT: SetupView = capture("read_draft").body
 const FINISHED: SetupView = capture("finish").body
@@ -70,6 +70,12 @@ describe("the setup wizard", () => {
     expect(screen.getByTestId("setup-review").textContent).toContain("Payments · LOW")
     expect(screen.getByTestId("setup-review").textContent).toContain("Not available in this release (RESOLVER_NOT_AVAILABLE)")
     expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toContain("1. System details")
+    // (G3-G) beside each choice, what its subject requires -- from the profile the server served, never a claim it is met
+    expect(screen.getAllByTestId("setup-required-facts").map((n) => n.textContent)).toEqual([
+      "Not supported -- Cyntro cannot acquire source code in this version (CODE_ACQUISITION_NOT_AVAILABLE)",
+      `Requires committed cloudtrail_iam_usage evidence for ${DRAFT.dispositions_derived[1].scope.account_id} / `
+        + `${DRAFT.dispositions_derived[1].scope.region}, read through the member stack's EvidenceReadRole (OwnCloudTrailObjectsOnly)`,
+      "Not supported -- Cyntro cannot acquire infrastructure as code in this version (IAC_ACQUISITION_NOT_AVAILABLE)"])
   })
 
   it("saves the WHOLE intent at the version read, with authored fields only, and moves to the next step", async () => {
@@ -150,6 +156,9 @@ describe("the setup wizard", () => {
     await settle()
     expect(c.finishSetup).toHaveBeenCalledWith(SID, expect.stringMatching(/^[0-9a-f-]{36}$/), 3)
     expect(screen.getByTestId("setup-progress").textContent).toContain("Setup finished · saved as revision 2 · association current")
+    expect(screen.getAllByTestId("setup-required-facts").map((n) => n.textContent)).toEqual(
+      FINISHED.dispositions_derived.map((d) => d.required_facts.support === "SUPPORTED" ? expect.stringContaining("Requires committed")
+        : expect.stringContaining(`(${d.required_facts.reason})`)))
   })
 
   it("Resource boundaries takes the person's inventory picks as roots, each with the selection it was picked under", async () => {
@@ -567,13 +576,13 @@ describe("G2-F18/F19: the start of a setup", () => {
   })
 })
 
-// ── onboarding G3-A: owner requests, as the backend derives them (setup contract level 2) ──────────────────────────────
+// ── onboarding G3-A: owner requests, as the backend derives them (captured at setup contract level 3) ──────────────────────────────
 
-const V2 = (name: string) => json(`__tests__/fixtures/system-boundary-setup-captures-v2/${name}.json`)
+const V3 = (name: string) => json(`__tests__/fixtures/system-boundary-setup-captures-v3/${name}.json`)
 
 describe("G3-A: owner requests on Review and on Progress", () => {
   it("Review lists what finishing the SAVED revision will request -- the server's planned requests, nothing asked yet", async () => {
-    const status = V2("status").body as SetupStatus
+    const status = V3("status").body as SetupStatus
     const planned: SetupStatus = { ...status, setup: { ...status.setup, status: "DRAFT" }, operations: status.operations.map((o) => (
       { op_id: o.op_id, kind: o.kind, subject: o.subject, scope: o.scope, required_authority: o.required_authority,
         state: "PLANNED" as const, reason: null })) }
@@ -590,7 +599,7 @@ describe("G3-A: owner requests on Review and on Progress", () => {
   })
 
   it("Progress lists each request as the server reads it NOW (pending, and how many current requests the demand has)", async () => {
-    const status = V2("status").body as SetupStatus
+    const status = V3("status").body as SetupStatus
     const c = client({ readSetup: vi.fn(async () => ({ kind: "OK" as const, value: structuredClone(FINISHED) })),
                        readSetupStatus: vi.fn(async () => ({ kind: "OK" as const, value: status })) })
     mount(c)
@@ -602,7 +611,7 @@ describe("G3-A: owner requests on Review and on Progress", () => {
   })
 
   it("a request the server holds or withdrew is shown with its reason, never as pending", async () => {
-    const status = V2("status").body as SetupStatus
+    const status = V3("status").body as SetupStatus
     const held: SetupStatus = { ...status, operations: status.operations.map((o) => (
       { ...o, state: "WITHDRAWN" as const, reason: "ACCOUNT_REMOVED", demand: { state: "NO_CURRENT_REQUEST" as const, current_requests: 0 },
         observation: { state: "UNKNOWN" as const, limitation: "REQUEST_NOT_CURRENT" } })) }
@@ -617,7 +626,7 @@ describe("G3-A: owner requests on Review and on Progress", () => {
   })
 
   it("after Finish, Review's planned list is dropped -- never shown as the finished setup's requests while they are read", async () => {
-    const status = V2("status").body as SetupStatus
+    const status = V3("status").body as SetupStatus
     const planned: SetupStatus = { ...status, setup: { ...status.setup, status: "DRAFT" }, operations: status.operations.map((o) => (
       { op_id: o.op_id, kind: o.kind, subject: o.subject, scope: o.scope, required_authority: o.required_authority,
         state: "PLANNED" as const, reason: null })) }
@@ -638,7 +647,7 @@ describe("G3-A: owner requests on Review and on Progress", () => {
   })
 
   it("a FINISHED setup's Review lists nothing as still to be requested -- its made requests are not re-announced there", async () => {
-    const status = V2("status").body as SetupStatus
+    const status = V3("status").body as SetupStatus
     const c = client({ readSetup: vi.fn(async () => ({ kind: "OK" as const, value: structuredClone(FINISHED) })),
                        readSetupStatus: vi.fn(async () => ({ kind: "OK" as const, value: status })) })
     mount(c)
@@ -653,7 +662,7 @@ describe("G3-A: owner requests on Review and on Progress", () => {
   })
 
   it("(G3-C.5) Progress shows what collected evidence shows for each made request -- in the server's words, never fulfilment", async () => {
-    const status = V2("status").body as SetupStatus
+    const status = V3("status").body as SetupStatus
     const fact = { source: "cloudtrail_iam_usage", region: "eu-west-1", source_scope: "all-active-trails",
                    earliest_verified_at: "2026-09-30T23:17:26Z", earliest_verified_basis: "first_verified_digest",
                    first_verified_collection_at: null, verified_through: "2026-10-01T05:17:26Z", committed_generation: 1,
@@ -680,7 +689,7 @@ describe("G3-A: owner requests on Review and on Progress", () => {
   })
 
   it("(F26) an unrenderable publication time is refused by the client's own parser -- Progress names it, never throws", async () => {
-    const body = V2("status").body as SetupStatus & { contract: string }
+    const body = V3("status").body as SetupStatus & { contract: string }
     const bad = { ...body, operations: body.operations.map((o) => ({ ...o, subject: "history:cloudtrail", observation: {
       state: "OBSERVED", as_of: "2026-10-12T08:00:00Z", registration_id: "5".repeat(32), not_started: [],
       facts: [{ source: "cloudtrail_iam_usage", region: "eu-west-1", source_scope: "all-active-trails",

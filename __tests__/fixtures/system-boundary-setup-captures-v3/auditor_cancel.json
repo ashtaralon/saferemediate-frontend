@@ -1,0 +1,20 @@
+{
+  "_provenance": {
+    "harness": "tests/test_system_boundary_setup_captures.py",
+    "request": {
+      "method": "POST",
+      "path": "/api/system-boundary/setup/5e7a0000-0000-4000-8000-000000000001/cancel",
+      "body": {
+        "request_id": "00000000-0000-4000-8000-00000000c006",
+        "base_state_version": 3
+      }
+    }
+  },
+  "status": 403,
+  "cache_control": null,
+  "body": {
+    "detail": {
+      "code": "PERSON_NOT_AUTHORIZED"
+    }
+  }
+}

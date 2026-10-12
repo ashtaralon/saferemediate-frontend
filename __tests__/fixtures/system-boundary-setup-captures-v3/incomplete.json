@@ -1,0 +1,23 @@
+{
+  "_provenance": {
+    "harness": "tests/test_system_boundary_setup_captures.py",
+    "request": {
+      "method": "POST",
+      "path": "/api/system-boundary/setup/5e7a0000-0000-4000-8000-000000000001/finish",
+      "body": {
+        "request_id": "00000000-0000-4000-8000-00000000c003",
+        "base_state_version": 2
+      }
+    }
+  },
+  "status": 409,
+  "cache_control": null,
+  "body": {
+    "detail": {
+      "code": "SETUP_INCOMPLETE",
+      "step": "system_details",
+      "reason": "CRITICALITY_REQUIRED",
+      "field": "system.criticality"
+    }
+  }
+}

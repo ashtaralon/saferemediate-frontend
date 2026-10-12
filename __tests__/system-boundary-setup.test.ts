@@ -1,6 +1,7 @@
 /**
- * Onboarding G2 / G3-A: the setup client (lib/system-boundary-setup.ts) over the REAL backend answers at setup contract level 2
- * (__tests__/fixtures/system-boundary-setup-captures-v2/, pinned in its README; the level-1 copies beside it are refused), and
+ * Onboarding G2 / G3-A / G3-G: the setup client (lib/system-boundary-setup.ts) over the REAL backend answers at setup contract
+ * level 3 (__tests__/fixtures/system-boundary-setup-captures-v3/, pinned in its README; the level-1 and level-2 copies beside it
+ * are refused), and
  * the authoring proxy's eight setup routes through the mounted route handlers -- exactly those, nothing else under setup/.
  */
 import { readFileSync } from "node:fs"
@@ -22,15 +23,18 @@ import {
   isView,
   readAnswer,
   requestSentence,
+  requiredFactsSentence,
   SETUP_CONTRACT_UNKNOWN,
   SETUP_STEPS,
   writeAnswer,
+  type DerivedDisposition,
   type OwnerRequest,
+  type RequirementProfile,
 } from "@/lib/system-boundary-setup"
 
 type Capture = { status: number; body: unknown; _provenance: { request: { method: string; path: string } } }
 
-function capture(name: string, dir = "system-boundary-setup-captures-v2"): Capture {
+function capture(name: string, dir = "system-boundary-setup-captures-v3"): Capture {
   return JSON.parse(readFileSync(path.join(__dirname, "fixtures", dir, `${name}.json`), "utf8"))
 }
 
@@ -64,7 +68,7 @@ describe("the setup client reads the REAL answers, and nothing in between is inv
   it("an unproven write is RESEND_SAME: a 202, the network, a malformed 200, OUTCOME_UNKNOWN", () => {
     expect(writeAnswer({ status: 202, json: capture("read_draft").body }).kind).toBe("RESEND_SAME")
     expect(writeAnswer({ status: null, json: undefined })).toMatchObject({ kind: "RESEND_SAME", code: "NETWORK_ERROR" })
-    expect(writeAnswer({ status: 200, json: { setup_id: "x", contract: "system_boundary_setup/v2" } }))
+    expect(writeAnswer({ status: 200, json: { setup_id: "x", contract: "system_boundary_setup/v3" } }))
       .toMatchObject({ kind: "RESEND_SAME", code: "MALFORMED_RESPONSE" })
     expect(writeAnswer({ status: 503, json: { detail: { code: "OUTCOME_UNKNOWN" } } })).toMatchObject({ kind: "RESEND_SAME" })
   })
@@ -80,7 +84,7 @@ describe("the setup client reads the REAL answers, and nothing in between is inv
     const list = capture("list").body as { setups: unknown[] }
     expect(list.setups.length).toBe(1)
     expect(readAnswer(raw(capture("not_found")), isView)).toMatchObject({ kind: "REFUSED", status: 404, code: "SETUP_NOT_FOUND" })
-    expect(readAnswer({ status: 200, json: { status: "DRAFT", contract: "system_boundary_setup/v2" } }, isView))
+    expect(readAnswer({ status: 200, json: { status: "DRAFT", contract: "system_boundary_setup/v3" } }, isView))
       .toMatchObject({ kind: "UNAVAILABLE", code: "MALFORMED_RESPONSE" })
   })
 
@@ -92,6 +96,92 @@ describe("the setup client reads the REAL answers, and nothing in between is inv
     }
     expect(writeAnswer(raw(capture("finish", "system-boundary-setup-captures")))).toEqual(
       { kind: "RESEND_SAME", status: 201, code: SETUP_CONTRACT_UNKNOWN, detail: {} })
+  })
+
+  it("(G3-G) a level-2 answer -- tagged v2, required facts a string, no profile -- is never read as level 3", () => {
+    for (const name of ["read_draft", "read_finished", "status"]) {
+      const old = capture(name, "system-boundary-setup-captures-v2")
+      expect((old.body as { contract: string }).contract, name).toBe("system_boundary_setup/v2")
+      const read = name === "status" ? readAnswer(raw(old), isStatus) : readAnswer(raw(old), isView)
+      expect(read, name).toEqual({ kind: "UNAVAILABLE", status: 200, code: SETUP_CONTRACT_UNKNOWN })
+    }
+    expect(writeAnswer(raw(capture("finish", "system-boundary-setup-captures-v2")))).toEqual(
+      { kind: "RESEND_SAME", status: 201, code: SETUP_CONTRACT_UNKNOWN, detail: {} })
+  })
+
+  it("(G3-G) required facts are read exactly, and only as decided under the profile served beside them", () => {
+    const view = capture("read_draft").body as Record<string, any>    // eslint-disable-line @typescript-eslint/no-explicit-any
+    const status = capture("status").body as Record<string, any>      // eslint-disable-line @typescript-eslint/no-explicit-any
+    const ok = (body: unknown, parse: (value: unknown) => value is unknown = isView) =>
+      readAnswer({ status: 200, json: body }, parse).kind
+    expect(ok(view)).toBe("OK")
+    expect(ok(status, isStatus)).toBe("OK")
+    const facts = view.dispositions_derived.map((d: DerivedDisposition) => d.required_facts.support).sort()
+    expect(facts).toEqual(["SUPPORTED", "UNSUPPORTED", "UNSUPPORTED"])          // history, code, iac in the harness
+    const hash = view.requirement_profile.hash as string
+    const derived = (i: number, change: Record<string, unknown>) => {
+      const body = structuredClone(view)
+      body.dispositions_derived[i].required_facts = { ...body.dispositions_derived[i].required_facts, ...change }
+      return body
+    }
+    const supported = view.dispositions_derived.findIndex((d: DerivedDisposition) => d.required_facts.support === "SUPPORTED")
+    const unsupported = view.dispositions_derived.findIndex((d: DerivedDisposition) => d.required_facts.support === "UNSUPPORTED")
+    const level2 = structuredClone(view)
+    level2.dispositions_derived[0].required_facts = "PROFILE_NOT_AVAILABLE"
+    const extra = derived(0, { granted: true })
+    const noProfile = structuredClone(view)
+    delete noProfile.requirement_profile
+    const otherProfile = structuredClone(view)
+    otherProfile.requirement_profile.hash = `v1:${"0".repeat(64)}`
+    const unsupportedSubject = structuredClone(view)
+    unsupportedSubject.dispositions_derived[unsupported].required_facts = { profile: hash, support: "SUPPORTED", reason: null }
+    const noPermission = structuredClone(view)
+    noPermission.requirement_profile.document.subjects.find((s: { support: string }) => s.support === "SUPPORTED").permission = null
+    const twice = structuredClone(view)
+    twice.requirement_profile.document.subjects.push(twice.requirement_profile.document.subjects[0])
+    for (const [label, body] of Object.entries({
+      level2, extra, noProfile, otherProfile, unsupportedSubject, noPermission, twice,
+      reasonOnSupported: derived(supported, { reason: "WHY" }), noReason: derived(unsupported, { reason: null }),
+      emptyReason: derived(unsupported, { reason: "" }), notAHash: derived(0, { profile: "v1:abc" }),
+      otherSupport: derived(0, { support: "CONNECTED" }),
+    })) {
+      expect(ok(body), label).toBe("UNAVAILABLE")
+    }
+    const otherStatus = structuredClone(status)
+    otherStatus.dispositions[0].required_facts = { ...otherStatus.dispositions[0].required_facts, profile: `v1:${"1".repeat(64)}` }
+    expect(ok(otherStatus, isStatus)).toBe("UNAVAILABLE")
+    const statusLevel2 = structuredClone(status)
+    statusLevel2.dispositions[0].required_facts = "PROFILE_NOT_AVAILABLE"
+    expect(ok(statusLevel2, isStatus)).toBe("UNAVAILABLE")
+  })
+
+  it("(G3-G) what each subject requires, in words -- a requirement, never a claim that it is met, connected or granted", () => {
+    const view = capture("read_draft").body as { dispositions_derived: DerivedDisposition[]; requirement_profile: RequirementProfile }
+    const profile = view.requirement_profile
+    const of = (subject: string) => view.dispositions_derived.find((d) => d.subject === subject)!
+    const history = of("history:cloudtrail")
+    expect(requiredFactsSentence(history, profile)).toBe(
+      `Requires committed cloudtrail_iam_usage evidence for ${history.scope.account_id} / ${history.scope.region}, read through the `
+      + "member stack's EvidenceReadRole (OwnCloudTrailObjectsOnly)")
+    const flow: DerivedDisposition = { ...history, subject: "history:vpc_flow" }
+    expect(requiredFactsSentence(flow, profile)).toContain(
+      "EvidenceReadRole (NamedFlowLogGroupsOnly); that permission exists only when the account's stack sets "
+      + "ExistingFlowLogGroupArns or FlowLogVpcId")
+    expect(requiredFactsSentence(of("iac"), profile)).toBe(
+      "Not supported -- Cyntro cannot acquire infrastructure as code in this version (IAC_ACQUISITION_NOT_AVAILABLE)")
+    expect(requiredFactsSentence(of("code"), profile)).toBe(
+      "Not supported -- Cyntro cannot acquire source code in this version (CODE_ACQUISITION_NOT_AVAILABLE)")
+    const reason = (r: string): DerivedDisposition => ({ ...history, required_facts: { profile: profile.hash, support: "UNSUPPORTED", reason: r } })
+    expect(requiredFactsSentence(reason("SCOPE_INCOMPLETE:region"), profile)).toBe(
+      "Not supported as chosen -- it needs a region (SCOPE_INCOMPLETE:region)")
+    expect(requiredFactsSentence(reason("SOMETHING_NEW"), profile)).toBe(
+      "Not supported -- not in this version's requirement profile (SOMETHING_NEW)")
+    const words = [history, flow, of("iac"), of("code")].map((d) => requiredFactsSentence(d, profile)).join(" ")
+    expect(words).not.toMatch(/\b(connected|granted|enabled|collecting|met|satisfied)\b/i)
+    for (const broken of ["PROFILE_NOT_AVAILABLE", undefined]) {                   // never thrown at the person (F26)
+      expect(requiredFactsSentence({ ...history, required_facts: broken as never }, undefined)).toBe("What it requires is not shown here")
+    }
+    expect(requiredFactsSentence(history, undefined)).toBe("Requires facts this view cannot show")
   })
 
   it("(G3-A) an owner request is read exactly: a planned one names no requester, a made one its demand and fulfilment", () => {
@@ -284,7 +374,10 @@ describe("the setup client reads the REAL answers, and nothing in between is inv
       "No source chosen (NO_HISTORY) -- history:cloudtrail:HELD",
       "Not available in this release (RESOLVER_NOT_AVAILABLE) -- iac:LIMITED",
     ])
-    expect(view.dispositions_derived.every((d) => d.required_facts === "PROFILE_NOT_AVAILABLE")).toBe(true)
+    // (level 3) the required facts are the profile's answer per subject, never a derived "connected"
+    expect(view.dispositions_derived.map((d) => [d.subject, d.required_facts.support, d.required_facts.reason])).toEqual([
+      ["code", "UNSUPPORTED", "CODE_ACQUISITION_NOT_AVAILABLE"], ["history:cloudtrail", "SUPPORTED", null],
+      ["iac", "UNSUPPORTED", "IAC_ACQUISITION_NOT_AVAILABLE"]])
     expect(SETUP_STEPS).toContain(view.intent.resume_step)
   })
 })

@@ -17,8 +17,10 @@ import { AUTHORING_BASE } from "@/lib/system-boundary-authoring"
  *  accepts it; backend unified/system_boundary_setup.SETUP_CONTRACT_LEVEL). Level 2 (onboarding G3-A): every success answer
  *  carries exactly ``contract: system_boundary_setup/v2`` and a finished setup's status lists its OWNER REQUESTS. An answer
  *  without that exact tag -- an untagged level-1 answer, or any other level -- is not one this frontend reads: never parsed
- *  as level 2. The bundle builder refuses such a pair; this is the same rule at runtime. */
-export const SETUP_CONTRACT_LEVEL = 2
+ *  as level 2. The bundle builder refuses such a pair; this is the same rule at runtime. Level 3: ``required_facts`` is typed
+ *  from the backend's versioned requirement profile (``RequiredFacts``) and every view serves that profile once
+ *  (``requirement_profile``); a v2-tagged answer is now another level, refused like a v1 one. */
+export const SETUP_CONTRACT_LEVEL = 3
 export const SETUP_CONTRACT = `system_boundary_setup/v${SETUP_CONTRACT_LEVEL}`
 export const SETUP_CONTRACT_UNKNOWN = "SETUP_CONTRACT_UNKNOWN"
 
@@ -69,8 +71,33 @@ export interface DerivedDisposition {
   resolution: { state: "resolved" | "assessed" | "held" | "unavailable" | "none"; reason?: string | null; registration_id?: string;
                 proof?: Record<string, unknown> }
   status_axes: Record<"assessment" | "configuration" | "readability" | "acquisition" | "serving", string>
-  required_facts: string
+  required_facts: RequiredFacts
   consequence: string[]
+}
+
+/** (Level 3) What the versioned requirement profile says of one disposition's subject at its scope: SUPPORTED (its needs
+ *  are the served profile's entry for the subject) or UNSUPPORTED with the backend's named reason. Never a grant, never a
+ *  claim that anything is connected. */
+export interface RequiredFacts {
+  profile: string
+  support: "SUPPORTED" | "UNSUPPORTED"
+  reason: string | null
+}
+
+/** One subject of the requirement profile document (backend unified/requirement_profile.py, by reference only). */
+export interface ProfileSubject {
+  subject: string
+  support: "SUPPORTED" | "UNSUPPORTED"
+  reason: string | null
+  scope: string[]
+  evidence: { source: string; scope: string[] } | null
+  permission: { template: string; role: string; policies: string[]; condition: string | null; owner_parameters: string[] } | null
+}
+
+/** The profile a view's required facts were decided under: its content hash and its document. */
+export interface RequirementProfile {
+  hash: string
+  document: { schema: "cyntro-requirement-profile/v1"; subjects: ProfileSubject[] }
 }
 
 export interface SetupIntent {
@@ -105,6 +132,7 @@ export interface SetupSummary {
 export interface SetupView extends SetupSummary {
   intent: SetupIntent
   dispositions_derived: DerivedDisposition[]
+  requirement_profile: RequirementProfile
   attempt: Record<string, unknown> | null
   outcome: { outcome: string; code: string; reconciled_by: string } | null
   receipt: (Record<string, unknown> & { association: Association; attempt: number }) | null
@@ -175,6 +203,7 @@ export interface SetupStatus {
   association: { state: "CURRENT" | "STALE" | "WITHDRAWN"; completed_revision: number;
                  heads: { role: string; key: string; pinned_version: number; current_version: number | null; state: string }[] } | null
   dispositions: DerivedDisposition[]
+  requirement_profile: RequirementProfile
   operations: OwnerRequest[]
 }
 
@@ -214,10 +243,55 @@ export function isSummary(value: unknown): value is SetupSummary {
     && (value.predecessor === null || isRecord(value.predecessor)) && (value.successor === null || typeof value.successor === "string")
 }
 
+const PROFILE_HASH = /^v1:[0-9a-f]{64}$/
+const SUPPORT = ["SUPPORTED", "UNSUPPORTED"] as const
+const isStrings = (value: unknown): value is string[] => Array.isArray(value) && value.every((v) => typeof v === "string" && v.length > 0)
+const exactly = (value: Record<string, unknown>, keys: string[]): boolean =>
+  Object.keys(value).length === keys.length && keys.every((k) => k in value)
+
+/** Supported XOR a named reason, exactly these three keys -- a level-2 string or any other shape is not level 3. */
+function isRequiredFacts(value: unknown): value is RequiredFacts {
+  return isRecord(value) && exactly(value, ["profile", "support", "reason"]) && typeof value.profile === "string"
+    && PROFILE_HASH.test(value.profile)
+    && (value.support === "SUPPORTED" ? value.reason === null
+      : value.support === "UNSUPPORTED" && typeof value.reason === "string" && value.reason.length > 0)
+}
+
+function isProfileSubject(value: unknown): value is ProfileSubject {
+  if (!isRecord(value) || !exactly(value, ["subject", "support", "reason", "scope", "evidence", "permission"])
+      || typeof value.subject !== "string" || !(SUPPORT as readonly unknown[]).includes(value.support) || !isStrings(value.scope)) return false
+  if (value.support === "UNSUPPORTED") {
+    return typeof value.reason === "string" && value.reason.length > 0 && value.scope.length === 0
+      && value.evidence === null && value.permission === null
+  }
+  const { evidence, permission } = value
+  return value.reason === null && isRecord(evidence) && exactly(evidence, ["source", "scope"]) && typeof evidence.source === "string"
+    && evidence.source.length > 0 && isStrings(evidence.scope)
+    && isRecord(permission) && exactly(permission, ["template", "role", "policies", "condition", "owner_parameters"])
+    && typeof permission.template === "string" && typeof permission.role === "string" && isStrings(permission.policies)
+    && permission.policies.length > 0 && (permission.condition === null || typeof permission.condition === "string")
+    && isStrings(permission.owner_parameters) && (permission.condition === null) === (permission.owner_parameters.length === 0)
+}
+
+function isRequirementProfile(value: unknown): value is RequirementProfile {
+  if (!isRecord(value) || !exactly(value, ["hash", "document"]) || typeof value.hash !== "string" || !PROFILE_HASH.test(value.hash)
+      || !isRecord(value.document) || value.document.schema !== "cyntro-requirement-profile/v1"
+      || !Array.isArray(value.document.subjects) || !value.document.subjects.every(isProfileSubject)) return false
+  const subjects = value.document.subjects.map((s) => s.subject)
+  return new Set(subjects).size === subjects.length
+}
+
 function isDerived(value: unknown): value is DerivedDisposition {
   return isRecord(value) && typeof value.subject === "string" && isRecord(value.scope) && typeof value.choice === "string"
     && isRecord(value.resolution) && typeof value.resolution.state === "string" && isRecord(value.status_axes)
-    && typeof value.required_facts === "string" && Array.isArray(value.consequence)
+    && isRequiredFacts(value.required_facts) && Array.isArray(value.consequence)
+}
+
+/** Every derived disposition was decided under THE served profile, and a SUPPORTED one is a subject that profile supports. */
+function coherentFacts(derived: DerivedDisposition[], profile: RequirementProfile): boolean {
+  const supported = new Set(profile.document.subjects.filter((s) => s.support === "SUPPORTED").map((s) => s.subject))
+  return derived.every((d) => d.required_facts.profile === profile.hash
+    && (d.required_facts.support !== "SUPPORTED" || supported.has(d.subject)))
 }
 
 export function isView(value: unknown): value is SetupView {
@@ -227,6 +301,7 @@ export function isView(value: unknown): value is SetupView {
   return isRecord(intent) && Array.isArray(intent.dispositions) && typeof intent.resume_step === "string"
     && (SETUP_STEPS as readonly string[]).includes(intent.resume_step)
     && Array.isArray(view.dispositions_derived) && view.dispositions_derived.every(isDerived)
+    && isRequirementProfile(view.requirement_profile) && coherentFacts(view.dispositions_derived, view.requirement_profile)
     && (view.receipt === null || (isRecord(view.receipt) && isAssociation(view.receipt.association)))
 }
 
@@ -316,7 +391,9 @@ export function isStatus(value: unknown): value is SetupStatus {
   return isRecord(value) && isRecord(value.setup) && typeof value.setup.setup_id === "string"
     && (value.saved === null || (isRecord(value.saved) && isInt(value.saved.completed_revision)))
     && (value.association === null || (isRecord(value.association) && typeof value.association.state === "string"))
-    && Array.isArray(value.dispositions) && Array.isArray(value.operations) && value.operations.every(isOperation)
+    && Array.isArray(value.dispositions) && value.dispositions.every(isDerived)
+    && isRequirementProfile(value.requirement_profile) && coherentFacts(value.dispositions, value.requirement_profile)
+    && Array.isArray(value.operations) && value.operations.every(isOperation)
 }
 
 const isPage = (value: unknown): value is { setups: SetupSummary[]; next_cursor: string | null } =>
@@ -442,6 +519,34 @@ export function derivedSentence(derived: DerivedDisposition): string {
     case "unavailable": return `Not available in this release${reason}${limit}`
     default: return `No source chosen${reason}${limit}`
   }
+}
+
+const UNSUPPORTED_WORDS: Record<string, string> = {
+  IAC_ACQUISITION_NOT_AVAILABLE: "Cyntro cannot acquire infrastructure as code in this version",
+  CODE_ACQUISITION_NOT_AVAILABLE: "Cyntro cannot acquire source code in this version",
+  LIVE_SOURCE_NOT_PROFILED: "this version has no requirement profile for a live source",
+  SUBJECT_NOT_PROFILED: "this version has no requirement profile for it",
+}
+
+/** (Level 3) What this disposition's subject requires, from the served profile -- a requirement, never a statement that it
+ *  is met, connected or granted. */
+export function requiredFactsSentence(derived: DerivedDisposition, profile: RequirementProfile | undefined): string {
+  const facts = derived.required_facts as RequiredFacts | string | undefined
+  if (!facts || typeof facts !== "object") return "What it requires is not shown here"    // never thrown at the person (F26)
+  if (facts.support === "UNSUPPORTED") {
+    const reason = facts.reason ?? ""
+    if (reason.startsWith("SCOPE_INCOMPLETE:")) {
+      return `Not supported as chosen -- it needs a ${reason.slice("SCOPE_INCOMPLETE:".length).split(",").join(" and ")} (${reason})`
+    }
+    return `Not supported -- ${UNSUPPORTED_WORDS[reason] ?? "not in this version's requirement profile"} (${reason})`
+  }
+  const entry = profile?.document?.subjects?.find((s) => s.subject === derived.subject)
+  if (!entry?.evidence || !entry.permission) return "Requires facts this view cannot show"
+  const where = [derived.scope.account_id, derived.scope.region].filter(Boolean).join(" / ")
+  const owner = entry.permission.owner_parameters.length
+    ? `; that permission exists only when the account's stack sets ${entry.permission.owner_parameters.join(" or ")}` : ""
+  return `Requires committed ${entry.evidence.source} evidence for ${where}, read through the member stack's `
+    + `${entry.permission.role} (${entry.permission.policies.join(", ")})${owner}`
 }
 
 /** One owner request in words: who is asked, and what it is NOW (the backend's state and reason, never inferred here). */
