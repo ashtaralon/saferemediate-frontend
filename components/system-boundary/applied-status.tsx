@@ -4,8 +4,12 @@
  * "Applied" for one save (A7 rev 4 C-C): per account the save wrote, whether the SERVED membership was built from a
  * revision at or after the save's. Read on open and on "Check again" -- never polled in the background -- through
  * lib/system-boundary-applied.ts. A save is Saved first; it is Applied only by these numbers, never by elapsed time.
+ *
+ * (S0 NSW-01) Each read -- on open, on "Check again", and again when the accounts or the reader change -- takes the next
+ * generation: an answer, success or refusal, is shown only while it answers the LATEST read. HTTP completion order says
+ * nothing about which answer is newer, so an earlier read answering last changes nothing.
  */
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
   appliedSentence,
@@ -24,17 +28,15 @@ export interface AppliedStatusProps {
 
 export function AppliedStatus({ revision, accountIds, fetcher = fetchApplied }: AppliedStatusProps) {
   const [answers, setAnswers] = useState<Record<string, ParsedApplied | "loading">>({})
+  const generation = useRef(0)
 
   const check = useCallback(() => {
-    let live = true
+    const read = ++generation.current
     setAnswers(Object.fromEntries(accountIds.map((id) => [id, "loading" as const])))
     for (const accountId of accountIds) {
       void fetcher(accountId).then(({ status, body }) => {
-        if (live) setAnswers((current) => ({ ...current, [accountId]: parseAppliedResponse(status, body) }))
+        if (read === generation.current) setAnswers((current) => ({ ...current, [accountId]: parseAppliedResponse(status, body) }))
       })
-    }
-    return () => {
-      live = false
     }
   }, [accountIds, fetcher])
   useEffect(check, [check])

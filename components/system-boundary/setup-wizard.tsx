@@ -209,21 +209,35 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
     setPending(pendingForSetup(store.read(), actor, accountId, setupId))
   }, [actor, accountId, setupId, store])
 
+  // (S0 NSW-02) Each read of the setup -- on open, on "Check the save again", after a refused write, and again for a new
+  // person, account or setup -- takes the next generation, and a SAVED write moves it on too: an answer, success or refusal,
+  // is shown only while it answers the LATEST read and no write has answered since. HTTP completion order says nothing about
+  // which snapshot is newer, so an earlier read answering last (a FINISHING captured before the commit) changes nothing.
+  // Reads never touch the pending store: an unresolved write keeps its request id whatever they answer.
+  const readGeneration = useRef(0)
+  // The setup whose typing is on screen: a re-read for it keeps that typing and step; another setup starts from its saved intent.
+  const shownFor = useRef<string | null>(null)
   const load = useCallback(async (keepTyping: boolean) => {
+    const read = ++readGeneration.current
     const answer = await client.readSetup(setupId)
+    if (read !== readGeneration.current) return
     if (answer.kind !== "OK") {
-      setProblem(answer.kind === "REFUSED" ? `This setup cannot be opened (${answer.code}).` : `This setup could not be read (${answer.code}).`)
+      if (answer.kind === "REFUSED") {
+        setSetup(null)                                                   // refused NOW: the earlier snapshot is not shown
+        setProblem(`This setup cannot be opened (${answer.code}).`)
+      } else setProblem(`This setup could not be read (${answer.code}).`)
       return
     }
     setSetup(answer.value)
     if (!keepTyping) {
       setLocal(fromIntent(answer.value.intent))
       setStep(answer.value.status === "FINISHED" ? "progress_and_results" : answer.value.intent.resume_step)
+      shownFor.current = setupId
     }
   }, [client, setupId])
   useEffect(() => {
-    void load(false)
-  }, [load])
+    void load(shownFor.current === setupId)
+  }, [context, load, setupId])
   // The status vector: on Review, what finishing the SAVED intent will request; on Progress, each request as it is NOW.
   const [statusProblem, setStatusProblem] = useState<string | null>(null)
   useEffect(() => {
@@ -266,6 +280,7 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
     }
     setPending(null)
     if (answer.kind === "SAVED") {
+      readGeneration.current += 1                                        // a read sent before this answer is older than it
       setProblem(null)
       setSetup(answer.view)
       setStep(op.kind === "finish" ? "progress_and_results" : (op.kind === "update" ? op.steps.resume_step : step))

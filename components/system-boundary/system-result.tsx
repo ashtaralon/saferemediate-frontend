@@ -6,8 +6,12 @@
  * Read on open and on "Check again", never polled. No percentage: the backend's exact counts, and a list the backend
  * capped says how many rows it left out. A hold (not served on this install yet, nothing published, the system not named)
  * is said as itself, never as an empty system.
+ *
+ * (S0 NSW-01) Each read -- on open, on "Check again", and again when the system, accounts or reader change -- takes the next
+ * generation: an answer, success or refusal, is shown only while it answers the LATEST read. An earlier read answering last
+ * changes nothing.
  */
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
   fetchResult,
@@ -46,17 +50,17 @@ function rowLine(list: ResultList, row: ResultRow): string {
 
 export function SystemResult({ systemKey, accountIds, fetcher = fetchResult }: SystemResultProps) {
   const [answers, setAnswers] = useState<Record<string, ParsedResult | "loading">>({})
+  const generation = useRef(0)
 
   const check = useCallback(() => {
-    let live = true
+    const read = ++generation.current
     setAnswers(Object.fromEntries(accountIds.map((id) => [id, "loading" as const])))
     for (const accountId of accountIds) {
       void fetcher(accountId, systemKey).then(({ status, body }) => {
-        if (live) setAnswers((current) => ({ ...current, [accountId]: parseResultResponse(status, body, accountId) }))
+        if (read === generation.current) {
+          setAnswers((current) => ({ ...current, [accountId]: parseResultResponse(status, body, accountId) }))
+        }
       })
-    }
-    return () => {
-      live = false
     }
   }, [accountIds, fetcher, systemKey])
   useEffect(check, [check])
