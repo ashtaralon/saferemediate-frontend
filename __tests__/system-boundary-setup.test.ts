@@ -168,6 +168,8 @@ describe("the setup client reads the REAL answers, and nothing in between is inv
       { ...made, observation: { ...partial, unresolved: [{ region: "eu-west-1", source_scope: "x", reason: null }] } },   // status named
       { ...made, observation: { state: "FULFILLED" } },
       { ...made, observation: { state: "UNKNOWN", limitation: "" } },
+      // a state the backend never sends, even with the answer a not-current request carries
+      { ...made, state: "DONE", observation: { state: "UNKNOWN", limitation: "REQUEST_NOT_CURRENT" } },
     ]) {
       expect(isOperation(bad)).toBe(false)
     }
