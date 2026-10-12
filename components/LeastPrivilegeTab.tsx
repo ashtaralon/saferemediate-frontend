@@ -3429,6 +3429,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                 
                 // Get gap analysis to find rules to delete/tighten
                 const gapData = sgGapAnalysisCache[sgId] || await fetchSGGapAnalysis(sgId)
+                // A failed read is not an empty rule set; never execute on one.
+                if (!gapData) throw new Error('Failed to load analysis')
                 
                 const rulesToDelete = gapData?.rules_analysis
                   ?.filter((r: any) => r.recommendation?.action === 'DELETE')

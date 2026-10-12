@@ -1,10 +1,23 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import {
+  ERROR_ORIGIN_HEADER,
+  allowlistedBackendDetail,
+  fromCaughtError,
+  reviewProxyStatus,
+} from "@/lib/server/proxy-error"
 
 const BACKEND_URL = getBackendBaseUrl()
 
 export const maxDuration = 30
 export const dynamic = "force-dynamic"
+
+// Errors carry NO rule counts. Every failure used to be a 200 with
+// used_rules / unused_rules / total_rules = 0 and an empty rules_analysis,
+// which a caller that checks `res.ok` rendered as a Security Group with zero
+// rules. A failure is now the house error shape (lib/server/proxy-error, as
+// the LP issues and metrics proxies answer it): a non-2xx status and no
+// analysis values.
 
 export async function GET(
   req: NextRequest, 
@@ -14,16 +27,10 @@ export async function GET(
     const { sgId } = await context.params
     
     if (!sgId) {
-      return NextResponse.json({ 
-        sg_id: "",
-        sg_name: "Unknown",
-        rules_analysis: [],
-        used_rules: 0,
-        unused_rules: 0,
-        total_rules: 0,
-        error: true,
-        message: "Missing sgId parameter" 
-      }, { status: 200 })
+      return NextResponse.json(
+        { error: "sgId path parameter is required", origin: "proxy" },
+        { status: 400, headers: { "Cache-Control": "no-store", [ERROR_ORIGIN_HEADER]: "proxy" } },
+      )
     }
     
     // Use the inspector endpoint which exists on the backend
@@ -42,18 +49,21 @@ export async function GET(
     clearTimeout(timeoutId)
 
     if (!res.ok) {
-      const errorText = await res.text()
-      console.error(`[SG Gap Analysis] Backend error ${res.status}: ${errorText}`)
-      return NextResponse.json({
-        sg_id: sgId,
-        sg_name: sgId,
-        rules_analysis: [],
-        used_rules: 0,
-        unused_rules: 0,
-        total_rules: 0,
-        error: true,
-        message: `Backend error: ${res.status}`
-      }, { status: 200 })
+      const raw = await res.text().catch(() => "")
+      const detail = allowlistedBackendDetail(raw)
+      console.error(`[SG Gap Analysis] Backend ${res.status}: code=${detail?.code ?? "none"}`)
+      return NextResponse.json(
+        {
+          error: `Security group analysis backend returned ${res.status}`,
+          ...(detail ? { detail } : {}),
+          backendStatus: res.status,
+          origin: "backend",
+        },
+        {
+          status: reviewProxyStatus(res.status),
+          headers: { "Cache-Control": "no-store", [ERROR_ORIGIN_HEADER]: "backend" },
+        },
+      )
     }
 
     const data = await res.json()
@@ -81,19 +91,11 @@ export async function GET(
 
     console.log(`[SG Gap Analysis] Success: ${result.sg_name}, ${result.rules_analysis.length} rules`)
     return NextResponse.json(result)
-  } catch (error: any) {
-    console.error("[SG Gap Analysis] Error:", error.message)
-    
-    return NextResponse.json({ 
-      sg_id: "unknown",
-      sg_name: "Unknown",
-      rules_analysis: [],
-      used_rules: 0,
-      unused_rules: 0,
-      total_rules: 0,
-      timeout: error.name === 'AbortError',
-      error: true,
-      message: error.name === 'AbortError' ? 'Request timed out' : error.message
-    }, { status: 200 })
+  } catch (error: unknown) {
+    console.error("[SG Gap Analysis] Error:", error instanceof Error ? error.message : error)
+    // AbortError -> 504, anything else -> 503; no analysis values either way.
+    const failed = fromCaughtError(error)
+    failed.headers.set(ERROR_ORIGIN_HEADER, "proxy")
+    return failed
   }
 }

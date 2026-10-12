@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import {
+  ERROR_ORIGIN_HEADER,
+  allowlistedBackendDetail,
+  fromCaughtError,
+  reviewProxyStatus,
+} from "@/lib/server/proxy-error"
 
 // Route: /api/proxy/security-groups/by-system
 // Returns all security groups for a system from Neo4j
@@ -11,6 +17,10 @@ export const maxDuration = 30
 const BACKEND_URL =
   getBackendBaseUrl()
 
+// A timeout or unreachable backend used to be a 200 with security_groups = []:
+// "this system has no security groups" presented as a successful read. Every
+// failure is now the house error shape (lib/server/proxy-error, as the LP
+// issues and metrics proxies answer it): a non-2xx status and no rows.
 export async function GET(req: NextRequest) {
   console.log("[by-system] Route handler invoked")
   
@@ -45,11 +55,20 @@ export async function GET(req: NextRequest) {
     clearTimeout(timeoutId)
 
     if (!res.ok) {
-      const errorText = await res.text()
-      console.error(`[proxy] security-groups/by-system backend returned ${res.status}: ${errorText}`)
+      const raw = await res.text().catch(() => "")
+      const detail = allowlistedBackendDetail(raw)
+      console.error(`[proxy] security-groups/by-system backend ${res.status}: code=${detail?.code ?? "none"}`)
       return NextResponse.json(
-        { error: `Backend returned ${res.status}`, security_groups: [] },
-        { status: res.status }
+        {
+          error: `Security-groups-by-system backend returned ${res.status}`,
+          ...(detail ? { detail } : {}),
+          backendStatus: res.status,
+          origin: "backend",
+        },
+        {
+          status: reviewProxyStatus(res.status),
+          headers: { "Cache-Control": "no-store", [ERROR_ORIGIN_HEADER]: "backend" },
+        },
       )
     }
 
@@ -61,14 +80,11 @@ export async function GET(req: NextRequest) {
         "Content-Type": "application/json",
       },
     })
-  } catch (error: any) {
-    console.error("[proxy] security-groups/by-system error:", error)
-    
-    return NextResponse.json({
-      security_groups: [],
-      error: true,
-      message: error.name === "AbortError" ? "Request timed out" : error.message
-    }, { status: 200 })
+  } catch (error: unknown) {
+    console.error("[proxy] security-groups/by-system error:", error instanceof Error ? error.message : error)
+    // AbortError -> 504, anything else -> 503; no rows either way.
+    const failed = fromCaughtError(error)
+    failed.headers.set(ERROR_ORIGIN_HEADER, "proxy")
+    return failed
   }
 }
-

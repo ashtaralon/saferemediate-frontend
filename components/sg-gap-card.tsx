@@ -5,6 +5,7 @@ import { SGInspectorSheet } from './inspector/SGInspectorSheet';
 import { ResourceGapCard } from './ResourceGapCard';
 import { ResourceGapTemplate, ActionType } from '@/types/resource-gap-template';
 import { getResourceTemplate, mergeTemplateConfig } from '@/lib/resource-gap-templates';
+import { coerceProxyErrorMessage } from '@/lib/proxy-error-message';
 
 // ============================================================================
 // Types & Interfaces (SG-specific)
@@ -515,8 +516,10 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
       const response = await fetch(`/api/proxy/security-groups/${sgId}/gap-analysis?${params}`);
 
       if (!response.ok) {
+        // The proxy's error shape carries `detail` as a typed object; read it
+        // as text, never "[object Object]".
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || `HTTP ${response.status}`);
+        throw new Error(coerceProxyErrorMessage(errData, `HTTP ${response.status}`));
       }
 
       const data = await response.json();

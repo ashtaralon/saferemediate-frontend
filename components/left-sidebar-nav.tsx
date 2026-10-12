@@ -59,8 +59,14 @@ function useSharedResourcesActionableCount(): number | null {
           fetch(`/api/proxy/sg/shared-sgs?${qs}`, { cache: "no-store" }),
         ])
         if (cancelled) return
-        const iamJson = iamRes.ok ? await iamRes.json() : {}
-        const sgJson = sgRes.ok ? await sgRes.json() : {}
+        // A failed read is not zero rows: leave the count unknown (null)
+        // rather than summing only the half that answered.
+        if (!iamRes.ok || !sgRes.ok) {
+          setCount(null)
+          return
+        }
+        const iamJson = await iamRes.json()
+        const sgJson = await sgRes.json()
         const iamRows: Array<{ headline_state?: string }> =
           iamJson.shared_roles ?? iamJson.roles ?? []
         const sgRows: Array<{ narrowing?: { headline_state?: string } }> =
