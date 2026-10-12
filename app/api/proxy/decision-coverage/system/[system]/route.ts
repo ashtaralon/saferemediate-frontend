@@ -10,10 +10,9 @@ import { getBackendBaseUrl } from "@/lib/server/backend-url"
 // This backs an advisory banner, so a slow backend must degrade to silence
 // rather than hold the tab.
 
-const BACKEND_URL =
-  process.env.BACKEND_URL_OVERRIDE ||
-  process.env.NEXT_PUBLIC_BACKEND_URL ||
-  getBackendBaseUrl()
+// Use the one server-owned backend resolver. A stale public build-time URL
+// must never override the C1 serving destination chosen by this deployment.
+const BACKEND_URL = getBackendBaseUrl()
 
 export async function GET(
   _request: NextRequest,
