@@ -69,10 +69,15 @@ export interface EnforcementScoreData {
 
 export interface PostureScoreData {
   system_name: string
-  overall_score: number
-  grade: string
+  /** Null (with `held`, `error_code`, `held_reason`) while IAM usage is unverified. */
+  overall_score: number | null
+  grade: string | null
+  held?: boolean
+  error_code?: string | null
+  held_reason?: string | null
   dimensions: {
-    least_privilege?: { score: number; weight: number }
+    /** `score` is null (+ `score_withheld_reason`) while IAM usage is unverified. */
+    least_privilege?: { score: number | null; weight: number; score_withheld_reason?: string | null }
     network_security?: { score: number; weight: number }
     data_protection?: { score: number; weight: number }
     compliance?: { score: number; weight: number }

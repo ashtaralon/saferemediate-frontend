@@ -4,6 +4,17 @@ import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { riskLabel } from "@/lib/utils"
 import {
+  HELD_LABEL,
+  HELD_TITLE,
+  gradeCountOrHeld,
+  heldGrade,
+  heldNumber,
+  identityRowsHold,
+  meanOrHeld,
+  sumOrHeld,
+} from "@/lib/usage-held"
+import { HeldValue, UsageHeldNotice } from "@/components/usage-held/held-value"
+import {
   Bot,
   Search,
   Shield,
@@ -43,11 +54,13 @@ interface NHIdentity {
   identity_type: string
   sub_type: string
   system_name: string | null
-  risk_level: string
+  /** Null when the backend withholds usage-derived values (see lib/usage-held.ts). */
+  risk_level: string | null
   permissions_count: number
-  used_permissions_count: number
-  unused_permissions_count: number
-  gap_percentage: number
+  used_permissions_count: number | null
+  unused_permissions_count: number | null
+  gap_percentage: number | null
+  usage_withheld_reason?: string | null
   last_activity: string | null
   attached_resources: string[]
   policies: string[]
@@ -295,7 +308,7 @@ export function NHITab({ onRequestRemediation, systemName }: NHITabProps) {
         !i.sub_type.toLowerCase().includes(q)
       ) return false
     }
-    if (riskFilter !== "all" && i.risk_level.toLowerCase() !== riskFilter.toLowerCase()) return false
+    if (riskFilter !== "all" && (heldGrade(i.risk_level) ?? HELD_LABEL).toLowerCase() !== riskFilter.toLowerCase()) return false
     if (subTypeFilter !== "all" && i.sub_type !== subTypeFilter) return false
     return true
   })
@@ -311,11 +324,13 @@ export function NHITab({ onRequestRemediation, systemName }: NHITabProps) {
 
   // Stats
   const totalNHIs = scopedIdentities.length
-  const criticalCount = scopedIdentities.filter(i => i.risk_level === "Critical").length
-  const totalUnused = scopedIdentities.reduce((s, i) => s + i.unused_permissions_count, 0)
-  const avgGap = scopedIdentities.length > 0
-    ? Math.round(scopedIdentities.reduce((s, i) => s + i.gap_percentage, 0) / scopedIdentities.length)
-    : 0
+  // Any withheld row withholds the aggregate: a sum over the measured rows is not the total.
+  const criticalCount = gradeCountOrHeld(scopedIdentities.map(i => i.risk_level), "Critical")
+  const totalUnused = sumOrHeld(scopedIdentities.map(i => i.unused_permissions_count))
+  const meanGap = meanOrHeld(scopedIdentities.map(i => i.gap_percentage), 0)
+  const avgGap = meanGap === null ? null : Math.round(meanGap)
+  const usageHold = identityRowsHold(scopedIdentities as unknown as Record<string, unknown>[])
+  const anyGradeHeld = scopedIdentities.some(i => heldGrade(i.risk_level) === null)
 
   if (loading) {
     return (
@@ -344,23 +359,31 @@ export function NHITab({ onRequestRemediation, systemName }: NHITabProps) {
             <AlertTriangle className="w-5 h-5" style={{ color: "#ef4444" }} />
             <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Critical Risk</span>
           </div>
-          <div className="text-2xl font-bold" style={{ color: "#ef4444" }}>{criticalCount}</div>
+          {criticalCount === null
+            ? <HeldValue testId="nhi-critical-count" className="text-2xl font-bold block" />
+            : <div className="text-2xl font-bold" style={{ color: "#ef4444" }}>{criticalCount}</div>}
         </div>
         <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
           <div className="flex items-center gap-2 mb-2">
             <TrendingDown className="w-5 h-5" style={{ color: "#ef4444" }} />
             <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Unused Permissions</span>
           </div>
-          <div className="text-2xl font-bold" style={{ color: "#ef4444" }}>{totalUnused.toLocaleString()}</div>
+          {totalUnused === null
+            ? <HeldValue testId="nhi-total-unused" className="text-2xl font-bold block" />
+            : <div className="text-2xl font-bold" style={{ color: "#ef4444" }}>{totalUnused.toLocaleString()}</div>}
         </div>
         <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
           <div className="flex items-center gap-2 mb-2">
-            <Activity className="w-5 h-5" style={{ color: avgGap > 50 ? "#ef4444" : "#eab308" }} />
+            <Activity className="w-5 h-5" style={{ color: avgGap === null ? undefined : avgGap > 50 ? "#ef4444" : "#eab308" }} />
             <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Avg Permission Gap</span>
           </div>
-          <div className="text-2xl font-bold" style={{ color: avgGap > 50 ? "#ef4444" : "#eab308" }}>{avgGap}%</div>
+          {avgGap === null
+            ? <HeldValue testId="nhi-avg-gap" className="text-2xl font-bold block" />
+            : <div className="text-2xl font-bold" style={{ color: avgGap > 50 ? "#ef4444" : "#eab308" }}>{avgGap}%</div>}
         </div>
       </div>
+
+      {usageHold && <UsageHeldNotice hold={usageHold} testId="nhi-usage-held" />}
 
       {/* Observation Window Banner */}
       <div className="rounded-lg p-3 border flex items-center gap-3" style={{ background: "#3b82f610", borderColor: "#3b82f640" }}>
@@ -392,6 +415,7 @@ export function NHITab({ onRequestRemediation, systemName }: NHITabProps) {
             <option value="high">High</option>
             <option value="medium">Medium</option>
             <option value="low">Low</option>
+            {anyGradeHeld && <option value={HELD_LABEL.toLowerCase()}>{HELD_LABEL}</option>}
           </select>
           <select value={subTypeFilter} onChange={(e) => setSubTypeFilter(e.target.value)}
             className="px-3 py-2 rounded-lg border text-sm"
@@ -433,6 +457,10 @@ export function NHITab({ onRequestRemediation, systemName }: NHITabProps) {
             {filtered.map((nhi) => {
               const Icon = getSubTypeIcon(nhi.sub_type)
               const isExpanded = expandedRow === nhi.arn
+              const risk = heldGrade(nhi.risk_level)
+              const used = heldNumber(nhi.used_permissions_count)
+              const unused = heldNumber(nhi.unused_permissions_count)
+              const gap = heldNumber(nhi.gap_percentage)
 
               return (
                 <div key={nhi.arn}>
@@ -469,26 +497,38 @@ export function NHITab({ onRequestRemediation, systemName }: NHITabProps) {
                     </div>
                     <div className="text-sm truncate" style={{ color: "var(--text-secondary)" }}>{nhi.system_name || "—"}</div>
                     <div className="text-center text-sm font-medium" style={{ color: "var(--text-primary)" }}>{nhi.permissions_count}</div>
-                    <div className="text-center text-sm font-medium" style={{ color: nhi.unused_permissions_count > 0 ? "#ef4444" : "#22c55e" }}>
-                      {nhi.unused_permissions_count}
-                    </div>
+                    {unused === null ? (
+                      <HeldValue testId="nhi-row-unused" className="text-center text-sm font-medium" />
+                    ) : (
+                      <div className="text-center text-sm font-medium" style={{ color: unused > 0 ? "#ef4444" : "#22c55e" }}>
+                        {unused}
+                      </div>
+                    )}
                     <div className="text-center">
+                      {gap === null ? (
+                        <HeldValue testId="nhi-row-gap" className="text-xs font-medium" />
+                      ) : (
                       <div className="inline-flex items-center gap-1">
                         <div className="w-10 h-1.5 rounded-full overflow-hidden" style={{ background: "var(--bg-primary)" }}>
                           <div className="h-full rounded-full" style={{
-                            width: `${nhi.gap_percentage}%`,
-                            background: nhi.gap_percentage >= 70 ? "#ef4444" : nhi.gap_percentage >= 50 ? "#f97316" : nhi.gap_percentage >= 30 ? "#eab308" : "#22c55e",
+                            width: `${gap}%`,
+                            background: gap >= 70 ? "#ef4444" : gap >= 50 ? "#f97316" : gap >= 30 ? "#eab308" : "#22c55e",
                           }} />
                         </div>
-                        <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>{nhi.gap_percentage.toFixed(0)}%</span>
+                        <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>{gap.toFixed(0)}%</span>
                       </div>
+                      )}
                       <div className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>{nhi.observation_days}d · {nhi.confidence}%</div>
                     </div>
                     <div className="text-center">
+                      {risk === null ? (
+                        <HeldValue testId="nhi-row-risk" className="px-2 py-0.5 rounded text-xs font-semibold" />
+                      ) : (
                       <span className="px-2 py-0.5 rounded text-xs font-semibold" style={{
-                        background: `${getRiskColor(nhi.risk_level)}20`,
-                        color: getRiskColor(nhi.risk_level),
-                      }}>{nhi.risk_level}</span>
+                        background: `${getRiskColor(risk)}20`,
+                        color: getRiskColor(risk),
+                      }}>{risk}</span>
+                      )}
                     </div>
                     <div className="text-center">
                       <button
@@ -555,17 +595,19 @@ export function NHITab({ onRequestRemediation, systemName }: NHITabProps) {
                                 <div className="flex items-center gap-6">
                                   <div className="flex-1">
                                     <div className="flex items-center justify-between mb-1">
-                                      <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Used: {nhi.used_permissions_count}</span>
-                                      <span className="text-xs" style={{ color: "#ef4444" }}>Unused: {nhi.unused_permissions_count}</span>
+                                      <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Used: {used === null ? <HeldValue testId="nhi-detail-used" /> : used}</span>
+                                      <span className="text-xs" style={{ color: "#ef4444" }}>Unused: {unused === null ? <HeldValue testId="nhi-detail-unused" /> : unused}</span>
                                     </div>
+                                    {used !== null && (
                                     <div className="h-2 rounded-full overflow-hidden" style={{ background: "var(--bg-primary)" }}>
                                       <div className="h-full rounded-full" style={{
-                                        width: `${nhi.permissions_count > 0 ? (nhi.used_permissions_count / nhi.permissions_count) * 100 : 0}%`,
+                                        width: `${nhi.permissions_count > 0 ? (used / nhi.permissions_count) * 100 : 0}%`,
                                         background: "#22c55e",
                                       }} />
                                     </div>
-                                    <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-                                      {nhi.gap_percentage.toFixed(0)}% permissions can be removed
+                                    )}
+                                    <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }} data-testid="nhi-detail-gap">
+                                      {gap === null ? HELD_TITLE : `${gap.toFixed(0)}% permissions can be removed`}
                                     </div>
                                   </div>
                                 </div>
@@ -580,9 +622,13 @@ export function NHITab({ onRequestRemediation, systemName }: NHITabProps) {
                                       <>
                                         <div className="flex items-center justify-between mb-3">
                                           <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Damage Score</span>
+                                          {heldNumber(detailData.damage_classification.damage_score) === null ? (
+                                            <HeldValue testId="nhi-damage-score" className="text-xl font-bold" />
+                                          ) : (
                                           <span className="text-xl font-bold" style={{
                                             color: riskLabel(detailData.damage_classification.damage_score).color
                                           }}>{riskLabel(detailData.damage_classification.damage_score).label}</span>
+                                          )}
                                         </div>
                                         <div className="space-y-2">
                                           {Object.entries(detailData.damage_classification.details || {}).map(([cat, actions]) => {
@@ -645,13 +691,13 @@ export function NHITab({ onRequestRemediation, systemName }: NHITabProps) {
                                 )}
 
                                 {/* Remediate Button */}
-                                {nhi.unused_permissions_count > 0 && (
+                                {unused !== null && unused > 0 && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); handleReviewFix(nhi) }}
                                     className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-white hover:opacity-90 transition-opacity"
                                     style={{ background: "#8b5cf6" }}
                                   >
-                                    <Wrench className="w-4 h-4" /> Remediate {nhi.unused_permissions_count} Unused Permission{nhi.unused_permissions_count !== 1 ? 's' : ''}
+                                    <Wrench className="w-4 h-4" /> Remediate {unused} Unused Permission{unused !== 1 ? 's' : ''}
                                   </button>
                                 )}
                               </div>

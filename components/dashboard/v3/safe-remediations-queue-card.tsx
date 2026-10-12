@@ -7,6 +7,8 @@ import {
 import { deriveCandidatesIntegrity, isCacheableCandidates } from "@/lib/candidates-integrity"
 import { ErrorCard, LoadingCard, Section, StaleIndicator } from "./card-shell"
 import { accentByCategory, descriptorClass } from "./styles"
+import { heldNumber } from "@/lib/usage-held"
+import { HeldValue } from "@/components/usage-held/held-value"
 
 /**
  * Safe Remediations Queue.
@@ -34,7 +36,8 @@ type Candidate = {
   resource_type: string
   resource_id: string
   system?: string
-  unused_count?: number
+  /** Null while the backend withholds usage counts (unverified IAM usage). */
+  unused_count?: number | null
   total_permissions?: number
   severity?: string
   safety?: Safety
@@ -148,7 +151,7 @@ export function SafeRemediationsQueueCard({
                   {c.resource_type} · {c.resource_id}
                 </div>
                 <div className="mt-0.5 text-xs text-slate-500">
-                  {c.system ?? "—"} · {c.unused_count ?? 0} unused / {c.total_permissions ?? 0} total
+                  {c.system ?? "—"} · {heldNumber(c.unused_count) === null ? <HeldValue testId="queue-card-unused" /> : c.unused_count} unused / {c.total_permissions ?? 0} total
                 </div>
               </div>
               {c.severity && (

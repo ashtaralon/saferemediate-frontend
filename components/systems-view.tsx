@@ -4,6 +4,18 @@ import { useState, useEffect, useRef, useCallback } from "react"
 import { coerceProxyErrorMessage } from "@/lib/proxy-error-message"
 import { healthLabel } from "@/lib/utils"
 import {
+  HELD_COLOR,
+  HELD_LABEL,
+  HELD_TITLE,
+  SYSTEM_CRITICAL_KEYS,
+  SYSTEM_HEALTH_KEYS,
+  SYSTEM_HIGH_KEYS,
+  meanOrHeld,
+  sumOrHeld,
+  systemValue,
+} from "@/lib/usage-held"
+import { HeldValue } from "@/components/usage-held/held-value"
+import {
   Download,
   Plus,
   ChevronDown,
@@ -30,9 +42,11 @@ interface System {
   criticality: number
   criticalityLabel: string
   environment: string
-  health: number
-  critical: number
-  high: number
+  // Null when the backend withholds the usage-graded findings, health and
+  // status (`findings_withheld_reason`, lib/usage-held.ts).
+  health: number | null
+  critical: number | null
+  high: number | null
   total: number
   lastScan: string
   // ISO timestamp from backend (or null if never scanned). Used to compute
@@ -216,9 +230,10 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
               criticalityLabel: critInfo.label,
               environment: sys.environment || "Production",
               // Use real data from backend, no hardcoded fallbacks
-              health: sys.health_score ?? sys.healthScore ?? 0,
-              critical: sys.critical_count ?? sys.criticalIssues ?? 0,
-              high: sys.high_count ?? sys.highIssues ?? 0,
+              // Held (null) when withheld — never a made-up 0.
+              health: systemValue(sys, SYSTEM_HEALTH_KEYS),
+              critical: systemValue(sys, SYSTEM_CRITICAL_KEYS),
+              high: systemValue(sys, SYSTEM_HIGH_KEYS),
               total: resourceCount,
               lastScan: sys.lastScan || "Just now",
               lastScanAt: sys.lastScanAt ?? null,
@@ -506,16 +521,25 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
   const filteredSystems = localSystems.filter((system) => system.name.toLowerCase().includes(searchQuery.toLowerCase()))
 
   const totalSystems = localSystems.length
-  const missionCriticalAtRisk = localSystems.filter((s) => s.criticality >= 5 && s.critical > 0).length
-  const totalCriticalIssues = localSystems.reduce((sum, s) => sum + s.critical, 0)
-  const avgHealthScore =
-    localSystems.length > 0
-      ? Math.round(localSystems.reduce((sum, s) => sum + (s.health || 0), 0) / localSystems.length)
-      : 0
+  // Any withheld system withholds the aggregate: a total over the graded systems is not the total.
+  const missionCritical = localSystems.filter((s) => s.criticality >= 5)
+  const missionCriticalAtRisk = missionCritical.some((s) => s.critical === null)
+    ? null
+    : missionCritical.filter((s) => (s.critical as number) > 0).length
+  const totalCriticalIssues = sumOrHeld(localSystems.map((s) => s.critical))
+  const meanHealth = meanOrHeld(localSystems.map((s) => s.health), 0)
+  const avgHealthScore = meanHealth === null ? null : Math.round(meanHealth)
 
   // ── Panels below KPIs ──
   // Top at-risk: rank by (critical desc, high desc, health asc). Cap at 3.
-  const topAtRiskSystems = [...localSystems]
+  // A system whose findings are withheld has nothing to rank by: it is left
+  // out of the ranking and counted beside it, never ranked as if it were 0.
+  type RankedSystem = System & { critical: number; high: number; health: number }
+  const rankableSystems = localSystems.filter(
+    (s): s is RankedSystem => s.critical !== null && s.high !== null && s.health !== null,
+  )
+  const heldRankCount = localSystems.length - rankableSystems.length
+  const topAtRiskSystems = [...rankableSystems]
     .sort((a, b) => {
       if (b.critical !== a.critical) return b.critical - a.critical
       if (b.high !== a.high) return b.high - a.high
@@ -553,7 +577,8 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
     return "bg-[#22c55e]"
   }
 
-  const getHealthColor = (health: number) => {
+  const getHealthColor = (health: number | null) => {
+    if (health === null) return `text-[${HELD_COLOR}]`
     if (health >= 90) return "text-[#22c55e]"
     if (health >= 70) return "text-yellow-600"
     if (health >= 50) return "text-orange-600"
@@ -945,16 +970,22 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
                           color: healthColor,
                           opacity: stale ? 0.45 : 1,
                         }}
+                        data-testid="systems-row-health"
                         title={
-                          stale
+                          system.health === null
+                            ? HELD_TITLE
+                            : stale
                             ? `Health score is faded because the last scan is ${daysOld === null ? "missing or older than threshold" : `${daysOld} days old`}. Re-ingest to refresh.`
                             : undefined
                         }
                       >
-                        {system.health || "--"}
+                        {system.health === null ? HELD_LABEL : system.health || "--"}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center">
+                      {system.critical === null ? (
+                        <HeldValue testId="systems-row-critical" className="text-xs font-semibold" />
+                      ) : (
                       <span
                         className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-semibold"
                         style={
@@ -965,8 +996,12 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
                       >
                         {system.critical}
                       </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-center">
+                      {system.high === null ? (
+                        <HeldValue testId="systems-row-high" className="text-xs font-semibold" />
+                      ) : (
                       <span
                         className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-semibold"
                         style={
@@ -977,6 +1012,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
                       >
                         {system.high}
                       </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-center">
                       <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{system.total}</span>
@@ -1048,7 +1084,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
             <AlertTriangle className="w-5 h-5" style={{ color: "#f97316" }} />
             <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Mission Critical at Risk</span>
           </div>
-          <div className="text-2xl font-bold" style={{ color: "#f97316" }}>{missionCriticalAtRisk}</div>
+          {missionCriticalAtRisk === null
+            ? <HeldValue testId="systems-mission-critical-at-risk" className="text-2xl font-bold block" />
+            : <div className="text-2xl font-bold" style={{ color: "#f97316" }}>{missionCriticalAtRisk}</div>}
           <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>Requires immediate attention</div>
         </div>
 
@@ -1060,7 +1098,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
             <AlertTriangle className="w-5 h-5" style={{ color: "#ef4444" }} />
             <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Total Critical Issues</span>
           </div>
-          <div className="text-2xl font-bold" style={{ color: "#ef4444" }}>{totalCriticalIssues}</div>
+          {totalCriticalIssues === null
+            ? <HeldValue testId="systems-total-critical" className="text-2xl font-bold block" />
+            : <div className="text-2xl font-bold" style={{ color: "#ef4444" }}>{totalCriticalIssues}</div>}
         </div>
 
         <div
@@ -1116,9 +1156,13 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
             <Activity className="w-5 h-5" style={{ color: "#22c55e" }} />
             <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Avg Health</span>
           </div>
+          {avgHealthScore === null ? (
+            <HeldValue testId="systems-avg-health" className="text-2xl font-bold block" />
+          ) : (
           <div className="text-2xl font-bold" style={{ color: healthLabel(avgHealthScore).color }}>
             {healthLabel(avgHealthScore).label}
           </div>
+          )}
         </div>
       </div>
 
@@ -1141,7 +1185,12 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
             </div>
           </div>
 
-          {topAtRiskSystems.length === 0 ? (
+          {heldRankCount > 0 && (
+            <div className="mb-2 text-xs" style={{ color: HELD_COLOR }} data-testid="systems-ranking-held" title={HELD_TITLE}>
+              {heldRankCount} of {localSystems.length} systems not ranked: {HELD_TITLE}
+            </div>
+          )}
+          {topAtRiskSystems.length === 0 && heldRankCount > 0 ? null : topAtRiskSystems.length === 0 ? (
             <div
               className="text-center py-8 text-xs"
               style={{ color: "var(--text-muted)" }}

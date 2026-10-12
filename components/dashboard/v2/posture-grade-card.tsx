@@ -1,5 +1,8 @@
 import { DashboardCard, DashboardEmptyState } from "./dashboard-card"
 import { relativeTime, type PostureScoreData, type SourceState } from "./use-home-data"
+import { BrssHeldNotice } from "@/components/brss/brss-held-notice"
+import { HeldValue } from "@/components/usage-held/held-value"
+import { heldNumber } from "@/lib/usage-held"
 
 interface PostureGradeCardProps {
   state: SourceState<PostureScoreData>
@@ -41,6 +44,9 @@ const GRADE_LABEL: Record<string, string> = {
 export function PostureGradeCard({ state, onRetry }: PostureGradeCardProps) {
   const d = state.data
   const hasData = !!d && typeof d.overall_score === "number" && d.dimensions
+  // Held: the backend withheld the LP dimension, the overall score and the
+  // grade (unverified IAM usage) and says why with error_code / held_reason.
+  const held = !!d && !hasData && d.held === true
 
   return (
     <DashboardCard
@@ -52,15 +58,26 @@ export function PostureGradeCard({ state, onRetry }: PostureGradeCardProps) {
       freshness={relativeTime(state.fetchedAt)}
     >
       {!hasData ? (
-        <DashboardEmptyState title="Posture unavailable" />
+        <div data-testid={held ? "posture-grade-held" : undefined}>
+          <DashboardEmptyState title="Posture unavailable" />
+          {held ? (
+            <BrssHeldNotice
+              hold={{
+                codes: d!.error_code ? [d!.error_code] : [],
+                reason: d!.held_reason || null,
+              }}
+              testId="posture-grade-held-notice"
+            />
+          ) : null}
+        </div>
       ) : (
         <div className="flex flex-col gap-4">
           <div className="flex items-center gap-4">
-            <GradeBadge grade={d!.grade ?? "—"} score={d!.overall_score} />
+            <GradeBadge grade={d!.grade ?? "—"} score={d!.overall_score as number} />
             <div className="flex min-w-0 flex-col">
               <div className="flex items-baseline gap-1.5">
                 <span className="text-2xl font-semibold tabular-nums text-slate-900">
-                  {Math.round(d!.overall_score)}
+                  {Math.round(d!.overall_score as number)}
                 </span>
                 <span className="text-sm font-medium text-slate-400">/100</span>
               </div>
@@ -124,9 +141,25 @@ function DimensionRow({
 }: {
   label: string
   hint?: string
-  score: number
+  score: number | null
 }) {
-  const pct = Math.max(0, Math.min(100, score))
+  if (heldNumber(score) === null) {
+    // A withheld dimension renders Unknown with no bar — never 0 and a red bar.
+    return (
+      <div className="flex items-center gap-3" title={hint} data-testid="posture-dimension-held">
+        <div className="w-24 shrink-0">
+          <div className="text-xs text-slate-700">{label}</div>
+          {hint ? (
+            <div className="truncate text-[10px] text-slate-500">{hint}</div>
+          ) : null}
+        </div>
+        <div className="min-w-0 flex-1" />
+        <HeldValue className="shrink-0 text-right text-xs font-medium" />
+      </div>
+    )
+  }
+  const value = score as number
+  const pct = Math.max(0, Math.min(100, value))
   const bar =
     pct >= 80 ? "bg-emerald-500" : pct >= 60 ? "bg-amber-500" : "bg-red-500"
 
@@ -142,7 +175,7 @@ function DimensionRow({
         <div className={`h-full ${bar}`} style={{ width: `${pct}%` }} />
       </div>
       <div className="w-7 shrink-0 text-right text-xs font-medium tabular-nums text-slate-700">
-        {Math.round(score)}
+        {Math.round(value)}
       </div>
     </div>
   )

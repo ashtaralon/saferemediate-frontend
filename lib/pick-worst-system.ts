@@ -10,18 +10,26 @@
  * Prefers rankable, non-rejected entries (the payload carries `rankable` /
  * `rejected` boundary flags); falls back to the full list, then the first
  * entry, so it always resolves a real system name when one exists.
+ *
+ * A system whose usage-graded findings/health the backend withheld
+ * (lib/usage-held.ts::systemFindingsWithheld) has nothing to rank by: it is
+ * never ranked as if its values were 0. When every candidate is withheld the
+ * backend's own order (criticality, then name) decides.
  */
+
+import { systemFindingsWithheld } from "@/lib/usage-held"
 
 export interface RankableSystem {
   name?: string
   rankable?: boolean
   rejected?: boolean
-  health_score?: number
-  healthScore?: number
-  critical_count?: number
-  criticalIssues?: number
-  high_count?: number
-  highIssues?: number
+  health_score?: number | null
+  healthScore?: number | null
+  critical_count?: number | null
+  criticalIssues?: number | null
+  high_count?: number | null
+  highIssues?: number | null
+  findings_withheld_reason?: string | null
 }
 
 function severity(s: RankableSystem): { critical: number; high: number; health: number } {
@@ -49,7 +57,8 @@ export function pickWorstSystemName(
   if (!list.length) return null
   const rankable = list.filter((s) => s?.rankable !== false && !s?.rejected)
   const pool = rankable.length ? rankable : list
-  const worst = [...pool].sort(compareBySeverityWorstFirst)[0]
+  const measured = pool.filter((s) => !systemFindingsWithheld(s))
+  const worst = measured.length ? [...measured].sort(compareBySeverityWorstFirst)[0] : pool[0]
   const name = worst?.name ?? list[0]?.name
   return typeof name === "string" && name ? name : null
 }
