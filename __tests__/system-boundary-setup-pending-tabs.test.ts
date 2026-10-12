@@ -4,7 +4,8 @@
  * Each tab is its own lib/system-boundary-setup-pending.ts store -- its own page memory -- over ONE browser storage. Storage has
  * no cross-tab lock, so another tab can write between this tab's read and its write: the storage double runs the other tab's
  * step at exactly that moment (the first storage write this tab makes). A "reload" is a new store over the same storage with an
- * empty page memory. Every operation is a frozen v1 operation as the wizard makes it.
+ * empty page memory. Every operation is a frozen v1 operation as the wizard makes it. (S0-R02/R03, Codex review of 89440bd3) A
+ * settlement names the EXACT original tuple; an earlier release's list is never written here.
  */
 import { describe, expect, it } from "vitest"
 import {
@@ -80,21 +81,86 @@ describe("DR05: one storage record per unresolved write", () => {
     tabA.put(settled)
     tabB.put(kept)
     a.between = () => tabB.put(fresh)                                    // tab B keeps a write while tab A settles its own
-    tabA.remove(settled.requestId)
+    tabA.remove(settled)
     expect(ids(tab(shared.view().storage).read())).toEqual(ids([kept, fresh]))
   })
 
-  it("a write kept by an earlier release in the shared list is read, offered to its person, and retired alone", () => {
+  it("a write kept by an earlier release in the shared list is read, offered to its person, and retired by a marker alone", () => {
     const shared = sharedStorage()
     const earlier = op(1, ALICE), others = op(2, BOB)
     const unreadable = { version: 2, kind: "finish", requestId: "not-a-v1-operation" }
-    shared.data.set(SETUP_PENDING_KEY, JSON.stringify([earlier, unreadable, others]))   // the earlier release's list, as it wrote it
+    const list = JSON.stringify([earlier, unreadable, others])         // the earlier release's list, as it wrote it
+    shared.data.set(SETUP_PENDING_KEY, list)
     const store = tab(shared.view().storage)
     expect(pendingForSetup(store.read(), ALICE, ACCOUNT, SETUP)).toEqual(earlier)
     expect(store.where(earlier.requestId)).toBe("storage")
-    store.remove(earlier.requestId)
-    expect(JSON.parse(shared.data.get(SETUP_PENDING_KEY)!)).toEqual([unreadable, others])
+    store.remove(earlier)
+    expect(shared.data.get(SETUP_PENDING_KEY)).toBe(list)              // the list itself, byte for byte
     expect(ids(tab(shared.view().storage).read())).toEqual(ids([others]))
+    expect(tab(shared.view().storage).where(earlier.requestId)).toBeNull()
+  })
+
+  it("(S0-R02) an earlier-release tab adding to its list while this one settles loses nothing -- the new tuple stays exact", () => {
+    const shared = sharedStorage()
+    const current = shared.view()
+    const a = op(1, ALICE), b = op(2, ALICE), c = op(3, ALICE, "update")
+    shared.data.set(SETUP_PENDING_KEY, JSON.stringify([a, b]))
+    const store = tab(current.storage)
+    expect(ids(store.read())).toEqual(ids([a, b]))                     // this tab has read the list
+    current.between = () => {                                             // ...and the earlier tab appends c before this tab writes
+      shared.data.set(SETUP_PENDING_KEY, JSON.stringify([...JSON.parse(shared.data.get(SETUP_PENDING_KEY)!), c]))
+    }
+    store.remove(a)
+    const reloaded = tab(shared.view().storage).read()
+    expect(ids(reloaded)).toEqual(ids([b, c]))
+    expect(reloaded.find((o) => o.requestId === c.requestId)).toEqual(c)
+    expect(JSON.parse(shared.data.get(SETUP_PENDING_KEY)!)).toEqual([a, b, c])   // only the earlier tab ever wrote the list
+  })
+
+  it("(S0-R02) two tabs settling two earlier-release tuples at once retire both, and nothing else", () => {
+    const shared = sharedStorage()
+    const one = shared.view(), two = shared.view()
+    const a = op(1, ALICE), b = op(2, BOB), c = op(3, ALICE, "update")
+    shared.data.set(SETUP_PENDING_KEY, JSON.stringify([a, b, c]))
+    const tabOne = tab(one.storage), tabTwo = tab(two.storage)
+    one.between = () => tabTwo.remove(b)                                 // tab two settles b between tab one's read and write
+    tabOne.remove(a)
+    expect(ids(tab(shared.view().storage).read())).toEqual(ids([c]))
+  })
+
+  it("(S0-R03) settling an earlier-release tuple never erases an unreadable record at its request key", () => {
+    const shared = sharedStorage()
+    const a = op(1, ALICE)
+    const future = JSON.stringify({ ...a, version: 2, futureRecoveryToken: "preserve-this" })
+    shared.data.set(SETUP_PENDING_KEY, JSON.stringify([a]))
+    shared.data.set(`${SETUP_PENDING_RECORD_PREFIX}${a.requestId}`, future)
+    const store = tab(shared.view().storage)
+    expect(store.read()).toEqual([a])
+    store.remove(a)
+    expect(shared.data.get(`${SETUP_PENDING_RECORD_PREFIX}${a.requestId}`)).toBe(future)
+    expect(tab(shared.view().storage).read()).toEqual([])
+  })
+
+  it("(S0-R03) settling a tuple never erases ANOTHER tuple kept under its request id -- that one stays offered", () => {
+    const shared = sharedStorage()
+    const settled = op(1, ALICE)
+    const replaced = freezeOp({ ...settled, base: 7 } as PendingSetupOp)       // the same request id, another base
+    const store = tab(shared.view().storage)
+    expect(store.put(replaced)).toBe("storage")
+    store.remove(settled)
+    expect(shared.data.get(`${SETUP_PENDING_RECORD_PREFIX}${settled.requestId}`)).toBe(JSON.stringify(replaced))
+    expect(tab(shared.view().storage).read()).toEqual([replaced])
+  })
+
+  it("(S0-R03) in this page's memory too, settling a tuple never drops another tuple kept under its request id", () => {
+    const store = tab(null as unknown as Storage)                        // no storage: page memory only
+    const settled = op(1, ALICE)
+    const replaced = freezeOp({ ...settled, base: 7 } as PendingSetupOp)
+    expect(store.put(replaced)).toBe("memory")
+    store.remove(settled)
+    expect(store.read()).toEqual([replaced])
+    store.remove(replaced)
+    expect(store.read()).toEqual([])
   })
 
   it("settling a write of this release never writes the earlier release's list -- a still-open earlier tab may be adding to it", () => {
@@ -105,7 +171,7 @@ describe("DR05: one storage record per unresolved write", () => {
     shared.data.set(SETUP_PENDING_KEY, JSON.stringify([earlier]))
     tabA.put(mine)
     a.mutated.length = 0
-    tabA.remove(mine.requestId)
+    tabA.remove(mine)
     expect(a.mutated).toEqual([`${SETUP_PENDING_RECORD_PREFIX}${mine.requestId}`])   // its own record, and nothing else
     expect(ids(tab(shared.view().storage).read())).toEqual(ids([earlier]))
   })
@@ -118,8 +184,20 @@ describe("DR05: one storage record per unresolved write", () => {
     shared.data.set(`${SETUP_PENDING_RECORD_PREFIX}${op(3, ALICE).requestId}`, future)
     const store = tab(shared.view().storage)
     expect(store.read()).toEqual([])
-    store.remove(misfiled.requestId)
+    store.remove(misfiled)
     expect(shared.data.size).toBe(2)
+  })
+
+  it("storage that cannot record a settlement keeps every operation's identity: the unsettled one stays offered", () => {
+    const shared = sharedStorage()
+    const a = op(1, ALICE), b = op(2, BOB)
+    shared.data.set(SETUP_PENDING_KEY, JSON.stringify([a, b]))
+    const blocked = shared.view()
+    blocked.storage.setItem = () => { throw new DOMException("quota", "QuotaExceededError") }
+    blocked.storage.removeItem = () => { throw new DOMException("blocked", "SecurityError") }
+    tab(blocked.storage).remove(a)
+    expect(ids(tab(shared.view().storage).read())).toEqual(ids([a, b]))
+    expect(tab(shared.view().storage).read().find((o) => o.requestId === a.requestId)).toEqual(a)
   })
 
   it("storage that will not keep a write leaves it in this page's memory, and says so", () => {

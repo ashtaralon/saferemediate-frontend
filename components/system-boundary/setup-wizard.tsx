@@ -304,7 +304,7 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
     setBusy(true)
     const answer = op.kind === "update" ? await client.updateSetup(op.setupId, op.requestId, op.base, op.steps)
       : await client.finishSetup(op.setupId, op.requestId, op.base)
-    if (answer.kind !== "RESEND_SAME") store.remove(op.requestId)       // a definite answer resolves it, whoever is here now
+    if (answer.kind !== "RESEND_SAME") store.remove(op)                 // a definite answer settles THIS tuple, whoever is here now
     setBusy(false)
     if (currentContext.current !== sentIn) return                        // a later context: its screen is not this answer's
     if (answer.kind === "RESEND_SAME") {

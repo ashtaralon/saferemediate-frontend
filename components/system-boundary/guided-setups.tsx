@@ -128,7 +128,7 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
     setUnconfirmed(op)
     setStarting(true)
     const answer = await createSetup(op.requestId)
-    if (answer.kind !== "RESEND_SAME") store.remove(op.requestId)       // a definite answer resolves it, whoever is here now
+    if (answer.kind !== "RESEND_SAME") store.remove(op)                 // a definite answer settles THIS tuple, whoever is here now
     setStarting(false)
     if (currentContext.current !== sentIn) return                        // a later person or account: not their screen
     if (answer.kind === "RESEND_SAME") {

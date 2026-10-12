@@ -13,18 +13,25 @@
  * resent automatically, and an entry this version cannot read exactly is never resent.
  *
  * (S0 DR05) One storage record PER operation, under its own key (SETUP_PENDING_RECORD_PREFIX + its request id): keeping one
- * writes only its record and settling one removes only its record, so two tabs never rewrite each other's operations (storage
- * has no cross-tab lock; one shared list read in one tab and written back from it loses what another tab added meanwhile).
- * The list earlier releases kept under SETUP_PENDING_KEY is still read as written; it is rewritten only to retire one of its
- * own operations, every other entry -- one this version cannot read included -- kept. A record this version cannot read, or
- * one whose key does not name its own request id, is never resent and never removed.
+ * writes only its record, so two tabs never rewrite each other's operations (storage has no cross-tab lock; one shared list
+ * read in one tab and written back from it loses what another tab added meanwhile).
+ *
+ * (S0-R02/R03) An operation is SETTLED by its exact original tuple -- kind, person, account, setup, request id, base and body --
+ * never by its request id alone: its own record is removed only while it holds exactly that tuple, and a tuple in the list
+ * earlier releases kept under SETUP_PENDING_KEY is retired by a marker of its own (SETUP_PENDING_RETIRED_PREFIX + request id +
+ * the tuple's digest). That list is read as written and NEVER written here, so an earlier-release tab still adding to it loses
+ * nothing to a settlement in this one. A record this version cannot read, one whose key does not name its own request id, or
+ * one holding another tuple is never resent and never removed.
  */
+import { sha256Bytes } from "@/lib/content-hash"
 import type { SetupIntent } from "@/lib/system-boundary-setup"
 
-/** The list releases before S0 kept every operation in (read, retired from; never added to). */
+/** The list releases before S0 kept every operation in (read; never written by this release). */
 export const SETUP_PENDING_KEY = "cyntro.systemBoundary.setupPending.v1"
 /** Each operation's own record: this prefix + its request id. */
 export const SETUP_PENDING_RECORD_PREFIX = `${SETUP_PENDING_KEY}.op.`
+/** A settled earlier-release tuple's marker: this prefix + its request id + "." + the first 32 hex of its tuple's digest. */
+export const SETUP_PENDING_RETIRED_PREFIX = `${SETUP_PENDING_KEY}.retired.`
 
 interface Common {
   version: 1
@@ -48,7 +55,8 @@ export interface SetupPendingStore {
   read(): PendingSetupOp[]
   /** Keep ``op``; answers where it was ACTUALLY kept -- "storage" only when the exact operation was written and read back. */
   put(op: PendingSetupOp): Kept
-  remove(requestId: string): void
+  /** Settle ``op`` -- EXACTLY that tuple, wherever it is kept; any other tuple, even under its request id, stays. */
+  remove(op: PendingSetupOp): void
   /** Where the operation with ``requestId`` is kept NOW (storage read back, else page memory), or null. */
   where(requestId: string): Kept | null
 }
@@ -83,6 +91,21 @@ function deepFreeze<T>(value: T): T {
 /** A NEW operation, frozen: a copy of its body that later edits can never change. */
 export function freezeOp(op: PendingSetupOp): PendingSetupOp {
   return deepFreeze(structuredClone(op))
+}
+
+/** (S0-R02) An operation's exact identity -- every field, keys in sorted order -- so two copies of one tuple compare equal
+ *  whichever tab or release serialized them, and any difference (base, body, person) is another tuple. */
+function tuple(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(tuple).join(",")}]`
+  if (isRecord(value)) {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${tuple(value[key])}`).join(",")}}`
+  }
+  return JSON.stringify(value) ?? "null"
+}
+
+/** The settlement marker of one exact earlier-release tuple (its own key: two settlements never write one key). */
+function retiredKey(op: PendingSetupOp): string {
+  return `${SETUP_PENDING_RETIRED_PREFIX}${op.requestId}.${sha256Bytes(new TextEncoder().encode(tuple(op))).slice(0, 32)}`
 }
 
 function browserStorage(): Storage | null {
@@ -129,19 +152,31 @@ export function setupPendingStore(storage: Storage | null = browserStorage(),
     }
     return ids.map(record).filter((op): op is PendingSetupOp => op !== null)
   }
+  /** Whether this exact earlier-release tuple carries its settlement marker. */
+  const retired = (op: PendingSetupOp): boolean => {
+    try {
+      return storage?.getItem(retiredKey(op)) === tuple(op)
+    } catch {
+      return false
+    }
+  }
+  /** The earlier release's list: every tuple this version reads exactly and no settlement has retired. */
+  const unretired = (): PendingSetupOp[] =>
+    legacy().map(opOf).filter((op): op is PendingSetupOp => op !== null && !retired(op))
   const stored = (requestId: string): PendingSetupOp | null =>
-    record(requestId) ?? legacy().map(opOf).find((op): op is PendingSetupOp => op !== null && op.requestId === requestId) ?? null
+    record(requestId) ?? unretired().find((op) => op.requestId === requestId) ?? null
   const attempt = (write: (s: Storage) => void): void => {
     try {
       if (storage) write(storage)
     } catch {
-      // blocked or full: an operation is then kept in this page's memory only (put reads its record back to say so)
+      // blocked or full: an operation is then kept in this page's memory only (put reads its record back to say so); a
+      // settlement that cannot be written leaves the operation offered -- its exact resend is answered by its replay
     }
   }
   return {
     read() {
       const kept = new Map<string, PendingSetupOp>()
-      for (const op of [...records(), ...legacy().map(opOf)]) if (op !== null && !kept.has(op.requestId)) kept.set(op.requestId, op)
+      for (const op of [...records(), ...unretired()]) if (!kept.has(op.requestId)) kept.set(op.requestId, op)
       return [...kept.values(), ...[...memory.values()].filter((op) => !kept.has(op.requestId))]
     },
     put(op) {
@@ -152,13 +187,14 @@ export function setupPendingStore(storage: Storage | null = browserStorage(),
       const back = record(op.requestId)
       return back !== null && JSON.stringify(back) === JSON.stringify(op) ? "storage" : "memory"
     },
-    remove(requestId) {
-      memory.delete(requestId)
-      attempt((s) => s.removeItem(SETUP_PENDING_RECORD_PREFIX + requestId))
-      const old = legacy()
-      if (old.some((v) => opOf(v)?.requestId === requestId)) {       // an earlier release's entry: retire it alone
-        const rest = old.filter((v) => opOf(v)?.requestId !== requestId)
-        attempt((s) => (rest.length ? s.setItem(SETUP_PENDING_KEY, JSON.stringify(rest)) : s.removeItem(SETUP_PENDING_KEY)))
+    remove(op) {
+      const exact = tuple(op)
+      const inMemory = memory.get(op.requestId)
+      if (inMemory && tuple(inMemory) === exact) memory.delete(op.requestId)
+      const own = record(op.requestId)                                 // its own record, only while it holds THIS tuple
+      if (own !== null && tuple(own) === exact) attempt((s) => s.removeItem(SETUP_PENDING_RECORD_PREFIX + op.requestId))
+      if (legacy().some((v) => { const earlier = opOf(v); return earlier !== null && tuple(earlier) === exact })) {
+        attempt((s) => s.setItem(retiredKey(op), exact))              // an earlier release's tuple: its own marker, never the list
       }
     },
     where(requestId) {
