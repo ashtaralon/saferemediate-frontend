@@ -6,8 +6,9 @@
  * typing is staged separately and never replaces it.
  *
  * Where it is kept. With a verified person (the subject /authoring-grants/self names) the operation is kept in this browser's
- * storage, every access guarded, so Close and a reload keep it. Without one, or with storage blocked, it is kept in this
- * page's memory only: Close keeps it, a reload does not, and the wizard says so. An operation is only ever offered to the
+ * storage, every access guarded, so Close and a reload keep it. Without one, or when storage does not keep the exact operation
+ * (blocked, full -- judged by reading it back, never by a probe write), it is kept in this page's memory only: Close keeps it,
+ * a reload does not, and the wizard says so. An operation is only ever offered to the
  * person who started it (an unknown person matches only an operation an unknown person started in this page), never
  * resent automatically, and an entry this version cannot read exactly is never resent.
  */
@@ -29,13 +30,17 @@ export type PendingSetupOp =
   | (Common & { kind: "update"; setupId: string; base: number; steps: SetupIntent })
   | (Common & { kind: "finish"; setupId: string; base: number })
 
+/** Where an operation is actually kept: browser storage (survives a reload) or this page's memory only. */
+export type Kept = "storage" | "memory"
+
 export interface SetupPendingStore {
   /** Every readable operation (storage and this page's memory). */
   read(): PendingSetupOp[]
-  put(op: PendingSetupOp): void
+  /** Keep ``op``; answers where it was ACTUALLY kept -- "storage" only when the exact operation was written and read back. */
+  put(op: PendingSetupOp): Kept
   remove(requestId: string): void
-  /** Whether an operation of ``actor`` survives a reload here (a verified person and usable storage). */
-  durable(actor: string | null): boolean
+  /** Where the operation with ``requestId`` is kept NOW (storage read back, else page memory), or null. */
+  where(requestId: string): Kept | null
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
@@ -102,34 +107,37 @@ export function setupPendingStore(storage: Storage | null = browserStorage(),
       return false                                   // blocked or full: kept in this page's memory only
     }
   }
-  const usable = (): boolean => {
-    try {
-      if (!storage) return false
-      storage.setItem(`${SETUP_PENDING_KEY}.probe`, "1")
-      storage.removeItem(`${SETUP_PENDING_KEY}.probe`)
-      return true
-    } catch {
-      return false
-    }
-  }
+  const stored = (requestId: string): PendingSetupOp | null =>
+    load().map(opOf).find((op): op is PendingSetupOp => op !== null && op.requestId === requestId) ?? null
   return {
     read() {
-      const stored = load().map(opOf).filter((op): op is PendingSetupOp => op !== null)
-      const ids = new Set(stored.map((op) => op.requestId))
-      return [...stored, ...[...memory.values()].filter((op) => !ids.has(op.requestId))]
+      const kept = load().map(opOf).filter((op): op is PendingSetupOp => op !== null)
+      const ids = new Set(kept.map((op) => op.requestId))
+      return [...kept, ...[...memory.values()].filter((op) => !ids.has(op.requestId))]
     },
     put(op) {
       memory.set(op.requestId, op)
-      if (op.actor !== null) save([...load().filter((v) => opOf(v)?.requestId !== op.requestId), op])
+      if (op.actor === null) return "memory"            // an unverified person's operation never reaches storage
+      save([...load().filter((v) => opOf(v)?.requestId !== op.requestId), op])
+      // (G2-F19) durable only if THIS exact operation reads back from storage -- never inferred from a probe write.
+      const back = stored(op.requestId)
+      return back !== null && JSON.stringify(back) === JSON.stringify(op) ? "storage" : "memory"
     },
     remove(requestId) {
       memory.delete(requestId)
       save(load().filter((v) => opOf(v)?.requestId !== requestId))
     },
-    durable(actor) {
-      return actor !== null && usable()
+    where(requestId) {
+      if (stored(requestId) !== null) return "storage"
+      return memory.has(requestId) ? "memory" : null
     },
   }
+}
+
+/** Every unresolved operation on THIS setup from THIS account that another identity started (or one started before the
+ *  person was verified): held, never offered or resent to the current person. */
+export function othersForSetup(ops: PendingSetupOp[], actor: string | null, accountId: string, setupId: string): PendingSetupOp[] {
+  return ops.filter((op) => op.kind !== "create" && op.actor !== actor && op.accountId === accountId && op.setupId === setupId)
 }
 
 /** The unresolved operation of THIS person on THIS setup (at most one is ever created), or null. */
@@ -137,6 +145,12 @@ export function pendingForSetup(ops: PendingSetupOp[], actor: string | null, acc
                                 setupId: string): PendingSetupOp | null {
   return ops.filter((op) => op.kind !== "create" && op.actor === actor && op.accountId === accountId && op.setupId === setupId)
     .sort((a, b) => a.startedAt.localeCompare(b.startedAt))[0] ?? null
+}
+
+/** Every unresolved start from THIS account that another identity made (or one made before the person was verified): held,
+ *  never offered or resent to the current person. */
+export function othersCreate(ops: PendingSetupOp[], actor: string | null, accountId: string): PendingSetupOp[] {
+  return ops.filter((op) => op.kind === "create" && op.actor !== actor && op.accountId === accountId)
 }
 
 /** The unresolved start of THIS person from THIS account, or null. */

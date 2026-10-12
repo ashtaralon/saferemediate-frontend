@@ -11,7 +11,7 @@ import { SetupWizard, type SetupClient } from "@/components/system-boundary/setu
 import type { DeclarationsView, DeclaredRoot, RootSelection } from "@/lib/system-boundary-authoring"
 import type { PickedRoot } from "@/lib/system-boundary-declaration"
 import type { SetupIntent, SetupView, SetupWrite } from "@/lib/system-boundary-setup"
-import { setupPendingStore, type PendingSetupOp, type SetupPendingStore } from "@/lib/system-boundary-setup-pending"
+import { freezeOp, setupPendingStore, type PendingSetupOp, type SetupPendingStore } from "@/lib/system-boundary-setup-pending"
 import { GuidedSetups } from "@/components/system-boundary/guided-setups"
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -377,5 +377,191 @@ describe("G2-F17: Finish commits exactly the saved intent that Review shows as s
     await settle()
     expect((screen.getByTestId("setup-finish") as HTMLButtonElement).disabled).toBe(true)
     expect(c.finishSetup).not.toHaveBeenCalled()
+  })
+})
+
+// ── Codex FE review 6d7c5205: G2-F18 (the CURRENT person, account and setup), G2-F19 (where the operation is ACTUALLY kept) ──
+
+const ALICE = "https://idp#alice"
+const BOB = "https://idp#bob"
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((r) => { resolve = r })
+  return { promise, resolve }
+}
+
+/** Storage that takes small values but throws QuotaExceeded for anything the size of a real operation. */
+function smallStorage(limit = 64): Storage {
+  const data = memoryStorage()
+  return { ...data, getItem: (k: string) => data.getItem(k), removeItem: (k: string) => data.removeItem(k),
+           setItem: (k: string, v: string) => {
+             if (v.length > limit) throw new DOMException("quota", "QuotaExceededError")
+             data.setItem(k, v)
+           } } as Storage
+}
+
+function wizardProps(c: SetupClient, store: SetupPendingStore) {
+  return { setupId: SID, accountId: "111111111111", view: VIEW, picks: [] as PickedRoot[], onClose: () => undefined, client: c,
+           pendingStore: store, stacks: { state: "unavailable" as const, reason: "The account census is not published yet." },
+           readApplied: async () => ({ status: 503, body: { state: "unavailable" } }), readResult: async () => ({ status: 503, body: {} }) }
+}
+
+describe("G2-F18: every send and every answer is judged against the CURRENT person, account and setup", () => {
+  it("the person changes from Alice to Bob: Alice's unconfirmed save is held for her, never resent by Bob", async () => {
+    const c = client({ updateSetup: vi.fn(async (id: string, rid: string, base: number, steps: SetupIntent): Promise<SetupWrite> => {
+      c.updates.push([id, rid, base, steps])
+      return UNKNOWN
+    }) })
+    const store = freshStore(memoryStorage())
+    const props = wizardProps(c, store)
+    const ui = render(<SetupWizard {...props} actor={ALICE} />)
+    await settle()
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await settle()
+    const alices = c.updates[0][1]
+    ui.rerender(<SetupWizard {...props} actor={BOB} />)
+    await settle()
+    expect(screen.queryByTestId("setup-pending")).toBeNull()                         // not offered to Bob as his
+    expect(screen.getByTestId("setup-pending-others").textContent).toContain("1 unconfirmed request(s)")
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await settle()
+    expect(c.updates).toHaveLength(2)
+    expect(c.updates[1][1]).not.toBe(alices)                                         // Bob's own NEW request
+    expect(store.read().filter((op) => op.requestId === alices).map((op) => op.actor)).toEqual([ALICE])
+    ui.rerender(<SetupWizard {...props} actor={ALICE} />)                             // Alice is back: hers is offered again
+    await settle()
+    expect(screen.getByTestId("setup-pending").textContent).toContain("A save of this setup is not confirmed yet")
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await settle()
+    expect(c.updates[2]).toEqual(c.updates[0])
+  })
+
+  it("the person is verified after the page opened: a save made before that is held, not resent as theirs", async () => {
+    const c = client({ updateSetup: vi.fn(async (id: string, rid: string, base: number, steps: SetupIntent): Promise<SetupWrite> => {
+      c.updates.push([id, rid, base, steps])
+      return UNKNOWN
+    }) })
+    const props = wizardProps(c, freshStore(memoryStorage()))
+    const ui = render(<SetupWizard {...props} actor={null} />)
+    await settle()
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await settle()
+    ui.rerender(<SetupWizard {...props} actor={ALICE} />)
+    await settle()
+    expect(screen.queryByTestId("setup-pending")).toBeNull()
+    expect(screen.getByTestId("setup-pending-others").textContent).toContain("before you were verified")
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await settle()
+    expect(c.updates[1][1]).not.toBe(c.updates[0][1])
+  })
+
+  it("an answer that arrives after the person changed resolves the request but does not drive the new person's screen", async () => {
+    const answer = deferred<SetupWrite>()
+    const c = client({ updateSetup: vi.fn(async (): Promise<SetupWrite> => answer.promise) })
+    const store = freshStore(memoryStorage())
+    const props = wizardProps(c, store)
+    const ui = render(<SetupWizard {...props} actor={ALICE} />)
+    await settle()
+    fireEvent.click(screen.getByRole("button", { name: "1. System details" }))
+    fireEvent.click(screen.getByRole("button", { name: "Save and continue" }))
+    await settle()
+    expect(store.read()).toHaveLength(1)
+    ui.rerender(<SetupWizard {...props} actor={BOB} />)
+    await settle()
+    await act(async () => {
+      answer.resolve({ kind: "SAVED", status: 200, view: { ...structuredClone(DRAFT), state_version: 4 } })
+    })
+    await settle()
+    expect(store.read()).toHaveLength(0)                                            // definite: Alice's request is resolved
+    expect(screen.getByTestId("setup-step-system_details")).toBeTruthy()           // ...but Bob's screen did not move
+    expect(screen.getByTestId("setup-state").textContent).toContain("revision 3")
+  })
+})
+
+describe("G2-F19: the wizard says where an unconfirmed operation is ACTUALLY kept", () => {
+  it("storage that takes a small probe but not the operation: kept in page memory, and the banner says so", async () => {
+    const storage = smallStorage()
+    storage.setItem("probe", "1")                                                    // a tiny write works
+    const store = freshStore(storage)
+    const c = client({ updateSetup: vi.fn(async (): Promise<SetupWrite> => UNKNOWN) })
+    render(<SetupWizard {...wizardProps(c, store)} actor={ALICE} />)
+    await settle()
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await settle()
+    expect(screen.getByTestId("setup-pending").textContent).toContain("only until this page is reloaded")
+    expect(freshStore(storage).read()).toHaveLength(0)                              // a reload would find nothing
+  })
+
+  it("put answers where the exact operation was kept: storage only when it reads back", () => {
+    const op = freezeOp({ version: 1, kind: "finish", actor: ALICE, accountId: "111111111111", setupId: SID,
+                          requestId: "6f1c2c1e-9d7b-4a51-9f7e-0c1a2b3c4d5e", base: 3, startedAt: "2026-10-12T00:00:00Z" })
+    const working = freshStore(memoryStorage())
+    expect(working.put(op)).toBe("storage")
+    expect(working.where(op.requestId)).toBe("storage")
+    const silent = { ...memoryStorage(), getItem: () => null, setItem: () => undefined, removeItem: () => undefined } as Storage
+    const dropped = freshStore(silent)                                               // a write that "succeeds" but keeps nothing
+    expect(dropped.put(op)).toBe("memory")
+    expect(dropped.where(op.requestId)).toBe("memory")
+    expect(freshStore(null).put(op)).toBe("memory")
+    expect(freshStore(memoryStorage()).put({ ...op, actor: null })).toBe("memory")
+  })
+})
+
+describe("G2-F18/F19: the start of a setup", () => {
+  function startProps(createSetup: (rid: string) => Promise<SetupWrite>, store: SetupPendingStore) {
+    return { accountId: "111111111111", view: VIEW, picks: [] as PickedRoot[], createSetup, pendingStore: store,
+             readStacks: async () => ({ status: 503, body: {} }), client: client() }
+  }
+
+  it("an unconfirmed start that storage cannot keep warns it is lost on reload; one kept in storage does not", async () => {
+    const lost = render(<GuidedSetups {...startProps(async () => UNKNOWN, freshStore(null))} actor={ALICE} />)
+    fireEvent.click(screen.getByTestId("setup-start"))
+    await settle()
+    expect(screen.getByTestId("setup-start-memory").textContent).toContain("only until this page is reloaded")
+    lost.unmount()
+    render(<GuidedSetups {...startProps(async () => UNKNOWN, freshStore(memoryStorage()))} actor={ALICE} />)
+    fireEvent.click(screen.getByTestId("setup-start"))
+    await settle()
+    expect(screen.queryByTestId("setup-start-memory")).toBeNull()
+  })
+
+  it("the person changes from Alice to Bob: Alice's unconfirmed start is held for her, never resent by Bob", async () => {
+    const ids: string[] = []
+    const props = startProps(async (rid) => { ids.push(rid); return UNKNOWN }, freshStore(memoryStorage()))
+    const ui = render(<GuidedSetups {...props} actor={ALICE} />)
+    fireEvent.click(screen.getByTestId("setup-start"))
+    await settle()
+    ui.rerender(<GuidedSetups {...props} actor={BOB} />)
+    await settle()
+    expect(screen.getByTestId("setup-start").textContent).toBe("Set up a system")
+    expect(screen.getByTestId("setup-start-others").textContent).toContain("1 unconfirmed start(s)")
+    fireEvent.click(screen.getByTestId("setup-start"))
+    await settle()
+    expect(ids[1]).not.toBe(ids[0])
+    ui.rerender(<GuidedSetups {...props} actor={ALICE} />)
+    await settle()
+    expect(screen.getByTestId("setup-start").textContent).toBe("Retry the unconfirmed start")
+    fireEvent.click(screen.getByTestId("setup-start"))
+    await settle()
+    expect(ids[2]).toBe(ids[0])
+  })
+
+  it("a start answered after the person changed does not open a setup for the new person", async () => {
+    const answer = deferred<SetupWrite>()
+    const store = freshStore(memoryStorage())
+    const props = startProps(async () => answer.promise, store)
+    const ui = render(<GuidedSetups {...props} actor={ALICE} />)
+    fireEvent.click(screen.getByTestId("setup-start"))
+    await settle()
+    ui.rerender(<GuidedSetups {...props} actor={BOB} />)
+    await settle()
+    await act(async () => {
+      answer.resolve({ kind: "SAVED", status: 201, view: structuredClone(DRAFT) })
+    })
+    await settle()
+    expect(store.read()).toHaveLength(0)
+    expect(screen.getByTestId("guided-setups")).toBeTruthy()                        // still the start panel, no wizard
+    expect(screen.getByTestId("setup-start").hasAttribute("disabled")).toBe(false)
   })
 })

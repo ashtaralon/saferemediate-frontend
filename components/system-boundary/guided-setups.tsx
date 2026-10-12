@@ -9,7 +9,7 @@
  * The wizard (setup-wizard.tsx) gets this account's CloudFormation stacks as the census serves them, or the census's own
  * reason they are not available -- never an empty list standing for "none".
  */
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { SetupWizard, type SetupClient } from "@/components/system-boundary/setup-wizard"
 import { Button } from "@/components/ui/button"
 import type { DeclarationsView } from "@/lib/system-boundary-authoring"
@@ -22,7 +22,13 @@ import {
   type SetupSummary,
   type SetupWrite,
 } from "@/lib/system-boundary-setup"
-import { freezeOp, pendingCreate, setupPendingStore, type SetupPendingStore } from "@/lib/system-boundary-setup-pending"
+import {
+  freezeOp,
+  othersCreate,
+  pendingCreate,
+  setupPendingStore,
+  type SetupPendingStore,
+} from "@/lib/system-boundary-setup-pending"
 import { fetchStacks, parseStacksResponse, stacksOutcomeSentence } from "@/lib/system-boundary-stacks"
 
 type Stacks = { state: "served"; stacks: { stack_id: string; label: string }[] } | { state: "unavailable"; reason: string }
@@ -55,6 +61,19 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
   // (G2-F16) An unconfirmed start of THIS person from THIS account, frozen before it was sent and kept until it is answered:
   // a retry resends its request id, after Close and (for a verified person) after a reload too.
   const [unconfirmed, setUnconfirmed] = useState(() => pendingCreate(store.read(), actor, accountId))
+  const [held, setHeld] = useState(() => othersCreate(store.read(), actor, accountId).length)
+  // (G2-F18) The person and account this panel acts for NOW. The person resolves after mount (and may change): what is shown,
+  // offered and resent is re-read for them, and an answer to a request sent for someone else does not drive this screen.
+  const context = `${actor ?? ""}|${accountId}`
+  const currentContext = useRef(context)
+  currentContext.current = context
+  useEffect(() => {
+    const ops = store.read()
+    setUnconfirmed(pendingCreate(ops, actor, accountId))
+    setHeld(othersCreate(ops, actor, accountId).length)
+    setMine(null)
+    setProblem(null)
+  }, [actor, accountId, store])
 
   const refresh = useCallback(async () => {
     const answer = await listSetups()
@@ -84,18 +103,21 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
   }, [accountId, openId, readStacks])
 
   const start = useCallback(async () => {
-    const op = unconfirmed ?? freezeOp({ version: 1, kind: "create", actor, accountId, requestId: freshRequestId(),
-                                         startedAt: new Date().toISOString() })
+    const sentIn = context
+    // Read now, not from the last render: only THIS person's own unconfirmed start is resent.
+    const op = pendingCreate(store.read(), actor, accountId)
+      ?? freezeOp({ version: 1, kind: "create", actor, accountId, requestId: freshRequestId(), startedAt: new Date().toISOString() })
     store.put(op)
     setUnconfirmed(op)
     setStarting(true)
     const answer = await createSetup(op.requestId)
+    if (answer.kind !== "RESEND_SAME") store.remove(op.requestId)       // a definite answer resolves it, whoever is here now
     setStarting(false)
+    if (currentContext.current !== sentIn) return                        // a later person or account: not their screen
     if (answer.kind === "RESEND_SAME") {
       setProblem(`Not confirmed yet (${answer.code}). Try again: the same request is resent.`)
       return
     }
-    store.remove(op.requestId)
     setUnconfirmed(null)
     if (answer.kind === "SAVED") {
       setProblem(null)
@@ -103,7 +125,7 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
       return
     }
     setProblem(`A setup cannot be started (${answer.code}).`)
-  }, [accountId, actor, createSetup, store, unconfirmed])
+  }, [accountId, actor, context, createSetup, store])
 
   if (openId) {
     return (
@@ -127,6 +149,17 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
         {open ? <span className="text-xs text-slate-600">A guided setup in eight steps; you can stop and resume it.</span> : null}
       </div>
       {problem ? <p role="alert" className="text-xs text-amber-800">{problem}</p> : null}
+      {unconfirmed && store.where(unconfirmed.requestId) !== "storage" ? (
+        <p className="text-xs text-amber-800" data-testid="setup-start-memory">
+          This browser keeps the unconfirmed start only until this page is reloaded; after a reload it cannot be resent.
+        </p>
+      ) : null}
+      {held ? (
+        <p className="text-xs text-slate-600" data-testid="setup-start-others">
+          {held} unconfirmed start(s) by another identity, or made before you were verified, are held in this browser; they are
+          not resent from here.
+        </p>
+      ) : null}
       {mine && !mine.length ? <p className="text-xs text-slate-500">You have no setup in progress.</p> : null}
       {mine && mine.length ? (
         <ul className="text-xs" data-testid="setup-resume-list">

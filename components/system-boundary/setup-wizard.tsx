@@ -14,7 +14,7 @@
  * The roots come from the account inventory below (the person's picks), each with the selection it was picked under; the
  * backend admits every root again when the setup finishes.
  */
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AppliedStatus } from "@/components/system-boundary/applied-status"
 import { SystemResult } from "@/components/system-boundary/system-result"
 import { Button } from "@/components/ui/button"
@@ -22,6 +22,7 @@ import type { DeclarationsView, DeclaredRoot } from "@/lib/system-boundary-autho
 import { buildDeclaration, cellsOf, type PickedRoot } from "@/lib/system-boundary-declaration"
 import {
   freezeOp,
+  othersForSetup,
   pendingForSetup,
   setupPendingStore,
   type PendingSetupOp,
@@ -193,6 +194,15 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
   // (G2-F16) The unresolved write of THIS person on THIS setup, frozen before it was first sent and kept (storage, or this
   // page's memory) until a definite answer: every Save / Finish resends exactly it until then. Typing stays in ``local``.
   const [pending, setPending] = useState<PendingSetupOp | null>(() => pendingForSetup(store.read(), actor, accountId, setupId))
+  // (G2-F18) The context every send and every answer is judged against: the CURRENT verified person, account and setup.
+  // A change (the person verified late, another person, another setup) re-resolves the pending write from the store; a
+  // request started under an earlier context, answered later, updates the store only -- never the current person's screen.
+  const context = `${actor ?? ""}|${accountId}|${setupId}`
+  const currentContext = useRef(context)
+  currentContext.current = context
+  useEffect(() => {
+    setPending(pendingForSetup(store.read(), actor, accountId, setupId))
+  }, [actor, accountId, setupId, store])
 
   const load = useCallback(async (keepTyping: boolean) => {
     const answer = await client.readSetup(setupId)
@@ -224,18 +234,24 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
     declaration: draftDeclaration(local!), dispositions: Object.values(local!.dispositions), resume_step: nextStep,
   }), [local])
 
-  /** Send ONE frozen operation; keep it while its outcome is unknown, drop it on a definite answer. */
+  /** Send ONE frozen operation of THIS person, on THIS account and setup; keep it while its outcome is unknown, drop it on a
+   *  definite answer. An operation of anyone else is never sent here. */
   const send = useCallback(async (op: PendingSetupOp) => {
+    if (op.kind === "create" || op.actor !== actor || op.accountId !== accountId || op.setupId !== setupId) {
+      setProblem("That unconfirmed request belongs to another identity or setup; it is not sent from here.")
+      return
+    }
+    const sentIn = context
     setBusy(true)
     const answer = op.kind === "update" ? await client.updateSetup(op.setupId, op.requestId, op.base, op.steps)
-      : op.kind === "finish" ? await client.finishSetup(op.setupId, op.requestId, op.base) : null
+      : await client.finishSetup(op.setupId, op.requestId, op.base)
+    if (answer.kind !== "RESEND_SAME") store.remove(op.requestId)       // a definite answer resolves it, whoever is here now
     setBusy(false)
-    if (answer === null) return
+    if (currentContext.current !== sentIn) return                        // a later context: its screen is not this answer's
     if (answer.kind === "RESEND_SAME") {
       setProblem(explain(answer))
       return
     }
-    store.remove(op.requestId)
     setPending(null)
     if (answer.kind === "SAVED") {
       setProblem(null)
@@ -245,16 +261,21 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
     }
     setProblem(explain(answer))
     await load(true)
-  }, [client, load, step, store])
+  }, [accountId, actor, client, context, load, setupId, step, store])
 
-  /** Freeze a NEW operation and send it -- or, while one is unresolved, resend exactly that one instead. */
+  /** Freeze a NEW operation and send it -- or, while one of THIS person on THIS setup is unresolved (read from the store NOW,
+   *  never from a stale render), resend exactly that one instead. */
   const dispatch = useCallback(async (make: () => PendingSetupOp) => {
-    if (pending) return send(pending)
+    const unresolved = pendingForSetup(store.read(), actor, accountId, setupId)
+    if (unresolved) {
+      setPending(unresolved)
+      return send(unresolved)
+    }
     const op = freezeOp(make())
     store.put(op)
     setPending(op)
     return send(op)
-  }, [pending, send, store])
+  }, [accountId, actor, send, setupId, store])
 
   const save = useCallback((nextStep: SetupStep) => {
     if (!setup || !local) return
@@ -270,9 +291,10 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
 
   /** FINISHING: resend THIS browser's own Finish if it holds it; otherwise only read again (never a new Finish request). */
   const checkAgain = useCallback(async () => {
-    if (pending?.kind === "finish") return send(pending)
+    const unresolved = pendingForSetup(store.read(), actor, accountId, setupId)
+    if (unresolved?.kind === "finish") return send(unresolved)
     await load(true)
-  }, [load, pending, send])
+  }, [accountId, actor, load, send, setupId, store])
 
   if (problem && !setup) return <Panel onClose={onClose}><p role="alert" className="text-sm text-red-700">{problem}</p></Panel>
   if (!setup || !local) return <Panel onClose={onClose}><p className="text-sm text-slate-500">Opening the setup…</p></Panel>
@@ -281,7 +303,9 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
   const next = SETUP_STEPS[Math.min(index + 1, SETUP_STEPS.length - 1)]
   // (G2-F17) What is on screen differs from the SAVED revision: Finish would commit the saved one, so it waits for a Save.
   const dirty = intentKey(intentFor(step)) !== intentKey(setup.intent)
-  const durable = store.durable(actor)
+  // (G2-F19) Where the unresolved write is ACTUALLY kept now -- its own read-back, not a guess about storage.
+  const kept = pending ? store.where(pending.requestId) : null
+  const others = othersForSetup(store.read(), actor, accountId, setupId)
   const derived = new Map(setup.dispositions_derived.map((d) => [d.subject, d]))
   const editable = setup.status === "DRAFT"
   const set = (patch: Partial<Local>) => setLocal((current) => (current ? { ...current, ...patch } : current))
@@ -325,7 +349,14 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
           {pending.kind === "finish" ? "A Finish" : "A save"} of this setup is not confirmed yet. The next
           {pending.kind === "finish" ? " Finish or Check" : " Save"} resends exactly that request, unchanged, before anything
           else{pending.kind === "update" ? "; later changes stay on screen and are saved after it is answered" : ""}.
-          {durable ? "" : " This browser keeps it only until this page is reloaded."}
+          {kept === "storage" ? "" : " This browser keeps it only until this page is reloaded."}
+        </p>
+      ) : null}
+      {others.length ? (
+        <p className="text-xs text-slate-600" data-testid="setup-pending-others">
+          {others.length} unconfirmed request(s) on this setup were started
+          {actor === null ? " by a verified identity" : " by another identity, or before you were verified"}; they are kept for
+          whoever started them and are never resent from here.
         </p>
       ) : null}
 
