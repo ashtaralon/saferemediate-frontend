@@ -774,6 +774,77 @@ describe("installed QA 0.10.10: a finished setup is returned to from Your setups
     expect(screen.getByTestId("setup-finished-list").querySelectorAll("li")).toHaveLength(1)
   })
 
+  // (F30, Codex review of 00a58cb1) every list answer is fenced to the latest request for the person, account and store on
+  // screen -- a late answer, success or failure, never paints an earlier request or another person's list.
+  type Page = SetupRead<{ setups: SetupView[]; next_cursor: string | null }>
+  const own = (setups: SetupView[]): Page => ({ kind: "OK", value: { setups, next_cursor: null } })
+
+  function fenced(listSetups: () => Promise<Page>, store = freshStore()) {
+    return { accountId: "111111111111", view: VIEW, picks: [] as PickedRoot[], listSetups, client: client(), pendingStore: store,
+             readStacks: async () => ({ status: 503, body: {} }) }
+  }
+
+  it("(F30) Alice's list answering after Bob arrives restores nothing of hers -- success or failure", async () => {
+    for (const late of [own([summary({ setup_id: FINISHED.setup_id, status: "FINISHED", owner: ALICE })]),
+                        { kind: "UNAVAILABLE" as const, status: 503, code: "BOUNDARY_STORE_UNAVAILABLE" }]) {
+      const pending = deferred<Page>()
+      const listSetups = vi.fn(() => pending.promise)
+      const props = fenced(listSetups)
+      const ui = render(<GuidedSetups {...props} actor={ALICE} />)
+      fireEvent.click(screen.getByTestId("setup-mine"))
+      expect(listSetups).toHaveBeenCalledTimes(1)
+      ui.rerender(<GuidedSetups {...props} actor={BOB} />)
+      await settle()
+      await act(async () => pending.resolve(late as Page))
+      await settle()
+      expect(screen.queryByTestId("setup-finished-list"), late.kind).toBeNull()
+      expect(screen.queryByTestId("setup-resume-list"), late.kind).toBeNull()
+      expect(screen.queryByRole("alert"), late.kind).toBeNull()                 // nor a failure reported to Bob
+      cleanup()
+    }
+  })
+
+  it("(F30) an answer for the account or the store this panel no longer shows changes nothing", async () => {
+    for (const change of ["account", "store"] as const) {
+      const pending = deferred<Page>()
+      const props = fenced(vi.fn(() => pending.promise))
+      const ui = render(<GuidedSetups {...props} actor={ALICE} />)
+      fireEvent.click(screen.getByTestId("setup-mine"))
+      ui.rerender(change === "account" ? <GuidedSetups {...props} actor={ALICE} accountId="222222222222" />
+        : <GuidedSetups {...props} actor={ALICE} pendingStore={freshStore()} />)
+      await settle()
+      await act(async () => pending.resolve(own(mixed(ALICE))))
+      await settle()
+      expect(screen.queryByTestId("setup-finished-list"), change).toBeNull()
+      expect(screen.queryByTestId("setup-resume-list"), change).toBeNull()
+      cleanup()
+    }
+  })
+
+  it("(F30) of two overlapping requests only the later one is shown, whichever answers first", async () => {
+    for (const order of ["later-answers-first", "later-answers-last"] as const) {
+      const first = deferred<Page>()
+      const second = deferred<Page>()
+      const listSetups = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+      render(<GuidedSetups {...fenced(listSetups)} actor={ALICE} />)
+      fireEvent.click(screen.getByTestId("setup-mine"))
+      fireEvent.click(screen.getByTestId("setup-mine"))
+      const stale = own([summary({ setup_id: "5e7a0000-0000-4000-8000-0000000000b1", status: "DRAFT", owner: ALICE })])
+      const latest = own([summary({ setup_id: FINISHED.setup_id, status: "FINISHED", owner: ALICE })])
+      if (order === "later-answers-first") {
+        await act(async () => second.resolve(latest))
+        await act(async () => first.resolve(stale))
+      } else {
+        await act(async () => first.resolve(stale))
+        await act(async () => second.resolve(latest))
+      }
+      await settle()
+      expect(screen.queryByTestId("setup-resume-list"), order).toBeNull()                       // the earlier answer: never
+      expect(screen.getByTestId("setup-finished-list").querySelectorAll("li"), order).toHaveLength(1)   // the latest: shown
+      cleanup()
+    }
+  })
+
   it("when the person changes, the previous person's finished setups are gone at once -- nothing is shown for someone else", async () => {
     const listSetups = vi.fn(async () => ({ kind: "OK" as const, value: { setups: mixed(ALICE), next_cursor: null } }))
     const c = client()

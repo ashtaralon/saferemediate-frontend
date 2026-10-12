@@ -74,7 +74,12 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
   const context = `${actor ?? ""}|${accountId}`
   const currentContext = useRef(context)
   currentContext.current = context
+  // (F30) Each "Your setups" request takes the next generation, and a change of person, account or store moves it on too: a
+  // list answer -- success or failure -- is shown only while it answers the LATEST request, for the person and account it was
+  // asked for. A late answer to an earlier request, or to one asked for someone else, changes nothing on this screen.
+  const listGeneration = useRef(0)
   useEffect(() => {
+    listGeneration.current += 1
     const ops = store.read()
     setUnconfirmed(pendingCreate(ops, actor, accountId))
     setHeld(othersCreate(ops, actor, accountId).length)
@@ -84,7 +89,10 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
   }, [actor, accountId, store])
 
   const refresh = useCallback(async () => {
+    const generation = ++listGeneration.current
+    const askedFor = currentContext.current
     const answer = await listSetups()
+    if (generation !== listGeneration.current || askedFor !== currentContext.current) return
     if (answer.kind !== "OK") {
       setProblem(`Your setups could not be listed (${answer.code}).`)
       return
