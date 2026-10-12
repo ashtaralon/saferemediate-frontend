@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { SetupWizard, type SetupClient } from "@/components/system-boundary/setup-wizard"
 import type { DeclarationsView, DeclaredRoot, RootSelection } from "@/lib/system-boundary-authoring"
 import type { PickedRoot } from "@/lib/system-boundary-declaration"
-import type { SetupIntent, SetupView, SetupWrite } from "@/lib/system-boundary-setup"
+import type { SetupIntent, SetupStatus, SetupView, SetupWrite } from "@/lib/system-boundary-setup"
 import { freezeOp, setupPendingStore, type PendingSetupOp, type SetupPendingStore } from "@/lib/system-boundary-setup-pending"
 import { GuidedSetups } from "@/components/system-boundary/guided-setups"
 
@@ -563,5 +563,62 @@ describe("G2-F18/F19: the start of a setup", () => {
     expect(store.read()).toHaveLength(0)
     expect(screen.getByTestId("guided-setups")).toBeTruthy()                        // still the start panel, no wizard
     expect(screen.getByTestId("setup-start").hasAttribute("disabled")).toBe(false)
+  })
+})
+
+// ── onboarding G3-A: owner requests, as the backend derives them (setup contract level 2) ──────────────────────────────
+
+const V2 = (name: string) => json(`__tests__/fixtures/system-boundary-setup-captures-v2/${name}.json`)
+
+describe("G3-A: owner requests on Review and on Progress", () => {
+  it("Review lists what finishing the SAVED revision will request -- the server's planned requests, nothing asked yet", async () => {
+    const status = V2("status").body as SetupStatus
+    const planned: SetupStatus = { ...status, setup: { ...status.setup, status: "DRAFT" }, operations: status.operations.map((o) => (
+      { op_id: o.op_id, kind: o.kind, subject: o.subject, scope: o.scope, required_authority: o.required_authority,
+        state: "PLANNED" as const, reason: null })) }
+    const readSetupStatus = vi.fn(async () => ({ kind: "OK" as const, value: planned }))
+    const c = client({ readSetupStatus })
+    mount(c)
+    await settle()
+    expect(screen.getByTestId("setup-step-review_and_start")).toBeTruthy()
+    expect(readSetupStatus).toHaveBeenCalledWith(SID)
+    const requests = screen.getByTestId("setup-review-requests").textContent ?? ""
+    expect(requests).toContain("Finishing the saved revision will ask an account administrator for:")
+    expect(requests).toContain("Infrastructure as code · 111111111111 / eu-west-1: Will be requested from an account administrator when you finish")
+    expect(screen.getByTestId("setup-review").textContent).toContain("nothing is sent to AWS")
+  })
+
+  it("Progress lists each request as the server reads it NOW (pending, and how many current requests the demand has)", async () => {
+    const status = V2("status").body as SetupStatus
+    const c = client({ readSetup: vi.fn(async () => ({ kind: "OK" as const, value: structuredClone(FINISHED) })),
+                       readSetupStatus: vi.fn(async () => ({ kind: "OK" as const, value: status })) })
+    mount(c)
+    await settle()
+    await settle()
+    const requests = screen.getByTestId("setup-progress-requests").textContent ?? ""
+    expect(requests).toContain("Requested from an account administrator:")
+    expect(requests).toContain("Infrastructure as code · 111111111111 / eu-west-1: Requested from an account administrator -- waiting")
+  })
+
+  it("a request the server holds or withdrew is shown with its reason, never as pending", async () => {
+    const status = V2("status").body as SetupStatus
+    const held: SetupStatus = { ...status, operations: status.operations.map((o) => (
+      { ...o, state: "WITHDRAWN" as const, reason: "ACCOUNT_REMOVED", demand: { state: "NO_CURRENT_REQUEST" as const, current_requests: 0 } })) }
+    const c = client({ readSetup: vi.fn(async () => ({ kind: "OK" as const, value: structuredClone(FINISHED) })),
+                       readSetupStatus: vi.fn(async () => ({ kind: "OK" as const, value: held })) })
+    mount(c)
+    await settle()
+    await settle()
+    const requests = screen.getByTestId("setup-progress-requests").textContent ?? ""
+    expect(requests).toContain("Withdrawn -- the account was removed from Cyntro (ACCOUNT_REMOVED)")
+    expect(requests).not.toContain("waiting")
+  })
+
+  it("when the requests cannot be read, Review says so instead of showing none", async () => {
+    const c = client({ readSetupStatus: vi.fn(async () => ({ kind: "UNAVAILABLE" as const, status: 200, code: "SETUP_CONTRACT_UNKNOWN" })) })
+    mount(c)
+    await settle()
+    expect(screen.queryByTestId("setup-review-requests")).toBeNull()
+    expect(screen.getByTestId("setup-review").textContent).toContain("The requests could not be read (SETUP_CONTRACT_UNKNOWN).")
   })
 })

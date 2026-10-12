@@ -1,7 +1,7 @@
 /**
- * Onboarding G2: the setup client (lib/system-boundary-setup.ts) over the REAL backend answers
- * (__tests__/fixtures/system-boundary-setup-captures/, pinned in its README), and the authoring proxy's eight setup routes
- * through the mounted route handlers -- exactly those, by method and path, nothing else under setup/.
+ * Onboarding G2 / G3-A: the setup client (lib/system-boundary-setup.ts) over the REAL backend answers at setup contract level 2
+ * (__tests__/fixtures/system-boundary-setup-captures-v2/, pinned in its README; the level-1 copies beside it are refused), and
+ * the authoring proxy's eight setup routes through the mounted route handlers -- exactly those, nothing else under setup/.
  */
 import { readFileSync } from "node:fs"
 import path from "node:path"
@@ -14,17 +14,21 @@ import { GET, POST, PUT } from "@/app/api/proxy/system-boundary/[...path]/route"
 import {
   associatedSystemId,
   derivedSentence,
+  isOperation,
   isStatus,
   isView,
   readAnswer,
+  requestSentence,
+  SETUP_CONTRACT_UNKNOWN,
   SETUP_STEPS,
   writeAnswer,
+  type OwnerRequest,
 } from "@/lib/system-boundary-setup"
 
 type Capture = { status: number; body: unknown; _provenance: { request: { method: string; path: string } } }
 
-function capture(name: string): Capture {
-  return JSON.parse(readFileSync(path.join(__dirname, "fixtures", "system-boundary-setup-captures", `${name}.json`), "utf8"))
+function capture(name: string, dir = "system-boundary-setup-captures-v2"): Capture {
+  return JSON.parse(readFileSync(path.join(__dirname, "fixtures", dir, `${name}.json`), "utf8"))
 }
 
 const raw = (c: Capture) => ({ status: c.status, json: c.body })
@@ -57,7 +61,8 @@ describe("the setup client reads the REAL answers, and nothing in between is inv
   it("an unproven write is RESEND_SAME: a 202, the network, a malformed 200, OUTCOME_UNKNOWN", () => {
     expect(writeAnswer({ status: 202, json: capture("read_draft").body }).kind).toBe("RESEND_SAME")
     expect(writeAnswer({ status: null, json: undefined })).toMatchObject({ kind: "RESEND_SAME", code: "NETWORK_ERROR" })
-    expect(writeAnswer({ status: 200, json: { setup_id: "x" } })).toMatchObject({ kind: "RESEND_SAME", code: "MALFORMED_RESPONSE" })
+    expect(writeAnswer({ status: 200, json: { setup_id: "x", contract: "system_boundary_setup/v2" } }))
+      .toMatchObject({ kind: "RESEND_SAME", code: "MALFORMED_RESPONSE" })
     expect(writeAnswer({ status: 503, json: { detail: { code: "OUTCOME_UNKNOWN" } } })).toMatchObject({ kind: "RESEND_SAME" })
   })
 
@@ -66,11 +71,55 @@ describe("the setup client reads the REAL answers, and nothing in between is inv
     expect(readAnswer(raw(capture("read_draft")), isView).kind).toBe("OK")
     const status = readAnswer(raw(capture("status")), isStatus)
     expect(status.kind === "OK" && status.value.association?.state).toBe("CURRENT")
-    expect(status.kind === "OK" && status.value.operations).toEqual([])
+    // (G3-A) the harness's "requested" IaC disposition is ONE owner request, pending, as the backend derives it now
+    expect(status.kind === "OK" && status.value.operations.map((o) => [o.subject, o.state, o.demand])).toEqual(
+      [["iac", "PENDING", { state: "PENDING", current_requests: 1 }]])
     const list = capture("list").body as { setups: unknown[] }
     expect(list.setups.length).toBe(1)
     expect(readAnswer(raw(capture("not_found")), isView)).toMatchObject({ kind: "REFUSED", status: 404, code: "SETUP_NOT_FOUND" })
-    expect(readAnswer({ status: 200, json: { status: "DRAFT" } }, isView)).toMatchObject({ kind: "UNAVAILABLE", code: "MALFORMED_RESPONSE" })
+    expect(readAnswer({ status: 200, json: { status: "DRAFT", contract: "system_boundary_setup/v2" } }, isView))
+      .toMatchObject({ kind: "UNAVAILABLE", code: "MALFORMED_RESPONSE" })
+  })
+
+  it("(G3-A) an untagged level-1 answer is never read as level 2: a read is unavailable and a write is resent, never saved", () => {
+    for (const name of ["read_draft", "status", "list"]) {
+      const old = capture(name, "system-boundary-setup-captures")
+      expect("contract" in (old.body as object), name).toBe(false)
+      expect(readAnswer(raw(old), isStatus), name).toEqual({ kind: "UNAVAILABLE", status: 200, code: SETUP_CONTRACT_UNKNOWN })
+    }
+    expect(writeAnswer(raw(capture("finish", "system-boundary-setup-captures")))).toEqual(
+      { kind: "RESEND_SAME", status: 201, code: SETUP_CONTRACT_UNKNOWN, detail: {} })
+  })
+
+  it("(G3-A) an owner request is read exactly: a planned one names no requester, a made one its demand and fulfilment", () => {
+    const status = capture("status").body as { operations: OwnerRequest[] }
+    const made = status.operations[0]
+    expect(isOperation(made)).toBe(true)
+    const planned = { op_id: made.op_id, kind: made.kind, subject: made.subject, scope: made.scope,
+                      required_authority: made.required_authority, state: "PLANNED", reason: null }
+    expect(isOperation(planned)).toBe(true)
+    for (const bad of [{ ...made, kind: "dispatch" }, { ...made, state: "DONE" }, { ...made, op_id: "x" },
+                       { ...planned, requested_by: made.requested_by }, { ...made, demand: undefined },
+                       { ...made, scope: { account_id: "1" } }]) {
+      expect(isOperation(bad)).toBe(false)
+    }
+    expect(isStatus({ ...status, operations: [{ ...made, state: "DONE" }] })).toBe(false)
+  })
+
+  it("(G3-A) each request state in words, from the backend's own state and reason -- the browser infers none of it", () => {
+    const made = (capture("status").body as { operations: OwnerRequest[] }).operations[0]
+    const as = (state: OwnerRequest["state"], reason: string | null, extra: Partial<OwnerRequest> = {}) =>
+      requestSentence({ ...made, state, reason, ...extra })
+    expect(requestSentence(made)).toBe("Requested from an account administrator -- waiting; nothing in the account has changed")
+    expect(as("PENDING", null, { demand: { state: "PENDING", current_requests: 2 } })).toContain("2 current requests for it in all")
+    expect(as("HELD", "REGISTRATION_CHANGED")).toContain("registered again since it was requested")
+    expect(as("HELD", "REQUESTER_AUTHORITY_REVOKED")).toContain("may no longer author for this account")
+    expect(as("HELD", "DERIVATION_UNAVAILABLE")).toBe("On hold -- its account cannot be checked now (DERIVATION_UNAVAILABLE)")
+    expect(as("WITHDRAWN", "ACCOUNT_REMOVED")).toBe("Withdrawn -- the account was removed from Cyntro (ACCOUNT_REMOVED)")
+    expect(as("WITHDRAWN", "ACCOUNT_NOT_REGISTERED")).toContain("is not registered")
+    expect(as("SUPERSEDED", "SUPERSEDED_BY_SUCCESSOR", { demand: { state: "PENDING", current_requests: 1 } }))
+      .toBe("Superseded by a later version of this setup -- still requested elsewhere")
+    expect(as("PLANNED", null)).toContain("nothing is asked before")
   })
 
   it("the server's own reading of every disposition, in words -- the browser claims none of it", () => {

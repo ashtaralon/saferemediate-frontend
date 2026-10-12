@@ -14,10 +14,12 @@
 import { AUTHORING_BASE } from "@/lib/system-boundary-authoring"
 
 /** The ``system_boundary_setup`` release contract this client speaks and reads (lib/release-contract.json requires and
- *  accepts it; backend unified/system_boundary_setup.SETUP_CONTRACT_LEVEL). Level 1 answers carry no ``contract`` tag (as the
- *  Systems list's level 1): an answer that carries ANY is a later level this frontend does not read -- never parsed as level
- *  1. The bundle builder refuses that pair; this is the same rule at runtime. */
-export const SETUP_CONTRACT_LEVEL = 1
+ *  accepts it; backend unified/system_boundary_setup.SETUP_CONTRACT_LEVEL). Level 2 (onboarding G3-A): every success answer
+ *  carries exactly ``contract: system_boundary_setup/v2`` and a finished setup's status lists its OWNER REQUESTS. An answer
+ *  without that exact tag -- an untagged level-1 answer, or any other level -- is not one this frontend reads: never parsed
+ *  as level 2. The bundle builder refuses such a pair; this is the same rule at runtime. */
+export const SETUP_CONTRACT_LEVEL = 2
+export const SETUP_CONTRACT = `system_boundary_setup/v${SETUP_CONTRACT_LEVEL}`
 export const SETUP_CONTRACT_UNKNOWN = "SETUP_CONTRACT_UNKNOWN"
 
 /** Rev 7 section 6.2 -- the eight steps, in order (Inventory is context, not a step). Same spelling as the backend. */
@@ -110,13 +112,35 @@ export interface SetupView extends SetupSummary {
   replayed?: boolean
 }
 
+/** (Level 2, G3-A) What a request is NOW, as the backend derives it from the current registry and grants. */
+export const REQUEST_STATES = ["PLANNED", "PENDING", "HELD", "WITHDRAWN", "SUPERSEDED"] as const
+export type RequestState = (typeof REQUEST_STATES)[number]
+
+/** One owner request: a "requested" source an account administrator -- not this setup -- may establish. PLANNED: what
+ *  finishing the saved intent will request (nothing has been asked yet). Otherwise made at Finish, with its current state,
+ *  the demand it belongs to (the same source in the same account, across Systems) and its fulfilment (not available yet). */
+export interface OwnerRequest {
+  op_id: string
+  kind: "owner_request"
+  subject: string
+  scope: { account_id: string; region?: string }
+  required_authority: string
+  state: RequestState
+  reason: string | null
+  requested_by?: string
+  requested_at?: string
+  superseded?: { by: string; at: string } | null
+  demand?: { state: "PENDING" | "NO_CURRENT_REQUEST"; current_requests: number }
+  fulfilment?: { state: string; reason: string }
+}
+
 export interface SetupStatus {
   setup: Pick<SetupSummary, "setup_id" | "status" | "mode" | "state_version" | "intent_revision" | "current_attempt" | "predecessor" | "successor">
   saved: { completed_revision: number; written_at: string } | null
   association: { state: "CURRENT" | "STALE" | "WITHDRAWN"; completed_revision: number;
                  heads: { role: string; key: string; pinned_version: number; current_version: number | null; state: string }[] } | null
   dispositions: DerivedDisposition[]
-  operations: unknown[]
+  operations: OwnerRequest[]
 }
 
 export type SetupRead<T> =
@@ -171,11 +195,27 @@ export function isView(value: unknown): value is SetupView {
     && (view.receipt === null || (isRecord(view.receipt) && isAssociation(view.receipt.association)))
 }
 
+export function isOperation(value: unknown): value is OwnerRequest {
+  if (!isRecord(value) || typeof value.op_id !== "string" || !/^[0-9a-f]{64}$/.test(value.op_id) || value.kind !== "owner_request"
+      || typeof value.subject !== "string" || !isRecord(value.scope) || typeof value.scope.account_id !== "string"
+      || !/^[0-9]{12}$/.test(value.scope.account_id) || (value.scope.region !== undefined && typeof value.scope.region !== "string")
+      || typeof value.required_authority !== "string" || typeof value.state !== "string"
+      || !(REQUEST_STATES as readonly string[]).includes(value.state) || (value.reason !== null && typeof value.reason !== "string")) {
+    return false
+  }
+  if (value.state === "PLANNED") return value.requested_by === undefined && value.demand === undefined
+  const demand = value.demand
+  return typeof value.requested_by === "string" && typeof value.requested_at === "string" && isRecord(demand)
+    && (demand.state === "PENDING" || demand.state === "NO_CURRENT_REQUEST") && isInt(demand.current_requests)
+    && demand.current_requests >= 0 && isRecord(value.fulfilment) && typeof value.fulfilment.state === "string"
+    && (value.superseded === null || (isRecord(value.superseded) && typeof value.superseded.by === "string"))
+}
+
 export function isStatus(value: unknown): value is SetupStatus {
   return isRecord(value) && isRecord(value.setup) && typeof value.setup.setup_id === "string"
     && (value.saved === null || (isRecord(value.saved) && isInt(value.saved.completed_revision)))
     && (value.association === null || (isRecord(value.association) && typeof value.association.state === "string"))
-    && Array.isArray(value.dispositions) && Array.isArray(value.operations)
+    && Array.isArray(value.dispositions) && Array.isArray(value.operations) && value.operations.every(isOperation)
 }
 
 const isPage = (value: unknown): value is { setups: SetupSummary[]; next_cursor: string | null } =>
@@ -204,13 +244,13 @@ function refusal(json: unknown): { code: string; detail: Record<string, unknown>
   return { code, detail }
 }
 
-/** A 200/201/202 answer tagged with a setup contract: a later level than this frontend reads. */
-const tagged = (json: unknown): boolean => isRecord(json) && "contract" in json
+/** A 200/201 answer that is not tagged exactly with this frontend's setup contract: not one it reads. */
+const foreign = (json: unknown): boolean => !isRecord(json) || json.contract !== SETUP_CONTRACT
 
 /** One read's answer, parsed by ``valid``; a malformed 200 is UNAVAILABLE, never a guessed value. */
 export function readAnswer<T>(raw: Raw, valid: (json: unknown) => json is T): SetupRead<T> {
   if (raw.status === null) return { kind: "UNAVAILABLE", status: null, code: "NETWORK_ERROR" }
-  if (raw.status === 200 && tagged(raw.json)) return { kind: "UNAVAILABLE", status: 200, code: SETUP_CONTRACT_UNKNOWN }
+  if (raw.status === 200 && foreign(raw.json)) return { kind: "UNAVAILABLE", status: 200, code: SETUP_CONTRACT_UNKNOWN }
   if (raw.status === 200) {
     return valid(raw.json) ? { kind: "OK", value: raw.json } : { kind: "UNAVAILABLE", status: 200, code: "MALFORMED_RESPONSE" }
   }
@@ -224,7 +264,7 @@ export function readAnswer<T>(raw: Raw, valid: (json: unknown) => json is T): Se
  *  is RESEND_SAME with the view, so the caller resends the same Finish. */
 export function writeAnswer(raw: Raw): SetupWrite {
   if (raw.status === null) return { kind: "RESEND_SAME", status: null, code: "NETWORK_ERROR", detail: {} }
-  if ((raw.status === 200 || raw.status === 201) && tagged(raw.json)) {
+  if ((raw.status === 200 || raw.status === 201) && foreign(raw.json)) {
     // The write may have happened, but this answer is not one this frontend reads: never SAVED on a guess.
     return { kind: "RESEND_SAME", status: raw.status, code: SETUP_CONTRACT_UNKNOWN, detail: {} }
   }
@@ -300,6 +340,24 @@ export function derivedSentence(derived: DerivedDisposition): string {
     case "held": return `Held${reason}${limit}`
     case "unavailable": return `Not available in this release${reason}${limit}`
     default: return `No source chosen${reason}${limit}`
+  }
+}
+
+/** One owner request in words: who is asked, and what it is NOW (the backend's state and reason, never inferred here). */
+export function requestSentence(op: OwnerRequest): string {
+  const reason = op.reason ? ` (${op.reason})` : ""
+  const others = op.demand && op.demand.current_requests > 1 ? ` · ${op.demand.current_requests} current requests for it in all` : ""
+  switch (op.state) {
+    case "PLANNED": return "Will be requested from an account administrator when you finish -- nothing is asked before"
+    case "PENDING": return `Requested from an account administrator -- waiting; nothing in the account has changed${others}`
+    case "HELD":
+      if (op.reason === "REGISTRATION_CHANGED") return `On hold -- the account was registered again since it was requested; amend this setup to ask again${reason}`
+      if (op.reason === "REQUESTER_AUTHORITY_REVOKED") return `On hold -- the person who requested it may no longer author for this account${reason}`
+      return `On hold -- its account cannot be checked now${reason}`
+    case "WITHDRAWN":
+      return op.reason === "ACCOUNT_REMOVED" ? `Withdrawn -- the account was removed from Cyntro${reason}`
+        : `Withdrawn -- the account is not registered${reason}`
+    default: return `Superseded by a later version of this setup${op.demand?.state === "PENDING" ? " -- still requested elsewhere" : ""}`
   }
 }
 

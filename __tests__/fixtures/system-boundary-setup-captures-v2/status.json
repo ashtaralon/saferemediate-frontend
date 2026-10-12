@@ -1,0 +1,156 @@
+{
+  "_provenance": {
+    "harness": "tests/test_system_boundary_setup_captures.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/system-boundary/setup/5e7a0000-0000-4000-8000-000000000001/status",
+      "body": null
+    }
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "body": {
+    "setup": {
+      "setup_id": "5e7a0000-0000-4000-8000-000000000001",
+      "status": "FINISHED",
+      "mode": "create",
+      "state_version": 5,
+      "intent_revision": 3,
+      "current_attempt": 1,
+      "predecessor": null,
+      "successor": null
+    },
+    "saved": {
+      "completed_revision": 2,
+      "written_at": "2026-10-12T01:00:00.000000+00:00"
+    },
+    "association": {
+      "state": "CURRENT",
+      "heads": [
+        {
+          "role": "system",
+          "key": "SYSTEM#authored_system:75ae4021b39e496d88151e78c2a7ee67646b70af92fff4c1c72e7a13001f1632",
+          "pinned_version": 1,
+          "current_version": 1,
+          "state": "CURRENT"
+        },
+        {
+          "role": "deployment",
+          "key": "DEPLOYMENT#authored_deployment:688eed3054bdef36ecbcbff81ec397e02b333c858a87e6665317c8ec60b1400c",
+          "pinned_version": 1,
+          "current_version": 1,
+          "state": "CURRENT"
+        }
+      ],
+      "completed_revision": 2
+    },
+    "dispositions": [
+      {
+        "subject": "code",
+        "scope": {
+          "account_id": "111111111111"
+        },
+        "choice": "not_used",
+        "resolution": {
+          "state": "none",
+          "reason": "NOT_USED"
+        },
+        "status_axes": {
+          "assessment": "unknown",
+          "configuration": "unknown",
+          "readability": "unknown",
+          "acquisition": "unknown",
+          "serving": "unknown"
+        },
+        "required_facts": "PROFILE_NOT_AVAILABLE",
+        "consequence": [
+          "code:LIMITED"
+        ]
+      },
+      {
+        "subject": "history:cloudtrail",
+        "scope": {
+          "account_id": "111111111111",
+          "region": "eu-west-1"
+        },
+        "choice": "no_history",
+        "resolution": {
+          "state": "none",
+          "reason": "NO_HISTORY"
+        },
+        "status_axes": {
+          "assessment": "unknown",
+          "configuration": "unknown",
+          "readability": "unknown",
+          "acquisition": "unknown",
+          "serving": "unknown"
+        },
+        "required_facts": "PROFILE_NOT_AVAILABLE",
+        "consequence": [
+          "history:cloudtrail:HELD"
+        ]
+      },
+      {
+        "subject": "iac",
+        "scope": {
+          "account_id": "111111111111",
+          "region": "eu-west-1"
+        },
+        "choice": "requested",
+        "resolution": {
+          "state": "unavailable",
+          "reason": "RESOLVER_NOT_AVAILABLE"
+        },
+        "status_axes": {
+          "assessment": "unknown",
+          "configuration": "unknown",
+          "readability": "unknown",
+          "acquisition": "unknown",
+          "serving": "unknown"
+        },
+        "required_facts": "PROFILE_NOT_AVAILABLE",
+        "consequence": [
+          "iac:LIMITED"
+        ]
+      }
+    ],
+    "attempt": {
+      "attempt": 1,
+      "actor": "https://acme.okta.test/oauth2/default#00u-alice",
+      "created_at": "2026-10-12T01:00:00.000000+00:00",
+      "recover_after": "2026-10-12T01:15:00.000000+00:00",
+      "intent_revision": 3,
+      "base_revision": 1,
+      "expected_versions": {},
+      "save_request_id": "5e7a0000-0000-4000-8000-000000000005"
+    },
+    "outcome": null,
+    "reconciliation": null,
+    "operations": [
+      {
+        "op_id": "d4bd26d11f95ec6a04e998332a4f74de91e805eaadf06abca4dbb96174581b15",
+        "kind": "owner_request",
+        "subject": "iac",
+        "scope": {
+          "account_id": "111111111111",
+          "region": "eu-west-1"
+        },
+        "required_authority": "account_administrator",
+        "state": "PENDING",
+        "reason": null,
+        "requested_by": "https://acme.okta.test/oauth2/default#00u-alice",
+        "requested_at": "2026-10-12T01:00:00.000000+00:00",
+        "superseded": null,
+        "demand": {
+          "state": "PENDING",
+          "current_requests": 1
+        },
+        "fulfilment": {
+          "state": "NOT_AVAILABLE",
+          "reason": "OWNER_FULFILMENT_NOT_AVAILABLE"
+        }
+      }
+    ],
+    "contract": "system_boundary_setup/v2"
+  }
+}

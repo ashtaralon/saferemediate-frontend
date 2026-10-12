@@ -31,6 +31,7 @@ import {
 import {
   associatedSystemId,
   derivedSentence,
+  requestSentence,
   finishSetup as finishSetupDefault,
   freshRequestId,
   readSetup as readSetupDefault,
@@ -41,6 +42,7 @@ import {
   type AuthoredDisposition,
   type Choice,
   type DerivedDisposition,
+  type OwnerRequest,
   type SetupIntent,
   type SetupRead,
   type SetupStatus,
@@ -219,11 +221,18 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
   useEffect(() => {
     void load(false)
   }, [load])
+  // The status vector: on Review, what finishing the SAVED intent will request; on Progress, each request as it is NOW.
+  const [statusProblem, setStatusProblem] = useState<string | null>(null)
   useEffect(() => {
-    if (step !== "progress_and_results" || !setup || setup.status !== "FINISHED") return
+    const progress = step === "progress_and_results" && setup?.status === "FINISHED"
+    if (!setup || (!progress && step !== "review_and_start")) return
     let live = true
+    setStatus(null)
+    setStatusProblem(null)
     void client.readSetupStatus(setup.setup_id).then((answer) => {
-      if (live && answer.kind === "OK") setStatus(answer.value)
+      if (!live) return
+      if (answer.kind === "OK") setStatus(answer.value)
+      else setStatusProblem(`The requests could not be read (${answer.code}).`)
     })
     return () => {
       live = false
@@ -430,8 +439,9 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
             <p className="text-xs text-slate-500">Which resources belong to the system is computed after the setup is finished.</p>
           </>
         ) : null}
-        {step === "review_and_start" ? <Review local={local} view={view} setup={setup} dirty={dirty} /> : null}
-        {step === "progress_and_results" ? <Progress setup={setup} status={status} accountId={accountId}
+        {step === "review_and_start" ? <Review local={local} view={view} setup={setup} dirty={dirty} status={status}
+          statusProblem={statusProblem} /> : null}
+        {step === "progress_and_results" ? <Progress setup={setup} status={status} statusProblem={statusProblem} accountId={accountId}
                                                      readApplied={readApplied} readResult={readResult} /> : null}
       </section>
 
@@ -509,7 +519,26 @@ function Subject({ subject, label, choices, editable, authored, derived, onChoos
   )
 }
 
-function Review({ local, view, setup, dirty }: { local: Local; view: DeclarationsView; setup: SetupView; dirty: boolean }) {
+/** (G3-A) The setup's owner requests, each in the backend's own words for its current state. */
+function Requests({ requests, testId, title }: { requests: OwnerRequest[]; testId: string; title: string }) {
+  if (!requests.length) return null
+  return (
+    <div className="text-xs" data-testid={testId}>
+      <p className="text-slate-700">{title}</p>
+      <ul className="text-slate-600">
+        {requests.map((r) => (
+          <li key={r.op_id}>
+            {SUBJECTS[r.subject]?.label ?? r.subject} · {r.scope.account_id}{r.scope.region ? ` / ${r.scope.region}` : ""}: {requestSentence(r)}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function Review({ local, view, setup, dirty, status, statusProblem }: { local: Local; view: DeclarationsView; setup: SetupView;
+                                                                       dirty: boolean; status: SetupStatus | null;
+                                                                       statusProblem: string | null }) {
   // Finish commits the SAVED revision. What is staged on screen is shown apart, and Finish waits until it is saved.
   const saved = fromIntent(setup.intent)
   const built = buildDeclaration({
@@ -531,16 +560,21 @@ function Review({ local, view, setup, dirty }: { local: Local; view: Declaration
       <ul className="text-xs text-slate-600">
         {setup.dispositions_derived.map((d) => <li key={d.subject}>{SUBJECTS[d.subject]?.label ?? d.subject}: {derivedSentence(d)}</li>)}
       </ul>
+      <Requests requests={(status?.operations ?? []).filter((r) => r.state === "PLANNED")} testId="setup-review-requests"
+        title="Finishing the saved revision will ask an account administrator for:" />
+      {statusProblem ? <p className="text-xs text-amber-800">{statusProblem}</p> : null}
       <p className="text-xs text-slate-500">
-        Finishing saves the system and records these choices. No source is connected and no history is imported by this setup.
+        Finishing saves the system and records these choices. No source is connected and no history is imported by this setup;
+        a requested source is asked of an account administrator, and nothing is sent to AWS.
       </p>
     </div>
   )
 }
 
-function Progress({ setup, status, accountId, readApplied, readResult }: {
+function Progress({ setup, status, statusProblem, accountId, readApplied, readResult }: {
   setup: SetupView
   status: SetupStatus | null
+  statusProblem: string | null
   accountId: string
   readApplied?: (accountId: string) => Promise<{ status: number; body: unknown }>
   readResult?: (accountId: string, systemKey: string) => Promise<{ status: number; body: unknown }>
@@ -558,6 +592,8 @@ function Progress({ setup, status, accountId, readApplied, readResult }: {
       <ul className="text-xs text-slate-600">
         {setup.dispositions_derived.map((d) => <li key={d.subject}>{SUBJECTS[d.subject]?.label ?? d.subject}: {derivedSentence(d)}</li>)}
       </ul>
+      <Requests requests={status?.operations ?? []} testId="setup-progress-requests" title="Requested from an account administrator:" />
+      {statusProblem ? <p className="text-xs text-amber-800">{statusProblem}</p> : null}
     </div>
   )
 }
