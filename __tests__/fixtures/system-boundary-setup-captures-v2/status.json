@@ -148,6 +148,11 @@
         "fulfilment": {
           "state": "NOT_AVAILABLE",
           "reason": "OWNER_FULFILMENT_NOT_AVAILABLE"
+        },
+        "observation": {
+          "state": "UNKNOWN",
+          "limitation": "COVERAGE_NOT_ADMITTED",
+          "code": "503:INVENTORY_SCOPE_UNAVAILABLE:TENANT_SCOPE_NOT_CONFIGURED"
         }
       }
     ],
