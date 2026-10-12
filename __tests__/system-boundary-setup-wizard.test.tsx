@@ -728,17 +728,20 @@ describe("installed QA 0.10.10: a finished setup is returned to from Your setups
     summary({ setup_id: "5e7a0000-0000-4000-8000-0000000000a5", status: "FINISHED", owner: BOB }),
   ]
 
+  const reads = () => ({ readApplied: vi.fn(async () => ({ status: 503, body: { state: "unavailable" } })),
+                         readResult: vi.fn(async () => ({ status: 503, body: {} })) })
+
   function panel(actor: string, listSetups: () => Promise<SetupRead<{ setups: SetupView[]; next_cursor: string | null }>>,
-                 c: SetupClient) {
+                 c: SetupClient, fetchers = reads()) {
     return render(<GuidedSetups accountId="111111111111" view={VIEW} picks={[]} actor={actor} listSetups={listSetups} client={c}
-      pendingStore={freshStore()} readStacks={async () => ({ status: 503, body: {} })}
-      readApplied={async () => ({ status: 503, body: { state: "unavailable" } })} readResult={async () => ({ status: 503, body: {} })} />)
+      pendingStore={freshStore()} readStacks={async () => ({ status: 503, body: {} })} {...fetchers} />)
   }
 
   it("lists this person's finished setups apart and opens one on Progress and results; nothing else is offered", async () => {
     const listSetups = vi.fn(async () => ({ kind: "OK" as const, value: { setups: mixed(ALICE), next_cursor: null } }))
     const c = client({ readSetup: vi.fn(async () => ({ kind: "OK" as const, value: structuredClone(FINISHED) })) })
-    panel(ALICE, listSetups, c)
+    const fetchers = reads()
+    panel(ALICE, listSetups, c, fetchers)
     expect(listSetups).not.toHaveBeenCalled()                                  // nothing is read until the person asks
     fireEvent.click(screen.getByTestId("setup-mine"))
     await settle()
@@ -751,6 +754,9 @@ describe("installed QA 0.10.10: a finished setup is returned to from Your setups
     await settle()
     expect(c.readSetup).toHaveBeenCalledWith(FINISHED.setup_id)
     expect(screen.getByTestId("setup-progress").textContent).toContain("Setup finished")
+    // Progress read the applied state and the system's result through what this panel was given -- never a live backend
+    expect(fetchers.readApplied).toHaveBeenCalledWith("111111111111")
+    expect(fetchers.readResult).toHaveBeenCalledWith("111111111111", expect.any(String))
   })
 
   it("another person is offered none of them, and a finished setup alone is not called in progress", async () => {
