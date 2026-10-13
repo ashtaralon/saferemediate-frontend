@@ -189,6 +189,29 @@ describe("a plural draft: each Deployment's own choices, the union's sources onc
     expect(updates[0].dispositions).toEqual(PLURAL.intent.dispositions)
   })
 
+  it("a Deployment's iac row keeps its Deployment when its stack is chosen again: the binding and the choice name it", async () => {
+    const { c, updates } = client(PLURAL)
+    mount(PLURAL, c, { pluralOffered: true })
+    await settle()
+    goTo("Code and infrastructure")
+    const bindings = (PLURAL.intent.declaration as { bindings: { stack_id: string; deployment_key: string }[] }).bindings
+    const prodStack = bindings.find((b) => b.deployment_key === "prod")!.stack_id
+    const prod = () => within(screen.getByTestId("setup-subject-iac-prod"))
+    // remove prod's choice (its stack is unbound), then choose it again and pick the same stack
+    fireEvent.change(prod().getByLabelText(/Infrastructure as code, /), { target: { value: "" } })
+    fireEvent.change(prod().getByLabelText("Infrastructure as code"), { target: { value: "use_existing" } })
+    fireEvent.change(prod().getByLabelText("CloudFormation stack"), { target: { value: prodStack } })
+    expect(prod().queryByRole("alert")).toBeNull()
+    goTo("Deployments")
+    fireEvent.click(screen.getByRole("button", { name: "Save and continue" }))
+    await settle()
+    const sent = updates[0]
+    const row = sent.dispositions.find((d) => d.subject === "iac" && d.ref?.key === prodStack)!
+    expect(row.scope.deployment).toBe("prod")
+    expect((sent.declaration as { bindings: { stack_id: string; deployment_key: string }[] }).bindings
+      .find((b) => b.stack_id === prodStack)?.deployment_key).toBe("prod")
+  })
+
   it("refuses a stack another Deployment uses (DISPOSITION_REF_OTHER_DEPLOYMENT)", async () => {
     mount(PLURAL, client(PLURAL).c, { pluralOffered: true })
     await settle()

@@ -541,12 +541,13 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
   }
   /** The stack the iac row at ``index`` uses: its reference, and the Region of THAT stack (the backend holds a reference whose
    *  Region is not its stack's) -- never the Region of some root; a Region another iac row already has is refused and the
-   *  row stays as it was. (S1a) The stack is the setup's binding too. */
+   *  row stays as it was. (S1a) The stack is the setup's binding too. (S1b) The row keeps its Deployment. */
   const stackAt = (index: number, stackId: string): string | null => {
     const d = local.dispositions[index]
     const stack = stacksFor(d)?.find((s) => s.stack_id === stackId)        // only ever a stack of the row's own account
-    const proposed = { ...d, scope: stack ? { account_id: d.scope.account_id, region: stack.region } : d.scope,
-                       ref: { kind: "stack_binding" as const, key: stackId } }
+    const scope = stack ? { account_id: d.scope.account_id, region: stack.region,
+                            ...(d.scope.deployment === undefined ? {} : { deployment: d.scope.deployment }) } : d.scope
+    const proposed = { ...d, scope, ref: { kind: "stack_binding" as const, key: stackId } }
     return refused(index, proposed) ?? placeRow(index, proposed)
   }
   /** A NEW row of ``subject`` for this account at ``region`` (all of the account when none) -- (S1b) of Deployment
