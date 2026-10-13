@@ -15,13 +15,16 @@ import {
   assess, assessmentWithheldSentence, deploymentLine, DRAFT_DEPLOYMENT_VERSION, remainderLines,
 } from "@/lib/system-boundary-assessment"
 import { decorationSentence, deploymentContext, pairDeployments } from "@/lib/system-boundary-deployment-context"
-import { finishExplanation, finishExplanationWithheldSentence, type Pairing } from "@/lib/system-boundary-finish-result"
+import { parseAppliedResponse } from "@/lib/system-boundary-applied"
+import {
+  finishExplanation, finishExplanationWithheldSentence, pairing, type Pairing,
+} from "@/lib/system-boundary-finish-result"
 import {
   parseResultResponse, RESPONSE_MALFORMED, RESULT_CONTRACT, RESULT_CONTRACT_V2, type ResultServed,
 } from "@/lib/system-boundary-result"
 import {
-  intentDeploymentKeys, isPluralIntent, isStatus, isView, pinnedDeployments, readAnswer, SETUP_CONTRACT_UNKNOWN,
-  type SetupView,
+  associatedSystemId, intentDeploymentKeys, isPluralIntent, isStatus, isView, pinnedDeployments, readAnswer,
+  SETUP_CONTRACT_UNKNOWN, type SetupView,
 } from "@/lib/system-boundary-setup"
 import {
   parsePreview, PREVIEW_CONTRACT, PREVIEW_CONTRACT_UNKNOWN, PREVIEW_CONTRACT_V2, previewAuthorizesFinish, type Preview,
@@ -433,5 +436,68 @@ describe("S1B-FE-CONTEXT-01: a resolution is one of the four exactly -- never a 
     expect(parsed).toMatchObject({ kind: "served", deploymentContext: { state: "UNAVAILABLE", reason: "toString" } })
     expect((parsed as ResultServed).lists.members).toHaveLength(3)
     expect(finishExplanation({ kind: "applied_result", generation: 41 }, parsed, null)).toEqual({ kind: "withheld", why: "toString" })
+  })
+})
+
+describe("C3f-P: ONE two-stack Finish's own receipt, Applied and result, paired exactly as the screen pairs them", () => {
+  // __tests__/fixtures/system-boundary-finish-pair-captures/: the three answers of ONE backend run (766edc56) -- no pairing
+  // is named by hand here; every refusal below is one field of a real answer changed, said where it is made.
+  const PAIR = "system-boundary-finish-pair-captures"
+  const finished = read(PAIR, "finished")
+  const appliedCap = read(PAIR, "applied")
+  const resultCap = read(PAIR, "result")
+  const viewOf = (body: unknown): SetupView => {
+    const answer = readAnswer({ status: 200, json: body }, isView)
+    if (answer.kind !== "OK") throw new Error(JSON.stringify(answer))
+    return answer.value
+  }
+  const explainOf = (body: unknown, appliedBody: unknown = appliedCap.body, resultBody: unknown = resultCap.body) => {
+    const view = viewOf(body)
+    const accountId = (view.result_scope as { accounts: string[] }).accounts[0]
+    const systemKey = associatedSystemId(view.receipt!.association)!
+    const result = parseResultResponse(resultCap.status, resultBody, accountId)
+    const p = pairing(parseAppliedResponse(appliedCap.status, appliedBody), result,
+                      { accountId, systemKey, completedRevision: view.receipt!.association.completed_revision })
+    return { p, explained: finishExplanation(p, result, pinnedDeployments(view)) }
+  }
+  const withheld = (why: string) => ({ kind: "withheld", why })
+
+  it("is THIS Finish's applied result, explained per Deployment from the receipt it pinned (shop -> prod, api -> staging)", () => {
+    const { p, explained } = explainOf(finished.body)
+    expect(p).toEqual({ kind: "applied_result", generation: resultCap.body.generation })
+    if (explained.kind !== "explained") throw new Error(JSON.stringify(explained))
+    const tail = (uid: string) => uid.split("/").pop()
+    const [prod, staging] = explained.explanation.deployments
+    expect([prod.deployment.deploymentKey, staging.deployment.deploymentKey]).toEqual(["prod", "staging"])
+    expect(prod.single.map(tail).sort()).toEqual(["app-role", "i-1", "sg-1"])
+    expect(staging.single.map(tail)).toEqual(["i-2"])
+    const { systemLevel, foreign, omitted } = explained.explanation
+    expect([prod.shared, staging.shared, systemLevel, foreign, omitted]).toEqual([[], [], [], [], 0])
+  })
+
+  it("a receipt that pinned another version or another Deployment is not this context's receipt: withheld whole, by name", () => {
+    // an edit each: the receipt's association -- and its result_scope, which must name exactly the receipt's Deployments --
+    // pins prod at version 2 (as a later save's receipt would), or names another Deployment for staging
+    const changed = (edit: (deployments: { key: string; version: number }[]) => void) => {
+      const body = structuredClone(finished.body)
+      edit(body.receipt.association.deployments)
+      body.result_scope.from = structuredClone(body.receipt.association.deployments)
+      return explainOf(body).explained
+    }
+    expect(changed((d) => { d[0].version = 2 })).toEqual(withheld("CONTEXT_NOT_THIS_RECEIPT"))
+    expect(changed((d) => { d[1].key = `DEPLOYMENT#authored_deployment:${"f".repeat(64)}` })).toEqual(withheld("CONTEXT_NOT_THIS_RECEIPT"))
+    // the receipt changed WITHOUT its result_scope is no view at all
+    const unbound = structuredClone(finished.body)
+    unbound.receipt.association.deployments[0].version = 2
+    expect(readAnswer({ status: 200, json: unbound }, isView)).toEqual(malformed())
+  })
+
+  it("an Applied of another generation, or of a revision before this Finish, makes it no explanation of this Finish", () => {
+    const later = { ...appliedCap.body, generation: appliedCap.body.generation + 1 }
+    const before = { ...appliedCap.body, applied_revision: appliedCap.body.applied_revision - 1 }
+    expect(explainOf(finished.body, later)).toEqual({ p: { kind: "updating", asOf: resultCap.body.generation,
+      why: "GENERATION_MISMATCH" }, explained: withheld("NOT_THIS_FINISH_RESULT") })
+    expect(explainOf(finished.body, before)).toEqual({ p: { kind: "updating", asOf: resultCap.body.generation,
+      why: "APPLIED_BEFORE_THIS_FINISH" }, explained: withheld("NOT_THIS_FINISH_RESULT") })
   })
 })

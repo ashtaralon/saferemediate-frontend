@@ -305,3 +305,25 @@ describe("the Finish result explains per Deployment only what THIS receipt pins 
     expect(screen.queryByTestId(`finish-result-deployments-withheld-${ACCOUNT}`)).toBeNull()
   })
 })
+
+describe("C3f-P: the Progress screen of ONE two-stack Finish, on that Finish's own Applied and result", () => {
+  it("reads the receipt's System in its result_scope account and names each Deployment's own members as this Finish's", async () => {
+    // __tests__/fixtures/system-boundary-finish-pair-captures/: one backend run's answers (766edc56), served unchanged
+    const pair = (name: string) => json(`system-boundary-finish-pair-captures/${name}.json`)
+    const finished: SetupView = pair("finished").body
+    const account = (finished.result_scope as { accounts: string[] }).accounts[0]
+    const readResult = vi.fn(async () => ({ status: pair("result").status, body: pair("result").body }))
+    render(<SetupWizard setupId={finished.setup_id} accountId={account} view={VIEW} picks={[]} onClose={() => undefined}
+      client={client(finished).c} pendingStore={setupPendingStore(null, new Map<string, PendingSetupOp>())} actor={ACTOR}
+      stacks={{ state: "unavailable", reason: "NOT_READ_IN_THIS_TEST" }} pluralOffered
+      readApplied={async () => ({ status: pair("applied").status, body: pair("applied").body })} readResult={readResult} />)
+    await settle()
+    await settle()
+    expect(readResult).toHaveBeenCalledWith(account, pair("result").body.system_key)
+    expect(screen.getByTestId(`finish-result-pairing-${account}`).textContent).toContain("This Finish's applied result")
+    const prod = screen.getByTestId(`finish-result-deployments-${account}-prod`).textContent ?? ""
+    for (const uid of ["instance/i-1", "security-group/sg-1", "role/app-role"]) expect(prod).toContain(uid)
+    expect(screen.getByTestId(`finish-result-deployments-${account}-staging`).textContent).toContain("instance/i-2")
+    expect(screen.queryByTestId(`finish-result-deployments-withheld-${account}`)).toBeNull()
+  })
+})
