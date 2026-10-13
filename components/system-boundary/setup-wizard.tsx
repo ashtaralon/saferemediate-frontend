@@ -643,7 +643,7 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
         {step === "review_and_start" ? <Review local={local} view={view} setup={setup} dirty={dirty} status={status}
           statusProblem={statusProblem} preview={shownPreview} needsPreview={needsPreview}
           onPreviewAgain={() => setPreviewNonce((n) => n + 1)} readPreview={readPreview} context={context} /> : null}
-        {step === "progress_and_results" ? <Progress setup={setup} status={status} statusProblem={statusProblem} accountId={accountId}
+        {step === "progress_and_results" ? <Progress setup={setup} status={status} statusProblem={statusProblem} context={context}
                                                      readApplied={readApplied} readResult={readResult} /> : null}
       </section>
 
@@ -1072,11 +1072,12 @@ function Review({ local, view, setup, dirty, status, statusProblem, preview, nee
   )
 }
 
-function Progress({ setup, status, statusProblem, accountId, readApplied, readResult }: {
+function Progress({ setup, status, statusProblem, context, readApplied, readResult }: {
   setup: SetupView
   status: SetupStatus | null
   statusProblem: string | null
-  accountId: string
+  /** (S1A-R7-PAIR-03) The verified person, account and setup: the applied-result subtree is keyed to it. */
+  context: string
   readApplied?: (accountId: string) => Promise<{ status: number; body: unknown }>
   readResult?: (accountId: string, systemKey: string) => Promise<{ status: number; body: unknown }>
 }) {
@@ -1097,7 +1098,8 @@ function Progress({ setup, status, statusProblem, accountId, readApplied, readRe
       ) : null}
       {/* (S1a R7) the accounts of THIS Finish's result: the Deployment as the receipt pinned it -- never this screen's account */}
       {setup.result_scope?.state === "SERVED" && systemId ? (
-        <FinishResult systemKey={systemId} completedRevision={association.completed_revision} accountIds={setup.result_scope.accounts}
+        <FinishResult key={`${context}|${setup.setup_id}|${setup.receipt.attempt}|${association.completed_revision}`}
+          systemKey={systemId} completedRevision={association.completed_revision} accountIds={setup.result_scope.accounts}
           {...(readApplied ? { readApplied } : {})} {...(readResult ? { readResult } : {})} />
       ) : (
         <p className="text-xs text-amber-800" data-testid="setup-progress-scope-unavailable">

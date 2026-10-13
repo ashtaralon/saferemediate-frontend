@@ -10,7 +10,7 @@
  * Anything else is "updating, as of generation G" -- a result built before this Finish, or one Applied does not speak for,
  * is never labelled applied. The proposal pinned at Finish (receipt.preview) stays apart, historical.
  */
-import type { ParsedApplied } from "@/lib/system-boundary-applied"
+import { appliedSentence, type ParsedApplied } from "@/lib/system-boundary-applied"
 import type { ParsedResult } from "@/lib/system-boundary-result"
 
 export type Pairing =
@@ -38,4 +38,25 @@ export function pairingSentence(p: Pairing): string {
     GENERATION_MISMATCH: "the result and the applied status are of different generations",
   }
   return `Updating -- ${why[p.why] ?? p.why}; it is not shown as this Finish's applied result.${asOf}`
+}
+
+/** (S1A-R7-PAIR-02) Whether a result answer is of THIS account and System at all; an answer naming another is never shown as
+ *  this Finish's (not even as "updating"). Answers that name nothing (unavailable, refused) carry no rows. */
+export function resultIsOurs(result: ParsedResult, accountId: string, systemKey: string): boolean {
+  if (result.kind === "served" || result.kind === "held" || result.kind === "not_recorded") {
+    return result.accountId === accountId && result.systemKey === systemKey
+  }
+  return true
+}
+
+/** (S1A-R7-PAIR-01) Applied in words, beside a result: "includes this save" about the membership SHOWN only when the pairing
+ *  proves the result shown IS that membership; otherwise Applied's own generation, said apart from the result. */
+export function appliedLine(applied: ParsedApplied, completedRevision: number, p: Pairing): string {
+  if (p.kind === "applied_result" || applied.kind !== "applied") return appliedSentence(applied, completedRevision)
+  const generation = `membership generation ${applied.generation ?? "?"} (published ${applied.publishedAt ?? "?"})`
+  return (applied.appliedRevision !== null && applied.appliedRevision >= completedRevision
+    ? `Applied status, on its own: this save is applied in ${generation}`
+    : `Applied status, on its own: ${generation} was built before this save`)
+    + (p.why === "GENERATION_MISMATCH" ? " -- the result read beside it is of another generation"
+      : " -- no served result of this system is read beside it") + ", so nothing is called this Finish's applied result."
 }

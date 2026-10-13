@@ -359,6 +359,21 @@ export function isResultScope(value: unknown): value is ResultScope {
     && (exactly(value, ["v", "state", "reason"]) || (exactly(value, ["v", "state", "reason", "from"]) && isSource(value.from)))
 }
 
+/** (S1A-R7-CONTRACT-01) A result scope BOUND to its setup: none without a receipt; with one, its source (when named) is EXACTLY
+ *  the receipt's sole pinned Deployment, and a SERVED scope's accounts are the setup's own (``accounts_seen``) -- never a
+ *  shape-valid scope of another record or account. UNAVAILABLE without a source (e.g. not exactly one Deployment) stays
+ *  readable. */
+function boundScope(scope: unknown, receipt: unknown, seen: unknown): boolean {
+  if (receipt === null) return scope === null
+  if (!isResultScope(scope) || !isRecord(receipt) || !isAssociation(receipt.association)) return false
+  const deployments = receipt.association.deployments
+  const from = scope.from
+  if (from !== undefined && !(deployments.length === 1 && from.key === deployments[0].key && from.version === deployments[0].version)) {
+    return false
+  }
+  return scope.state !== "SERVED" || (Array.isArray(seen) && scope.accounts.every((a) => seen.includes(a)))
+}
+
 export function isView(value: unknown): value is SetupView {
   if (!isSummary(value)) return false
   const view = value as unknown as Record<string, unknown>
@@ -369,7 +384,7 @@ export function isView(value: unknown): value is SetupView {
     && isRequirementProfile(view.requirement_profile) && coherentFacts(view.dispositions_derived, view.requirement_profile)
     && (view.receipt === null || (isRecord(view.receipt) && isAssociation(view.receipt.association)
       && (view.receipt.preview === undefined || isPreviewPin(view.receipt.preview))))
-    && "result_scope" in view && (view.result_scope === null ? view.receipt === null : isResultScope(view.result_scope))
+    && "result_scope" in view && boundScope(view.result_scope, view.receipt, view.accounts_seen)
 }
 
 const isText = (value: unknown): value is string => typeof value === "string" && value.length > 0
@@ -461,7 +476,17 @@ export function isStatus(value: unknown): value is SetupStatus {
     && Array.isArray(value.dispositions) && value.dispositions.every(isDerived)
     && isRequirementProfile(value.requirement_profile) && coherentFacts(value.dispositions, value.requirement_profile)
     && Array.isArray(value.operations) && value.operations.every(isOperation)
-    && "result_scope" in value && (value.result_scope === null || isResultScope(value.result_scope))
+    && "result_scope" in value && boundStatusScope(value.result_scope, value.association)
+}
+
+/** (S1A-R7-CONTRACT-01) The status's scope bound to ITS association: none without one; a named source is exactly the sole
+ *  pinned deployment head (key and pinned version). */
+function boundStatusScope(scope: unknown, association: unknown): boolean {
+  if (association === null) return scope === null
+  if (!isResultScope(scope) || !isRecord(association) || !Array.isArray(association.heads)) return false
+  const heads = association.heads.filter((h) => isRecord(h) && h.role === "deployment") as { key?: unknown; pinned_version?: unknown }[]
+  return scope.from === undefined
+    || (heads.length === 1 && heads[0].key === scope.from.key && heads[0].pinned_version === scope.from.version)
 }
 
 const isPage = (value: unknown): value is { setups: SetupSummary[]; next_cursor: string | null } =>

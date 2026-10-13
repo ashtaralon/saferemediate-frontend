@@ -525,6 +525,52 @@ describe("S1a R7: the finished setup's result accounts and THIS Finish's applied
     expect(screen.getByTestId(`finish-result-pairing-${ACCOUNT}`).textContent).toBe("This Finish's applied result -- membership generation 41.")
   })
 
+  it("S1A-R7-PAIR-01: Applied 41 beside an older same-System result: no 'membership shown' claim; its rows stay, as updating", async () => {
+    mountFinished(FIN, vi.fn(async () => appliedAt(41)), vi.fn(async () => resultAt(40)))
+    await settle()
+    const applied = screen.getByTestId(`finish-result-applied-${ACCOUNT}`).textContent ?? ""
+    expect(applied).not.toContain("membership shown")
+    expect(applied).toContain("this save is applied in membership generation 41")
+    expect(screen.getByTestId(`finish-result-pairing-${ACCOUNT}`).textContent).toContain("as of generation 40")
+    expect(within(screen.getByTestId(`finish-result-${ACCOUNT}`)).getAllByRole("listitem").length).toBeGreaterThan(0)
+  })
+
+  it("S1A-R7-PAIR-02: a served result naming another System shows none of its rows; it is refused by name", async () => {
+    const foreign = resultAt(41)                                        // an edit: right account and generation, another System
+    foreign.body = { ...foreign.body, system_key: `${SYSTEM_ID}x` }
+    mountFinished(FIN, vi.fn(async () => appliedAt(41)), vi.fn(async () => foreign))
+    await settle()
+    const block = screen.getByTestId(`finish-result-${ACCOUNT}`)
+    expect(screen.getByTestId(`finish-result-foreign-${ACCOUNT}`).textContent).toContain("RESULT_IDENTITY_MISMATCH")
+    expect(within(block).queryAllByRole("listitem")).toHaveLength(0)
+    expect(screen.getByTestId(`finish-result-pairing-${ACCOUNT}`).textContent).not.toContain("This Finish's applied result")
+  })
+
+  it("S1A-R7-PAIR-03: the person changes while a pair is out -- the earlier person's answer never installs", async () => {
+    let releaseAlice: (() => void) | null = null
+    const calls: string[] = []
+    const readApplied = vi.fn(async () => appliedAt(41))
+    const readResult = vi.fn(async () => {
+      calls.push(calls.length ? "bob" : "alice")
+      if (calls.length === 1) await new Promise<void>((resolve) => { releaseAlice = resolve })
+      else await new Promise<void>(() => undefined)                  // Bob's reads stay pending: nothing authorized yet
+      return resultAt(41)
+    })
+    const alice = client(FIN).c
+    const view = render(<SetupWizard setupId={FIN.setup_id} accountId={ACCOUNT} view={VIEW} picks={[]} onClose={() => undefined}
+      client={alice} pendingStore={freshStore()} actor="idp#alice" readApplied={readApplied} readResult={readResult} />)
+    await settle()
+    const bob: SetupClient = { ...client(FIN).c, readSetup: vi.fn(() => new Promise(() => undefined)) as SetupClient["readSetup"] }
+    view.rerender(<SetupWizard setupId={FIN.setup_id} accountId={ACCOUNT} view={VIEW} picks={[]} onClose={() => undefined}
+      client={bob} pendingStore={freshStore()} actor="idp#bob" readApplied={readApplied} readResult={readResult} />)
+    await settle()
+    await act(async () => { releaseAlice!() })
+    await settle()
+    expect(calls).toEqual(["alice", "bob"])                              // a fresh read for the current person, nothing reused
+    expect(screen.queryByTestId(`finish-result-pairing-${ACCOUNT}`)).toBeNull()
+    expect(screen.getByTestId("finish-result").textContent).toContain("reading…")
+  })
+
   it("an UNAVAILABLE result scope names its reason and reads nothing -- never today's or this screen's accounts", async () => {
     const missing = structuredClone(FIN)                                // an edit: the pinned Deployment history is gone
     missing.result_scope = { v: 1, state: "UNAVAILABLE", reason: "DEPLOYMENT_HISTORY_MISSING", from: FIN.receipt!.association.deployments[0] }

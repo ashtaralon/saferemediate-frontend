@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs"
 import path from "node:path"
 import { describe, expect, it } from "vitest"
 import { parseAppliedResponse } from "@/lib/system-boundary-applied"
-import { pairing, pairingSentence } from "@/lib/system-boundary-finish-result"
+import { appliedLine, pairing, pairingSentence, resultIsOurs } from "@/lib/system-boundary-finish-result"
 import { parseResultResponse } from "@/lib/system-boundary-result"
 import { isResultScope, isStatus, isView } from "@/lib/system-boundary-setup"
 
@@ -78,5 +78,50 @@ describe("result_scope is read exactly, and a finished view must carry it", () =
     }
     expect(isResultScope({ v: 1, state: "UNAVAILABLE", reason: "DEPLOYMENT_HISTORY_MISSING", from: finished.result_scope.from })).toBe(true)
     expect(isView({ ...structuredClone(finished), result_scope: { v: 1, state: "UNAVAILABLE", reason: "DEPLOYMENT_HISTORY_MISSING" } })).toBe(true)
+  })
+})
+
+describe("SW-S1A-20261013-11 corrections", () => {
+  const finished = json("system-boundary-setup-preview-captures", "read_finished").body
+  const status = json("system-boundary-setup-preview-captures", "status").body
+  const [pinned] = finished.receipt.association.deployments
+
+  it("S1A-R7-CONTRACT-01: a scope is read only BOUND to its receipt's sole Deployment and the setup's own accounts", () => {
+    expect(isView(finished)).toBe(true)
+    const edits: [string, (v: any) => void][] = [                       // eslint-disable-line @typescript-eslint/no-explicit-any
+      ["another pinned version", (v) => { v.result_scope.from.version = pinned.version + 1 }],
+      ["another Deployment key", (v) => { v.result_scope.from.key = "DEPLOYMENT#authored_deployment:other" }],
+      ["an account the setup never named", (v) => { v.result_scope.accounts = [...v.result_scope.accounts, "999988887777"].sort() }],
+      ["a scope beside no receipt", (v) => { v.receipt = null }],
+    ]
+    for (const [label, edit] of edits) {                                 // each an edit of the real finished read
+      const view = structuredClone(finished)
+      edit(view)
+      expect(isView(view), label).toBe(false)
+    }
+    const unavailable = { ...structuredClone(finished), result_scope: { v: 1, state: "UNAVAILABLE", reason: "DEPLOYMENTS_NOT_ONE" } }
+    expect(isView(unavailable)).toBe(true)                               // legitimately source-less: still readable
+    expect(isStatus(status)).toBe(true)
+    const wrongStatus = structuredClone(status)
+    wrongStatus.result_scope.from.version = pinned.version + 1
+    expect(isStatus(wrongStatus)).toBe(false)
+    expect(isStatus({ ...structuredClone(status), association: null })).toBe(false)
+  })
+
+  it("S1A-R7-PAIR-01: with Applied 41 and an older result, no sentence says the membership shown includes this save", () => {
+    const older = { ...structuredClone(RESULT.body), generation: 40 }   // an edit: the result read before the publication
+    const p = pairing(applied(), result(older), at(1))
+    const line = appliedLine(applied(), 1, p)
+    expect(line).not.toContain("membership shown")
+    expect(line).toContain("this save is applied in membership generation 41")
+    expect(line).toContain("of another generation")
+    expect(pairingSentence(p)).toContain("as of generation 40")
+    expect(appliedLine(applied(), 1, pairing(applied(), result(), at(1)))).toContain("the membership shown")   // paired: the claim stands
+  })
+
+  it("S1A-R7-PAIR-02: a result naming another System is not ours; the same System at an older generation is", () => {
+    expect(resultIsOurs(result(), ACCOUNT, SYSTEM)).toBe(true)
+    expect(resultIsOurs(result({ ...structuredClone(RESULT.body), generation: 40 }), ACCOUNT, SYSTEM)).toBe(true)
+    expect(resultIsOurs(result({ ...structuredClone(RESULT.body), system_key: `${SYSTEM}x` }), ACCOUNT, SYSTEM)).toBe(false)
   })
 })

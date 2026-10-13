@@ -7,13 +7,17 @@
  * pairing says so; otherwise it is "updating, as of generation G" and its lists are shown under that label.
  *
  * Each read takes the next generation: answers are shown only while they answer the LATEST read (an earlier read answering
- * last changes nothing).
+ * last changes nothing). The caller keys this component to the verified person, account, setup and receipt
+ * (S1A-R7-PAIR-03): any change remounts it, so an answer read under an earlier context never installs.
+ *
+ * (S1A-R7-PAIR-01/02) "includes this save" is said about the membership SHOWN only when the pairing proves it; a result naming
+ * another account or System is refused by name and none of it is shown -- a same-System older generation stays, as updating.
  */
 import { useCallback, useEffect, useRef, useState } from "react"
 import { ResultLists } from "@/components/system-boundary/system-result"
 import { Button } from "@/components/ui/button"
-import { appliedSentence, fetchApplied, parseAppliedResponse, type ParsedApplied } from "@/lib/system-boundary-applied"
-import { pairing, pairingSentence } from "@/lib/system-boundary-finish-result"
+import { fetchApplied, parseAppliedResponse, type ParsedApplied } from "@/lib/system-boundary-applied"
+import { appliedLine, pairing, pairingSentence, resultIsOurs } from "@/lib/system-boundary-finish-result"
 import { fetchResult, parseResultResponse, resultSentence, type ParsedResult } from "@/lib/system-boundary-result"
 
 export interface FinishResultProps {
@@ -53,13 +57,20 @@ export function FinishResult({ systemKey, completedRevision, accountIds, readApp
           return <p key={id} className="text-sm"><span className="font-mono text-xs">{id}</span>: reading…</p>
         }
         const paired = pairing(answer.applied, answer.result, { accountId: id, systemKey, completedRevision })
+        const ours = resultIsOurs(answer.result, id, systemKey)
         return (
           <div key={id} className="space-y-1 text-sm" data-testid={`finish-result-${id}`}>
-            <p><span className="font-mono text-xs">{id}</span>: {appliedSentence(answer.applied, completedRevision)}</p>
+            <p data-testid={`finish-result-applied-${id}`}>
+              <span className="font-mono text-xs">{id}</span>: {appliedLine(answer.applied, completedRevision, paired)}
+            </p>
             <p className={paired.kind === "applied_result" ? "text-emerald-800" : "text-amber-800"}
               data-testid={`finish-result-pairing-${id}`}>{pairingSentence(paired)}</p>
-            <p className="text-xs text-slate-600">{resultSentence(answer.result)}</p>
-            {answer.result.kind === "served" ? <ResultLists answer={answer.result} /> : null}
+            {ours ? <p className="text-xs text-slate-600">{resultSentence(answer.result)}</p> : (
+              <p className="text-xs text-amber-800" data-testid={`finish-result-foreign-${id}`}>
+                The result answered another account or system (RESULT_IDENTITY_MISMATCH); nothing of it is shown here.
+              </p>
+            )}
+            {ours && answer.result.kind === "served" ? <ResultLists answer={answer.result} /> : null}
           </div>
         )
       })}
