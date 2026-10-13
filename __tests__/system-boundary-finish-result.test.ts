@@ -132,7 +132,8 @@ describe("SW-S1A-20261013-12 correction", () => {
                         { ...json("system-boundary-captures", "applied_not_applied_yet").body, account_id: "999988887777" }]) {  // wrong account
       const foreign = parseAppliedResponse(200, body)
       const p = pairing(foreign, result(), at(1))
-      expect(p).toMatchObject({ kind: "updating", why: "NOT_APPLIED" })
+      // (SW-S1A-20261013-35) another account's answer leaves THIS account unknown -- it was NOT_APPLIED before
+      expect(p).toMatchObject({ kind: "unknown", why: "APPLIED_IDENTITY_MISMATCH" })
       const line = appliedLine(foreign, 1, p, ACCOUNT)
       expect(line).toContain("APPLIED_IDENTITY_MISMATCH")
       expect(line).not.toMatch(/generation 41|applied in|Saved\./)
@@ -149,12 +150,83 @@ describe("SW-S1A-20261013-13 correction", () => {
     expect(unavailable.kind).toBe("unavailable")
     const foreign = parseAppliedResponse(200, { ...structuredClone(APPLIED.body), account_id: "999988887777" })   // an edit
     const p = pairing(foreign, unavailable, at(1))
-    expect(p).toEqual({ kind: "updating", asOf: null, why: "NOT_APPLIED" })
+    expect(p).toEqual({ kind: "unknown", asOf: null, why: "APPLIED_IDENTITY_MISMATCH" })   // (SW-S1A-20261013-35) was NOT_APPLIED
     expect(pairingSentence(p)).not.toContain("as of generation")
   })
   it("the matching account's Applied generation stays the 'as of' when no result is served", () => {
     const p = pairing(applied(), unavailable, at(1))
     expect(p).toEqual({ kind: "updating", asOf: 41, why: "RESULT_NOT_SERVED" })
     expect(pairingSentence(p)).toContain("as of generation 41")
+  })
+})
+
+describe("SW-S1A-20261013-35 correction (S1A-APPLIED-UNKNOWN-01)", () => {
+  const NOT_YET = json("system-boundary-captures", "applied_not_applied_yet")
+  // Unreadable Applied answers, each through the real parser: the installed observation (both reads RESPONSE_NOT_CONTRACT) has
+  // no recorded status or body, so these are the shapes that parser maps there -- each constructed, and said.
+  const UNREADABLE: [string, number, unknown][] = [
+    ["no answer at all (a fetch that threw)", 0, null],
+    ["the authoring proxy's own refusal: backend unavailable", 502, { detail: { code: "AUTHORING_BACKEND_UNAVAILABLE" } }],
+    ["the authoring proxy's own refusal: backend not configured", 503, { detail: { code: "AUTHORING_BACKEND_NOT_CONFIGURED" } }],
+    ["a backend person-key refusal (a 503 detail body)", 503, { detail: { code: "PERSON_KEYS_UNAVAILABLE" } }],
+    ["a body that is not JSON (read as null)", 504, null],
+    ["a JSON body that is not an object", 200, ["not", "an", "object"]],
+  ]
+
+  it("an Applied that could not be read is UNKNOWN, never 'not applied' -- and never this Finish's applied result", () => {
+    for (const [label, status, body] of UNREADABLE) {
+      const answer = parseAppliedResponse(status, body)
+      expect(answer.kind, label).toBe("unavailable")
+      const p = pairing(answer, result(), at(1))
+      expect(p, label).toEqual({ kind: "unknown", asOf: 41, why: "APPLIED_UNREADABLE" })
+      const said = pairingSentence(p)
+      expect(said, label).toBe("Unknown -- whether this Finish is applied in this account could not be read; it is not shown as "
+        + "this Finish's applied result. The result shown is as of generation 41.")
+      expect(said, label).not.toMatch(/not applied/)
+    }
+  })
+
+  it("the installed observation: Applied AND result unreadable -- unknown, no 'as of' generation, nothing called applied", () => {
+    const applied0 = parseAppliedResponse(0, null)
+    const result0 = parseResultResponse(0, null, ACCOUNT)
+    expect([applied0.reasonCode, result0.kind === "unavailable" && result0.reasonCode]).toEqual(["RESPONSE_NOT_CONTRACT", "RESPONSE_NOT_CONTRACT"])
+    const p = pairing(applied0, result0, at(1))
+    expect(p).toEqual({ kind: "unknown", asOf: null, why: "APPLIED_UNREADABLE" })
+    expect(pairingSentence(p)).not.toMatch(/not applied|as of generation|This Finish's applied result/)
+    expect(appliedLine(applied0, 1, p, ACCOUNT)).toBe("Whether the save is applied could not be read (RESPONSE_NOT_CONTRACT).")
+  })
+
+  it("a refused Applied is UNKNOWN by its own name (401 / 403 / another 4xx detail)", () => {
+    for (const [status, code] of [[401, "PERSON_TOKEN_INVALID"], [403, "PERSON_NOT_AUTHORIZED"], [409, "PROTOCOL_HOLD"]] as const) {
+      const answer = parseAppliedResponse(status, { detail: { code } })
+      expect(answer.kind).toBe("refused")
+      const p = pairing(answer, result(), at(1))
+      expect(p).toEqual({ kind: "unknown", asOf: 41, why: "APPLIED_REFUSED" })
+      expect(pairingSentence(p)).toContain("the applied status was refused, so whether this Finish is applied in this account is not known")
+      expect(pairingSentence(p)).not.toMatch(/not applied/)
+    }
+  })
+
+  it("saving reported not initialized after a Finish is UNKNOWN, not 'not applied'", () => {
+    const answer = parseAppliedResponse(200, { ...structuredClone(NOT_YET.body), state: "not_initialized",   // an edit of the
+      reason_code: "PROTOCOL_NOT_INITIALIZED", saved_revision: null })                                         // real capture
+    expect(answer.kind).toBe("not_initialized")
+    const p = pairing(answer, result(), at(1))
+    expect(p).toEqual({ kind: "unknown", asOf: 41, why: "APPLIED_NOT_INITIALIZED" })
+    expect(pairingSentence(p)).toContain("saving is not initialized on this install")
+  })
+
+  it("the genuine not_applied_yet of THIS account is still 'not applied in this account yet' (the only source of that claim)", () => {
+    const p = pairing(parseAppliedResponse(NOT_YET.status, NOT_YET.body), result(), at(1))
+    expect(p).toEqual({ kind: "updating", asOf: 41, why: "NOT_APPLIED" })
+    expect(pairingSentence(p)).toBe("Updating -- this Finish is not applied in this account yet; it is not shown as this Finish's "
+      + "applied result. The result shown is as of generation 41.")
+  })
+
+  it("the fences hold: an unknown Applied never borrows a foreign generation, and the paired case is unchanged", () => {
+    const foreign = parseAppliedResponse(200, { ...structuredClone(APPLIED.body), account_id: "999988887777" })   // an edit
+    expect(pairing(foreign, parseResultResponse(0, null, ACCOUNT), at(1)))
+      .toEqual({ kind: "unknown", asOf: null, why: "APPLIED_IDENTITY_MISMATCH" })
+    expect(pairing(applied(), result(), at(1))).toEqual({ kind: "applied_result", generation: 41 })
   })
 })

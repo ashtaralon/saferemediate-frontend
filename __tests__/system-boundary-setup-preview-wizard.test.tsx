@@ -555,6 +555,23 @@ describe("S1a R7: the finished setup's result accounts and THIS Finish's applied
     expect(screen.getByTestId(`finish-result-pairing-${ACCOUNT}`).textContent).not.toContain("as of generation")
   })
 
+  it("S1A-APPLIED-UNKNOWN-01: Applied and result both unreadable (the installed observation) -- unknown, never 'not applied'", async () => {
+    // Constructed: the installed observation recorded no status or body; these are two shapes the parsers read as
+    // RESPONSE_NOT_CONTRACT -- a read that threw, and the authoring proxy's own backend-unavailable refusal.
+    for (const unreadable of [{ status: 0, body: null }, { status: 502, body: { detail: { code: "AUTHORING_BACKEND_UNAVAILABLE" } } }]) {
+      const view = mountFinished(FIN, vi.fn(async () => unreadable), vi.fn(async () => unreadable))
+      await settle()
+      const pairingSaid = screen.getByTestId(`finish-result-pairing-${ACCOUNT}`).textContent ?? ""
+      expect(pairingSaid).toBe("Unknown -- whether this Finish is applied in this account could not be read; it is not shown as "
+        + "this Finish's applied result.")
+      expect(screen.getByTestId(`finish-result-applied-${ACCOUNT}`).textContent)
+        .toContain("Whether the save is applied could not be read (RESPONSE_NOT_CONTRACT).")
+      expect(screen.getByTestId(`finish-result-${ACCOUNT}`).textContent).not.toMatch(/not applied|This Finish's applied result/)
+      expect(within(screen.getByTestId(`finish-result-${ACCOUNT}`)).queryAllByRole("listitem")).toHaveLength(0)
+      view.unmount()
+    }
+  })
+
   it("S1A-R7-PAIR-02: a served result naming another System shows none of its rows; it is refused by name", async () => {
     const foreign = resultAt(41)                                        // an edit: right account and generation, another System
     foreign.body = { ...foreign.body, system_key: `${SYSTEM_ID}x` }

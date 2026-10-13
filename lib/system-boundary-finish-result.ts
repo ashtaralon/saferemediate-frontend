@@ -9,6 +9,10 @@
  *  4. the result's generation IS the Applied answer's generation.
  * Anything else is "updating, as of generation G" -- a result built before this Finish, or one Applied does not speak for,
  * is never labelled applied. The proposal pinned at Finish (receipt.preview) stays apart, historical.
+ *
+ * (S1A-APPLIED-UNKNOWN-01) "Not applied" is said only from an Applied answer that IS this account's and says not_applied_yet.
+ * An Applied that could not be read, was refused, answered another account, or reports saving not initialized leaves
+ * whether this Finish is applied UNKNOWN: the result is withheld all the same, under that name, never "not applied".
  */
 import { appliedSentence, type ParsedApplied } from "@/lib/system-boundary-applied"
 import type { ParsedResult } from "@/lib/system-boundary-result"
@@ -16,6 +20,7 @@ import type { ParsedResult } from "@/lib/system-boundary-result"
 export type Pairing =
   | { kind: "applied_result"; generation: number }
   | { kind: "updating"; asOf: number | null; why: string }
+  | { kind: "unknown"; asOf: number | null; why: string }
 
 export function pairing(applied: ParsedApplied, result: ParsedResult,
                         { accountId, systemKey, completedRevision }: { accountId: string; systemKey: string; completedRevision: number }): Pairing {
@@ -23,7 +28,12 @@ export function pairing(applied: ParsedApplied, result: ParsedResult,
   const asOf = result.kind === "served" ? result.generation
     : applied.kind === "applied" && applied.accountId === accountId ? applied.generation : null
   const updating = (why: string): Pairing => ({ kind: "updating", asOf, why })
-  if (applied.kind !== "applied" || applied.accountId !== accountId) return updating("NOT_APPLIED")
+  const unknown = (why: string): Pairing => ({ kind: "unknown", asOf, why })
+  // (S1A-APPLIED-UNKNOWN-01) Only an answer naming an account can speak for one; "accountId" in narrows to AppliedAnswer.
+  if (!("accountId" in applied)) return unknown(applied.kind === "refused" ? "APPLIED_REFUSED" : "APPLIED_UNREADABLE")
+  if (applied.accountId !== accountId) return unknown("APPLIED_IDENTITY_MISMATCH")
+  if (applied.kind === "not_initialized") return unknown("APPLIED_NOT_INITIALIZED")
+  if (applied.kind !== "applied") return updating("NOT_APPLIED")
   if (applied.appliedRevision === null || applied.appliedRevision < completedRevision) return updating("APPLIED_BEFORE_THIS_FINISH")
   if (result.kind !== "served" || result.accountId !== accountId || result.systemKey !== systemKey) return updating("RESULT_NOT_SERVED")
   if (result.generation !== applied.generation) return updating("GENERATION_MISMATCH")
@@ -33,6 +43,17 @@ export function pairing(applied: ParsedApplied, result: ParsedResult,
 export function pairingSentence(p: Pairing): string {
   if (p.kind === "applied_result") return `This Finish's applied result -- membership generation ${p.generation}.`
   const asOf = p.asOf === null ? "" : ` The result shown is as of generation ${p.asOf}.`
+  if (p.kind === "unknown") {
+    const unknown: Record<string, string> = {
+      APPLIED_UNREADABLE: "whether this Finish is applied in this account could not be read",
+      APPLIED_REFUSED: "the applied status was refused, so whether this Finish is applied in this account is not known",
+      APPLIED_IDENTITY_MISMATCH: "the applied status answered another account, so whether this Finish is applied in this "
+        + "account is not known",
+      APPLIED_NOT_INITIALIZED: "the applied status says saving is not initialized on this install, so whether this Finish "
+        + "is applied in this account is not known",
+    }
+    return `Unknown -- ${unknown[p.why] ?? p.why}; it is not shown as this Finish's applied result.${asOf}`
+  }
   const why: Record<string, string> = {
     NOT_APPLIED: "this Finish is not applied in this account yet",
     APPLIED_BEFORE_THIS_FINISH: "the served membership was built before this Finish",
