@@ -29,7 +29,16 @@ import {
   setupPendingStore,
   type SetupPendingStore,
 } from "@/lib/system-boundary-setup-pending"
-import { fetchStacks, parseStacksResponse, stacksOutcomeSentence } from "@/lib/system-boundary-stacks"
+import { fetchStacks, parseStacksResponse, stacksOutcomeSentence, type StacksData } from "@/lib/system-boundary-stacks"
+
+/** The stacks the setup offers: the census's SETTLED stacks of the account, each with its Region, status and (S1a) the census
+ *  publication it is listed under -- what a stack binding records the person saw. */
+export function stackOptionsOf(parsed: StacksData): StackOption[] {
+  return parsed.stacks.filter((stack) => stack.settled)
+    .map((stack) => ({ stack_id: stack.stackId, label: `${stack.stackName} (${stack.region})`, region: stack.region,
+                       stack_status: stack.stackStatus,
+                       census: { generation: parsed.publication.generation, source_identity: parsed.publication.sourceIdentity } }))
+}
 
 type Stacks = { state: "served"; stacks: StackOption[] } | { state: "unavailable"; reason: string }
 
@@ -109,9 +118,7 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
       if (!live) return
       const parsed = parseStacksResponse(status, body, accountId)
       setStacks(parsed.kind === "data"
-        ? { state: "served", stacks: parsed.stacks.filter((stack) => stack.settled)
-                                     .map((stack) => ({ stack_id: stack.stackId, label: `${stack.stackName} (${stack.region})`,
-                                                        region: stack.region })) }
+        ? { state: "served", stacks: stackOptionsOf(parsed) }
         : { state: "unavailable", reason: stacksOutcomeSentence(parsed) })
     })
     return () => {

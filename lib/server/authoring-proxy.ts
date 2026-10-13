@@ -3,9 +3,10 @@ import { accountAdminIdentityHeaders, accountAdminWriteFromOwnOrigin } from "@/l
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 /**
- * The System Boundary authoring proxy (Phase 2 F1): a NAMED proxy for exactly eighteen backend routes, never a relay -- F1's
- * seven, (A7 rev 4) the wizard's capability read, the declarations' applied status and one system's result, and (onboarding
- * G2) the eight routes of the resumable System setup (create, list, read, status, update, finish, cancel, amend).
+ * The System Boundary authoring proxy (Phase 2 F1): a NAMED proxy for exactly nineteen backend routes, never a relay -- F1's
+ * seven, (A7 rev 4) the wizard's capability read, the declarations' applied status and one system's result, (onboarding
+ * G2) the eight routes of the resumable System setup (create, list, read, status, update, finish, cancel, amend), and (S1a)
+ * the read-only draft preview of one setup.
  *
  * The backend verifies the person on these routes by the console transport (api/system_boundary.py::_console_person,
  * backend a3c945b0): the IdP access token alone, against the keys installed on the issuer's trust block, else its
@@ -16,8 +17,8 @@ import { getBackendBaseUrl } from "@/lib/server/backend-url"
  * unchanged; nothing of account administration's privilege is involved -- the backend decides read / classify.
  *
  * Everything else is refused here by name with nothing forwarded: another path or method, any query parameter but
- * the request list's cursor and limit, the applied status's account_id, or the result's account_id and system_key, a
- * body that is not JSON or exceeds the
+ * the request list's cursor and limit, the applied status's account_id, the result's account_id and system_key, or the
+ * preview's state_version, account_id, bucket and cursor -- a body that is not JSON or exceeds the
  * backend's own cap. Upstream calls are
  * never cached and never follow a redirect (the identity headers must not reach another destination), and nothing
  * is retried: the caller keeps the exact request to resend. Responses -- the backend's, relayed byte for byte, and
@@ -30,10 +31,14 @@ export const AUTHORING_MAX_BODY_BYTES = 1024 * 1024
 export const AUTHORING_MAX_CURSOR = 1024
 /** The result route's system key, bounded as the backend bounds it (api/system_boundary.py _SYSTEM_KEY_MAX_BYTES). */
 export const AUTHORING_MAX_SYSTEM_KEY_BYTES = 512
+/** (S1a) A preview page cursor names the last row's resource uid, kind and row id: longer than a request-list cursor. */
+export const AUTHORING_MAX_PREVIEW_CURSOR = 4096
+/** (S1a) The preview's lists, as the backend names them (unified/system_boundary_preview.BUCKETS). */
+const PREVIEW_BUCKETS = ["members", "dependencies", "held", "not_members"]
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
-type Route = { method: "GET" | "POST" | "PUT"; matches: (suffix: string) => boolean; query: readonly string[] }
+type Route = { method: "GET" | "POST" | "PUT"; matches: (suffix: string) => boolean; query: readonly string[]; maxCursor?: number }
 
 /** (Onboarding G2) ``setup/<uuid>`` exactly, optionally followed by one of ``tails``: nothing else under setup/. */
 function setupPath(suffix: string, tails: readonly string[]): boolean {
@@ -43,7 +48,7 @@ function setupPath(suffix: string, tails: readonly string[]): boolean {
   return UUID.test(id) && tails.includes(rest.slice(36))
 }
 
-/** The eighteen routes, by exact method and path below /api/system-boundary/, with the query each may carry. */
+/** The nineteen routes, by exact method and path below /api/system-boundary/, with the query each may carry. */
 const ROUTES: readonly Route[] = [
   { method: "GET", matches: (s) => s === "declarations/view", query: [] },
   { method: "GET", matches: (s) => s === "declarations/head", query: [] },
@@ -68,6 +73,9 @@ const ROUTES: readonly Route[] = [
   { method: "GET", matches: (s) => setupPath(s, ["", "/status"]), query: [] },
   { method: "PUT", matches: (s) => setupPath(s, [""]), query: [] },
   { method: "POST", matches: (s) => setupPath(s, ["/finish", "/cancel", "/amend"]), query: [] },
+  // S1a: the draft preview of ONE saved state version (read-only), optionally one page of one list of one account.
+  { method: "GET", matches: (s) => setupPath(s, ["/preview"]), query: ["state_version", "account_id", "bucket", "cursor"],
+    maxCursor: AUTHORING_MAX_PREVIEW_CURSOR },
 ]
 
 function refused(status: number, detail: Record<string, unknown>): NextResponse {
@@ -93,8 +101,19 @@ function forwardedQuery(route: Route, params: URLSearchParams): URLSearchParams 
   }
   const cursor = params.get("cursor")
   if (cursor !== null) {
-    if (!cursor || cursor.length > AUTHORING_MAX_CURSOR) return null
+    if (!cursor || cursor.length > (route.maxCursor ?? AUTHORING_MAX_CURSOR)) return null
     out.set("cursor", cursor)
+  }
+  // (S1a) the preview's saved state version, and the list a page is of
+  const stateVersion = params.get("state_version")
+  if (stateVersion !== null) {
+    if (!/^[0-9]{1,10}$/.test(stateVersion)) return null
+    out.set("state_version", stateVersion)
+  }
+  const bucket = params.get("bucket")
+  if (bucket !== null) {
+    if (!PREVIEW_BUCKETS.includes(bucket)) return null
+    out.set("bucket", bucket)
   }
   const accountId = params.get("account_id")
   if (accountId !== null) {

@@ -81,7 +81,9 @@ function unavailable(status: number, reasonCode: string | null): ResultUnavailab
   return { kind: "unavailable", status, reasonCode }
 }
 
-function rows(value: unknown): ResultRow[] | null {
+/** A list of result rows (each names a resource and a state), or null -- the one row check; the setup preview's display
+ *  lists and pages are these same rows (lib/system-boundary-setup-preview.ts). */
+export function rows(value: unknown): ResultRow[] | null {
   if (!Array.isArray(value)) return null
   for (const row of value) {
     if (!isObject(row) || typeof row.resource_uid !== "string" || row.resource_uid === "" || typeof row.state !== "string") {

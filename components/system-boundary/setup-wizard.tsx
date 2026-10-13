@@ -13,13 +13,39 @@
  * archives have no resolver yet: choosing them records the request and the step says it is not available in this release.
  * The roots come from the account inventory below (the person's picks), each with the selection it was picked under; the
  * backend admits every root again when the setup finishes.
+ *
+ * (S1a, setup contract level 4) The intent is read and written LOSSLESSLY (lib/system-boundary-setup-intent.ts): a stack the
+ * person chooses for infrastructure as code is also the setup's stack BINDING (one per setup in this release), a per-resource
+ * decision on that stack's resources is kept as the person made it, and the Deployment's saved scopes change only when the
+ * roots, binding or decisions do. Review shows the PREVIEW of the saved revision -- what finishing it would make the system,
+ * computed by the backend's own planner and written nowhere -- and a Finish of a setup that binds a stack names the preview
+ * the person reviewed (a version-2 pending Finish), only while the screen is saved and the preview is of exactly that version.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AppliedStatus } from "@/components/system-boundary/applied-status"
+import { stackResources, type Resources } from "@/components/system-boundary/stack-binding-wizard"
 import { SystemResult } from "@/components/system-boundary/system-result"
 import { Button } from "@/components/ui/button"
-import type { DeclarationsView, DeclaredRoot } from "@/lib/system-boundary-authoring"
-import { buildDeclaration, cellsOf, type PickedRoot } from "@/lib/system-boundary-declaration"
+import { fetchCensusPage, rowName, type CensusFetcher, type CensusRow } from "@/lib/account-census"
+import type { DeclarationsView, ResourceDecision, StackBinding } from "@/lib/system-boundary-authoring"
+import { buildDeclaration, type PickedRoot } from "@/lib/system-boundary-declaration"
+import { notMemberSentence, proofSentence, type ResultList, type ResultRow } from "@/lib/system-boundary-result"
+import {
+  bindsStack,
+  draftDeclaration,
+  loadIntent,
+  stackBinding,
+  withBoundary,
+  type IntentLocal,
+} from "@/lib/system-boundary-setup-intent"
+import {
+  heldSentence,
+  previewRefusalSentence,
+  previewSentence,
+  readPreview as readPreviewDefault,
+  type PreviewFetcher,
+  type PreviewRead,
+} from "@/lib/system-boundary-setup-preview"
 import {
   freezeOp,
   othersForSetup,
@@ -59,7 +85,8 @@ export interface SetupClient {
   readSetup: (setupId: string) => Promise<SetupRead<SetupView>>
   readSetupStatus: (setupId: string) => Promise<SetupRead<SetupStatus>>
   updateSetup: (setupId: string, requestId: string, base: number, steps: SetupIntent) => Promise<SetupWrite>
-  finishSetup: (setupId: string, requestId: string, base: number) => Promise<SetupWrite>
+  /** ``previewDigest``: only for a version-2 Finish (the preview the person reviewed); a version-1 Finish sends none. */
+  finishSetup: (setupId: string, requestId: string, base: number, previewDigest?: string) => Promise<SetupWrite>
 }
 
 const DEFAULT_CLIENT: SetupClient = {
@@ -84,22 +111,23 @@ export interface SetupWizardProps {
   actor?: string | null
   /** Injectable for tests; default: this browser's storage (guarded) and this page's memory. */
   pendingStore?: SetupPendingStore
+  /** Injectable for tests; default: the draft preview read (lib/system-boundary-setup-preview.ts). */
+  readPreview?: PreviewFetcher
+  /** Injectable for tests; default: the census page read (a bound stack's resources, for per-resource decisions). */
+  readCensus?: CensusFetcher
 }
 
-/** A CloudFormation stack the census serves for this account, with the Region it is in. */
-export type StackOption = { stack_id: string; label: string; region: string }
-
-type Local = {
-  displayName: string
-  criticality: string
-  deploymentKey: string
-  environment: string
-  environmentRaw: string
-  roots: PickedRoot[]
-  /** (S0 NSW-04) Every authored disposition, as saved: one per (subject, account, Region), so a subject chosen in two Regions
-   *  is two rows, and a row this screen does not offer is kept and saved back unchanged. */
-  dispositions: AuthoredDisposition[]
+/** A CloudFormation stack the census serves for this account: the Region it is in, its status and the census publication it
+ *  was listed under (what a binding records the person saw). */
+export type StackOption = {
+  stack_id: string
+  label: string
+  region: string
+  stack_status: string | null
+  census: { generation: number; source_identity: string }
 }
+
+type Local = IntentLocal
 
 /** The subjects each step records a choice for, with the choices offered and what each reference names. Whether a subject's
  *  scope needs a Region is the SERVED requirement profile's to say (``needsRegion``), never this list's. */
@@ -132,10 +160,6 @@ const SOURCE_FEATURE: Record<string, string> = {
   "live_source:iam_usage": "iam_usage",
 }
 
-function record(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
-}
-
 /** (S0 NSW-04) The Region names a disposition scope may carry -- the backend's own rule (unified/system_boundary_setup._REGION). */
 const REGION = /^[a-z0-9-]{1,32}$/
 
@@ -162,37 +186,6 @@ function authored(subject: string, scope: AuthoredDisposition["scope"], choice: 
   return { subject, scope: { ...scope }, choice, reason_code: choice.toUpperCase(), ...(ref ? { ref } : {}) }
 }
 
-function fromIntent(intent: SetupIntent): Local {
-  const declaration = record(intent.declaration)
-  const system = record(declaration.system)
-  const deployment = record(declaration.deployment)
-  const roots = Array.isArray(declaration.roots) ? (declaration.roots as DeclaredRoot[]) : []
-  return {
-    displayName: typeof system.display_name === "string" ? system.display_name : "",
-    criticality: typeof system.criticality === "string" ? system.criticality : "",
-    deploymentKey: typeof deployment.deployment_key === "string" ? deployment.deployment_key : "",
-    environment: typeof deployment.environment === "string" ? deployment.environment : "",
-    environmentRaw: typeof deployment.environment_raw === "string" ? deployment.environment_raw : "",
-    // A resumed root keeps the selection it was picked under; its label is its identity (the row is not re-read here).
-    roots: roots.map((root) => ({ root, label: root.resource_uid,
-                                  publication: { attempt: "", generation: 0, source_identity: "", authority_digest: "", registration_id: "" } })),
-    dispositions: (intent.dispositions ?? []).map((d) => structuredClone(d)),
-  }
-}
-
-/** The DRAFT declaration: only what the person has given (the server names what is missing at Finish, by step). */
-function draftDeclaration(local: Local): Record<string, unknown> {
-  const roots = local.roots.map((picked) => picked.root)
-  const system: Record<string, unknown> = { mode: "new" }
-  if (local.displayName.trim()) system.display_name = local.displayName.trim()
-  if (local.criticality) system.criticality = local.criticality
-  const deployment: Record<string, unknown> = { mode: "new", scopes: cellsOf(roots) }
-  if (local.deploymentKey.trim()) deployment.deployment_key = local.deploymentKey.trim()
-  if (local.environment) deployment.environment = local.environment
-  if (local.environmentRaw.trim()) deployment.environment_raw = local.environmentRaw.trim()
-  return { system, deployment, roots }
-}
-
 /** A stable rendering for comparing intents: object keys sorted, dispositions by subject; never sent anywhere. */
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`
@@ -212,6 +205,13 @@ function intentKey(intent: Pick<SetupIntent, "declaration" | "dispositions">): s
 function explain(answer: Exclude<SetupWrite, { kind: "SAVED" }>): string {
   if (answer.kind === "RESEND_SAME") return `Not confirmed yet (${answer.code}). Try again: the same request is resent, unchanged.`
   if (answer.code === "VERSION_CONFLICT") return "This setup changed elsewhere. It was reloaded; your typing is kept, save again."
+  const preview = previewRefusalSentence(answer.code)
+  if (preview) {
+    const held = Array.isArray(answer.detail.accounts)
+      ? answer.detail.accounts.filter((a): a is { account_id: string; reason: string | null } => typeof a === "object" && a !== null)
+        .map((a) => ` ${a.account_id}: ${heldSentence(a.reason ?? null)}.`).join("") : ""
+    return `${preview}${held} (${answer.code})`
+  }
   if (answer.code === "SETUP_INCOMPLETE") {
     const at = typeof answer.detail.step === "string" ? STEP_TITLES[answer.detail.step as SetupStep] ?? answer.detail.step : "a step"
     return `${at} is not complete (${String(answer.detail.reason ?? answer.code)}${answer.detail.field ? `: ${String(answer.detail.field)}` : ""}).`
@@ -220,7 +220,8 @@ function explain(answer: Exclude<SetupWrite, { kind: "SAVED" }>): string {
 }
 
 export function SetupWizard({ setupId, accountId, view, picks, onClose, client: injected, stacks, readApplied, readResult,
-                             actor = null, pendingStore }: SetupWizardProps) {
+                             actor = null, pendingStore, readPreview = readPreviewDefault,
+                             readCensus = fetchCensusPage }: SetupWizardProps) {
   const client = useMemo(() => ({ ...DEFAULT_CLIENT, ...injected }), [injected])
   const store = useMemo(() => pendingStore ?? setupPendingStore(), [pendingStore])
   const [setup, setSetup] = useState<SetupView | null>(null)
@@ -263,7 +264,8 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
     }
     setSetup(answer.value)
     if (!keepTyping) {
-      setLocal(fromIntent(answer.value.intent))
+      const loaded = loadIntent(answer.value.intent)
+      setLocal(loaded.kind === "ok" ? loaded.local : null)          // an intent this release cannot carry back is never edited
       setStep(answer.value.status === "FINISHED" ? "progress_and_results" : answer.value.intent.resume_step)
       shownFor.current = setupId
     }
@@ -289,12 +291,33 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
     }
   }, [client, setup, step])
 
+  // (S1a R6) The preview of the SAVED revision: read on Review for a DRAFT create setup, one per (context, setup, state
+  // version) and "Preview again"; each read takes the next generation and only the LATEST, still in the context it was sent
+  // in, is shown -- and only as the preview of the exact setup and version it names. Never a write; never kept past a reload.
+  const [preview, setPreview] = useState<{ key: string; read: PreviewRead } | null>(null)
+  const [previewNonce, setPreviewNonce] = useState(0)
+  const previewGeneration = useRef(0)
+  const shownSetupId = setup?.setup_id ?? null
+  const shownVersion = setup?.state_version ?? null
+  const previewable = setup !== null && setup.status === "DRAFT" && setup.mode === "create" && step === "review_and_start"
+  useEffect(() => {
+    if (!previewable || shownSetupId === null || shownVersion === null) return
+    const generation = ++previewGeneration.current
+    const key = `${context}|${shownSetupId}|${shownVersion}`
+    setPreview(null)
+    void readPreview(shownSetupId, shownVersion).then((read) => {
+      if (generation !== previewGeneration.current || currentContext.current !== context) return
+      const other = read.kind === "OK" && (read.value.setup.setupId !== shownSetupId || read.value.setup.stateVersion !== shownVersion)
+      setPreview({ key, read: other ? { kind: "UNAVAILABLE", status: 200, code: "PREVIEW_OF_ANOTHER_VERSION" } : read })
+    })
+  }, [context, previewable, previewNonce, readPreview, shownSetupId, shownVersion])
+
   const intentFor = useCallback((nextStep: SetupStep): SetupIntent => ({
     declaration: draftDeclaration(local!), dispositions: local!.dispositions, resume_step: nextStep,
   }), [local])
 
   /** Send ONE frozen operation of THIS person, on THIS account and setup; keep it while its outcome is unknown, drop it on a
-   *  definite answer. An operation of anyone else is never sent here. */
+   *  definite answer. An operation of anyone else is never sent here. A version-2 Finish is sent with exactly its digest. */
   const send = useCallback(async (op: PendingSetupOp) => {
     if (op.kind === "create" || op.actor !== actor || op.accountId !== accountId || op.setupId !== setupId) {
       setProblem("That unconfirmed request belongs to another identity or setup; it is not sent from here.")
@@ -303,7 +326,8 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
     const sentIn = context
     setBusy(true)
     const answer = op.kind === "update" ? await client.updateSetup(op.setupId, op.requestId, op.base, op.steps)
-      : await client.finishSetup(op.setupId, op.requestId, op.base)
+      : op.version === 2 ? await client.finishSetup(op.setupId, op.requestId, op.base, op.previewDigest)
+        : await client.finishSetup(op.setupId, op.requestId, op.base)
     if (answer.kind !== "RESEND_SAME") store.remove(op)                 // a definite answer settles THIS tuple, whoever is here now
     setBusy(false)
     if (currentContext.current !== sentIn) return                        // a later context: its screen is not this answer's
@@ -320,6 +344,9 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
       return
     }
     setProblem(explain(answer))
+    // What finishing would make the system moved (or could not be computed): the person reviews it again -- never finished on
+    // a preview they did not see. A refusal that returned the setup to DRAFT moves its version, and so its preview, anyway.
+    if (answer.code.startsWith("PREVIEW_")) setPreviewNonce((n) => n + 1)
     await load(true)
   }, [accountId, actor, client, context, load, setupId, step, store])
 
@@ -343,10 +370,14 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
                              base: setup.state_version, steps: intentFor(nextStep), startedAt: new Date().toISOString() }))
   }, [accountId, actor, dispatch, intentFor, local, setup])
 
-  const finish = useCallback(() => {
+  /** A NEW Finish of the saved revision: version 2 naming ``previewDigest`` (the preview the person reviewed), or version 1
+   *  exactly as before when the setup binds no stack. An unresolved Finish is resent as kept instead (``dispatch``). */
+  const finish = useCallback((previewDigest: string | null) => {
     if (!setup) return
-    return dispatch(() => ({ version: 1, kind: "finish", actor, accountId, setupId: setup.setup_id, requestId: freshRequestId(),
-                             base: setup.state_version, startedAt: new Date().toISOString() }))
+    const common = { actor, accountId, setupId: setup.setup_id, requestId: freshRequestId(), base: setup.state_version,
+                     startedAt: new Date().toISOString() }
+    return dispatch(() => (previewDigest === null ? { version: 1, kind: "finish", ...common }
+      : { version: 2, kind: "finish", ...common, previewDigest }))
   }, [accountId, actor, dispatch, setup])
 
   /** FINISHING: resend THIS browser's own Finish if it holds it; otherwise only read again (never a new Finish request). */
@@ -357,6 +388,19 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
   }, [accountId, actor, load, send, setupId, store])
 
   if (problem && !setup) return <Panel onClose={onClose}><p role="alert" className="text-sm text-red-700">{problem}</p></Panel>
+  // (S1a D1) A saved intent with a key this release does not know is never edited, saved or finished from here -- and never
+  // re-saved without that key.
+  const savedIntent = setup ? loadIntent(setup.intent) : null
+  if (setup && savedIntent?.kind === "unknown") {
+    return (
+      <Panel onClose={onClose}>
+        <p role="alert" className="text-sm text-amber-800" data-testid="setup-contract-unknown">
+          This setup was saved by a newer version of Cyntro ({savedIntent.code}: {savedIntent.at}). It is not changed, saved
+          or finished from this screen.
+        </p>
+      </Panel>
+    )
+  }
   if (!setup || !local) return <Panel onClose={onClose}><p className="text-sm text-slate-500">Opening the setup…</p></Panel>
 
   const index = SETUP_STEPS.indexOf(step)
@@ -390,51 +434,91 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
     }
     return null
   }
-  const replaceAt = (index: number, row: AuthoredDisposition) => setLocal((current) => {
-    if (!current) return current
-    const dispositions = [...current.dispositions]
-    dispositions[index] = row
-    return { ...current, dispositions }
-  })
+  /** (S1a) The stack an infrastructure-as-code row uses, or null. */
+  const stackOf = (d: AuthoredDisposition | null | undefined): string | null =>
+    d && d.subject === "iac" && d.choice === "use_existing" && d.ref?.kind === "stack_binding" && d.ref.key ? d.ref.key : null
+  /** (S1a) The setup's bindings once the row at ``index`` (-1: a new row) becomes ``row`` (null: removed): the binding of the
+   *  stack it stops using goes (unless another row still uses it), the stack it now uses is bound -- as this account's census
+   *  lists it -- and a binding the person did not touch stays exactly as saved. One stack per setup in this release. */
+  const bindingsWith = (index: number, row: AuthoredDisposition | null): StackBinding[] | string => {
+    const before = stackOf(index >= 0 ? local.dispositions[index] : null)
+    const after = stackOf(row)
+    const others = new Set(local.dispositions.flatMap((d, i) => (i !== index && stackOf(d) ? [stackOf(d) as string] : [])))
+    let bindings = local.bindings.filter((b) => !(b.stack_id === before && before !== after && !others.has(before)))
+    if (after && !bindings.some((b) => b.stack_id === after)) {
+      const option = row ? stacksFor(row)?.find((s) => s.stack_id === after) : undefined
+      if (!option) return "That stack is not in this account's census list, so it cannot be bound here."
+      bindings = [...bindings, stackBinding(row!.scope.account_id, option)]
+    }
+    if (bindings.length > 1) return "This release binds one stack per setup; change the stack already chosen instead."
+    return bindings
+  }
+  /** The row at ``index`` (-1: appended) as ``row`` (null: removed), with the bindings and scopes that follow -- or why not
+   *  (nothing changes). */
+  const placeRow = (index: number, row: AuthoredDisposition | null): string | null => {
+    const bindings = bindingsWith(index, row)
+    if (typeof bindings === "string") return bindings
+    setLocal((current) => {
+      if (!current) return current
+      const dispositions = index < 0 ? [...current.dispositions, row!]
+        : row === null ? current.dispositions.filter((_d, i) => i !== index)
+          : current.dispositions.map((d, i) => (i === index ? row : d))
+      const changed = JSON.stringify(bindings) !== JSON.stringify(current.bindings)
+      return changed ? withBoundary({ ...current, dispositions }, { bindings }) : { ...current, dispositions }
+    })
+    return null
+  }
   /** The row at ``index`` with ``choice`` -- its scope kept exactly as authored -- or, with no choice, removed; or why not (the
    *  row stays as it was). */
   const chooseAt = (index: number, choice: Choice | ""): string | null => {
-    if (!choice) {
-      setLocal((current) => (current ? { ...current, dispositions: current.dispositions.filter((_d, i) => i !== index) } : current))
-      return null
-    }
+    if (!choice) return placeRow(index, null)
     const d = local.dispositions[index]
     const proposed = authored(d.subject, d.scope, choice, d)
-    const why = refused(index, proposed)
-    if (!why) replaceAt(index, proposed)
-    return why
+    return refused(index, proposed) ?? placeRow(index, proposed)
   }
   /** The stack the iac row at ``index`` uses: its reference, and the Region of THAT stack (the backend holds a reference whose
    *  Region is not its stack's) -- never the Region of some root; a Region another iac row already has is refused and the
-   *  row stays as it was. */
+   *  row stays as it was. (S1a) The stack is the setup's binding too. */
   const stackAt = (index: number, stackId: string): string | null => {
     const d = local.dispositions[index]
     const stack = stacksFor(d)?.find((s) => s.stack_id === stackId)        // only ever a stack of the row's own account
     const proposed = { ...d, scope: stack ? { account_id: d.scope.account_id, region: stack.region } : d.scope,
                        ref: { kind: "stack_binding" as const, key: stackId } }
-    const why = refused(index, proposed)
-    if (!why) replaceAt(index, proposed)
-    return why
+    return refused(index, proposed) ?? placeRow(index, proposed)
   }
   /** A NEW row of ``subject`` for this account at ``region`` (all of the account when none), or why not: a Region the backend
    *  would refuse, or anything ``refused`` names. */
   const addRow = (subject: string, region: string, choice: Choice): string | null => {
     if (region && !REGION.test(region)) return `"${region}" is not a Region name.`
     const proposed = authored(subject, region ? { account_id: accountId, region } : { account_id: accountId }, choice)
-    const why = refused(-1, proposed)
-    if (!why) setLocal((current) => (current ? { ...current, dispositions: [...current.dispositions, proposed] } : current))
-    return why
+    return refused(-1, proposed) ?? placeRow(-1, proposed)
   }
+  /** (S1a) The person's verdict on one resource of the bound stack (null: as the stack says), exactly as the stack wizard
+   *  records it; the scopes follow. */
+  const decide = (row: CensusRow, binding: StackBinding, verdict: ResourceDecision["verdict"] | null) => setLocal((current) => {
+    if (!current) return current
+    const others = current.decisions.filter((d) => !(d.account_id === binding.account_id && d.resource_uid === row.row_key))
+    const decisions = verdict === null ? others : [...others, {
+      account_id: binding.account_id, region: row.region, resource_uid: row.row_key, verdict,
+      selection: { row_key: row.row_key, stack_id: row.cfn?.stack_id ?? null, census: { generation: binding.selection.census.generation } },
+    }]
+    return withBoundary(current, { decisions })
+  })
+  const undecide = (decision: ResourceDecision) => setLocal((current) => (current ? withBoundary(current, {
+    decisions: current.decisions.filter((d) => d !== decision) }) : current))
   // Regions this setup already names, offered (never chosen) for a Region a subject needs.
   const knownRegions = [...new Set([
-    ...cellsOf(local.roots.map((p) => p.root)).filter((c) => c.account_id === accountId).map((c) => c.region),
+    ...local.scopes.filter((c) => c.account_id === accountId).map((c) => c.region),
     ...(stacks?.state === "served" ? stacks.stacks.map((s) => s.region) : []),
   ])].sort()
+  // (S1a) The one stack binding of this account the person may decide resources of.
+  const bound = local.bindings.find((b) => b.account_id === accountId) ?? null
+  // (S1a R5/R6) Finish of a setup that binds a stack rests on the preview of EXACTLY the saved version, computed.
+  const needsPreview = setup.mode === "create" && bindsStack(setup.intent)
+  const shownPreview = preview && preview.key === `${context}|${setup.setup_id}|${setup.state_version}` ? preview.read : null
+  const reviewed = shownPreview?.kind === "OK" && shownPreview.value.state === "COMPUTED"
+    && shownPreview.value.setup.stateVersion === setup.state_version ? shownPreview.value : null
+  const finishBlocked = needsPreview && reviewed === null && pending?.kind !== "finish"
 
   return (
     <Panel onClose={onClose}>
@@ -505,9 +589,9 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
               <input className="mt-1 block w-full rounded border px-2 py-1" value={local.environmentRaw} disabled={!editable}
                 maxLength={view.limits.max_environment_raw} onChange={(e) => set({ environmentRaw: e.target.value })} />
             </label>
-            <p className="text-xs text-slate-500">
-              This deployment covers the accounts and Regions of the roots you pick in Resource boundaries
-              ({cellsOf(local.roots.map((p) => p.root)).map((c) => `${c.account_id} ${c.region}`).join(", ") || "none yet"}).
+            <p className="text-xs text-slate-500" data-testid="setup-scopes">
+              This deployment covers the accounts and Regions of the stack, roots and decisions you choose
+              ({local.scopes.map((c) => `${c.account_id} ${c.region}`).join(", ") || "none yet"}).
             </p>
           </>
         ) : null}
@@ -534,14 +618,19 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
               {local.roots.map((picked) => <li key={picked.root.resource_uid}>{picked.label}</li>)}
             </ul>
             <Button type="button" size="sm" variant="outline" disabled={!editable || picks.length === 0}
-              onClick={() => set({ roots: picks })}>
+              onClick={() => setLocal((current) => (current ? withBoundary(current, { roots: picks }) : current))}>
               Use my {picks.length} pick(s) from the inventory below
             </Button>
-            <p className="text-xs text-slate-500">Which resources belong to the system is computed after the setup is finished.</p>
+            <Decisions bound={bound} decisions={local.decisions} editable={editable} accountId={accountId}
+              readCensus={readCensus} onDecide={decide} onRemove={undecide} />
+            <p className="text-xs text-slate-500">
+              Which resources belong to the system is computed from the saved setup: Review shows it before you finish.
+            </p>
           </>
         ) : null}
         {step === "review_and_start" ? <Review local={local} view={view} setup={setup} dirty={dirty} status={status}
-          statusProblem={statusProblem} /> : null}
+          statusProblem={statusProblem} preview={shownPreview} needsPreview={needsPreview}
+          onPreviewAgain={() => setPreviewNonce((n) => n + 1)} readPreview={readPreview} context={context} /> : null}
         {step === "progress_and_results" ? <Progress setup={setup} status={status} statusProblem={statusProblem} accountId={accountId}
                                                      readApplied={readApplied} readResult={readResult} /> : null}
       </section>
@@ -555,9 +644,11 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
             <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void save("review_and_start")}>
               Save
             </Button>
-            <Button type="button" size="sm" data-testid="setup-finish" onClick={() => void finish()}
-              disabled={busy || dirty || (pending !== null && pending.kind !== "finish")}
-              title={dirty ? "Save your changes first: Finish commits the saved revision." : undefined}>
+            <Button type="button" size="sm" data-testid="setup-finish"
+              onClick={() => void finish(needsPreview && reviewed ? reviewed.previewDigest : null)}
+              disabled={busy || dirty || (pending !== null && pending.kind !== "finish") || finishBlocked}
+              title={dirty ? "Save your changes first: Finish commits the saved revision."
+                : finishBlocked ? "Finishing a setup that binds a stack rests on its computed preview; review it first." : undefined}>
               Finish setup
             </Button>
           </>
@@ -699,21 +790,214 @@ function Requests({ requests, testId, title }: { requests: OwnerRequest[]; testI
   )
 }
 
-function Review({ local, view, setup, dirty, status, statusProblem }: { local: Local; view: DeclarationsView; setup: SetupView;
-                                                                       dirty: boolean; status: SetupStatus | null;
-                                                                       statusProblem: string | null }) {
+/** (S1a) The person's per-resource decisions, as saved -- an exclusion included -- and, for the bound stack, its collected
+ *  resources read from the census (the stack wizard's own reader), each decided "as the stack says", included or excluded. */
+function Decisions({ bound, decisions, editable, accountId, readCensus, onDecide, onRemove }: {
+  bound: StackBinding | null
+  decisions: ResourceDecision[]
+  editable: boolean
+  accountId: string
+  readCensus: CensusFetcher
+  onDecide: (row: CensusRow, binding: StackBinding, verdict: ResourceDecision["verdict"] | null) => void
+  onRemove: (decision: ResourceDecision) => void
+}) {
+  const [listed, setListed] = useState<{ stackId: string; resources: Resources } | null>(null)
+  const show = (stackId: string) => {
+    setListed({ stackId, resources: { kind: "loading" } })
+    void stackResources(readCensus, accountId, stackId).then((resources) => {
+      setListed((current) => (current?.stackId === stackId ? { stackId, resources } : current))
+    })
+  }
+  const resources = listed && bound && listed.stackId === bound.stack_id ? listed.resources : null
+  const verdictOf = (uid: string) => decisions.find((d) => d.account_id === accountId && d.resource_uid === uid)?.verdict ?? ""
+  return (
+    <div className="rounded border p-2 text-sm" data-testid="setup-decisions">
+      <p>Per-resource decisions ({decisions.length})</p>
+      <ul className="text-xs text-slate-600">
+        {decisions.map((d) => (
+          <li key={`${d.account_id}|${d.region}|${d.resource_uid}`} data-testid="setup-decision">
+            {d.verdict === "exclude" ? "Excluded" : "Included"}: {d.resource_uid} ({d.account_id} / {d.region})
+            {editable ? <Button type="button" size="sm" variant="ghost" onClick={() => onRemove(d)}>Remove</Button> : null}
+          </li>
+        ))}
+      </ul>
+      {bound ? (
+        <div className="mt-1 text-xs">
+          <span>Bound stack: {bound.stack_id} ({bound.kind})</span>
+          {editable && resources === null ? (
+            <Button type="button" size="sm" variant="ghost" onClick={() => show(bound.stack_id)}>Show its resources</Button>
+          ) : null}
+          {resources?.kind === "loading" ? <p className="text-slate-500">Reading the stack&apos;s resources…</p> : null}
+          {resources?.kind === "failed" ? <p className="text-red-700">The stack&apos;s resources could not be read ({resources.reason}).</p> : null}
+          {resources?.kind === "rows" ? (
+            <ul className="mt-1 space-y-1">
+              {resources.rows.map((row) => (
+                <li key={row.row_key} className="flex items-center gap-2">
+                  <span className="font-mono">{rowName(row)}</span>
+                  <span className="text-slate-500">{row.resource_type}</span>
+                  <select aria-label={`Decision for ${rowName(row)}`} className="rounded border px-1 py-0.5" disabled={!editable}
+                    value={verdictOf(row.row_key)}
+                    onChange={(e) => onDecide(row, bound, (e.target.value || null) as ResourceDecision["verdict"] | null)}>
+                    <option value="">As the stack says</option>
+                    <option value="include">Include in this system</option>
+                    <option value="exclude">Exclude from this system</option>
+                  </select>
+                </li>
+              ))}
+              {resources.rows.length === 0 ? <li className="text-slate-500">No resource of this stack is collected in depth.</li> : null}
+              {resources.cut ? <li className="text-amber-800">The list is cut: the census is larger than this page reads.</li> : null}
+            </ul>
+          ) : null}
+        </div>
+      ) : <p className="mt-1 text-xs text-slate-500">Choose a CloudFormation stack in Code and infrastructure to decide its resources.</p>}
+    </div>
+  )
+}
+
+/** One row of a preview list in words: a member's proof, a not-a-member's reason, a dependency's consumers, a hold. */
+function previewRowSentence(list: ResultList, row: ResultRow): string {
+  if (list === "members") return proofSentence(row)
+  if (list === "not_members") return notMemberSentence(row)
+  if (list === "dependencies") {
+    const consumers = Array.isArray(row.consumers) ? row.consumers.length : 0
+    return `a dependency${consumers ? ` of ${consumers} member${consumers === 1 ? "" : "s"}` : ""}${row.owner_system_key ? `, owned by ${String(row.owner_system_key)}` : ""}`
+  }
+  return `held (${String(row.reason ?? row.state)})`
+}
+
+const LIST_TITLES: Record<ResultList, string> = {
+  members: "Members", dependencies: "Dependencies", held: "Held", not_members: "Not members",
+}
+
+/** (S1a R3/R6) The preview of the saved revision: its state, each account's state, evidence time and lists with their
+ *  explanations, and the rest of a list the summary cuts, page by page -- every page a view of THIS preview (a page of another
+ *  preview is never added to it). Never applied membership. */
+function PreviewPanel({ read, setupId, stateVersion, readPreview, onPreviewAgain, context }: {
+  read: PreviewRead | null
+  setupId: string
+  stateVersion: number
+  readPreview: PreviewFetcher
+  onPreviewAgain: () => void
+  context: string
+}) {
+  const [pages, setPages] = useState<Record<string, { entries: ResultRow[]; next: string | null; problem: string | null }>>({})
+  const shown = read?.kind === "OK" ? read.value : null
+  const pageKey = (accountId: string, list: ResultList) => `${context}|${shown?.previewDigest}|${accountId}|${list}`
+  const more = (accountId: string, list: ResultList) => {
+    if (!shown) return
+    const key = pageKey(accountId, list)
+    const cursor = pages[key]?.next ?? null
+    void readPreview(setupId, stateVersion, { accountId, bucket: list, cursor }).then((answer) => {
+      setPages((current) => {
+        const before = current[key] ?? { entries: [], next: null, problem: null }
+        if (answer.kind !== "OK" || answer.value.previewDigest !== shown.previewDigest || !answer.value.page) {
+          const code = answer.kind === "OK" ? "PREVIEW_CHANGED" : answer.code
+          return { ...current, [key]: { ...before, problem: `${previewRefusalSentence(code) ?? "That page could not be read."} (${code})` } }
+        }
+        return { ...current, [key]: { entries: [...before.entries, ...answer.value.page.entries], next: answer.value.page.next,
+                                      problem: null } }
+      })
+    })
+  }
+  return (
+    <div className="space-y-2 rounded border p-2" data-testid="setup-preview">
+      <div className="flex items-center gap-2">
+        <p className="font-medium">Preview</p>
+        <Button type="button" size="sm" variant="ghost" onClick={onPreviewAgain}>Preview again</Button>
+      </div>
+      {read === null ? <p className="text-xs text-slate-500">Computing the preview of the saved revision…</p> : (
+        <p className="text-xs" data-testid="setup-preview-summary">{previewSentence(read)}</p>
+      )}
+      {shown ? (
+        <>
+          <p className="text-xs text-slate-500" data-testid="setup-preview-identity">
+            Preview {shown.previewDigest.slice(0, 15)}… of saved revision {shown.setup.intentRevision} (state version{" "}
+            {shown.setup.stateVersion}); rules {String(shown.rules.a7 ?? "?")}, projector {String(shown.rules.projector ?? "?")}.
+          </p>
+          {shown.accounts.map((account) => (
+            <div key={account.accountId} className="text-xs" data-testid={`setup-preview-account-${account.accountId}`}>
+              <p>
+                Account {account.accountId}: {account.state === "COMPUTED" ? "computed" : `held -- ${heldSentence(account.reason)}`}
+                {account.inventory.generation !== null ? ` · inventory generation ${account.inventory.generation}` : ""}
+                {account.inventory.projectedThrough ? `, evidence as of ${account.inventory.projectedThrough}` : ""}
+              </p>
+              {account.display ? PREVIEW_LISTS_SHOWN.map((list) => {
+                const paged = pages[pageKey(account.accountId, list)]
+                const listed = paged && paged.entries.length ? paged.entries : account.display!.lists[list]
+                const left = (account.counts?.[list] ?? 0) - listed.length
+                return listed.length || left > 0 ? (
+                  <details key={list} open={list === "members"} data-testid={`setup-preview-${list}`}>
+                    <summary>{LIST_TITLES[list]} ({account.counts?.[list] ?? listed.length})</summary>
+                    <ul className="text-slate-600">
+                      {listed.map((row, i) => (
+                        <li key={`${row.resource_uid}|${i}`}>
+                          <span className="font-mono">{row.resource_uid}</span> -- {previewRowSentence(list, row)}
+                        </li>
+                      ))}
+                    </ul>
+                    {left > 0 && (!paged || paged.next !== null || !paged.entries.length) ? (
+                      <Button type="button" size="sm" variant="ghost" onClick={() => more(account.accountId, list)}>
+                        {paged?.entries.length ? "Show more" : `Show all (${left} more)`}
+                      </Button>
+                    ) : null}
+                    {paged?.problem ? <p className="text-amber-800">{paged.problem}</p> : null}
+                  </details>
+                ) : null
+              }) : null}
+            </div>
+          ))}
+        </>
+      ) : null}
+      <p className="text-xs text-slate-500">
+        A preview is computed from the saved setup and the account&apos;s current inventory and census; nothing is written. It is
+        what finishing would propose, not what is applied -- the applied membership is shown after the setup is finished.
+      </p>
+    </div>
+  )
+}
+
+const PREVIEW_LISTS_SHOWN: readonly ResultList[] = ["members", "dependencies", "held", "not_members"]
+
+function Review({ local, view, setup, dirty, status, statusProblem, preview, needsPreview, onPreviewAgain, readPreview, context }: {
+  local: Local
+  view: DeclarationsView
+  setup: SetupView
+  dirty: boolean
+  status: SetupStatus | null
+  statusProblem: string | null
+  preview: PreviewRead | null
+  needsPreview: boolean
+  onPreviewAgain: () => void
+  readPreview: PreviewFetcher
+  context: string
+}) {
   // Finish commits the SAVED revision. What is staged on screen is shown apart, and Finish waits until it is saved.
-  const saved = fromIntent(setup.intent)
+  const loaded = loadIntent(setup.intent)
+  if (loaded.kind !== "ok") return null
+  const saved = loaded.local
   const built = buildDeclaration({
     roots: saved.roots,
     system: { mode: "new", displayName: saved.displayName, criticality: saved.criticality || null },
     deployment: { mode: "new", deploymentKey: saved.deploymentKey, environment: saved.environment, environmentRaw: saved.environmentRaw },
+    ...(saved.bindings.length ? { stacks: saved.bindings.map((binding) => ({ binding, label: binding.stack_id })) } : {}),
+    ...(saved.decisions.length ? { decisions: saved.decisions.map((decision) => ({ decision, label: decision.resource_uid })) } : {}),
   }, view)
   const line = (l: Local) => `${l.displayName || "(no name)"} · ${l.criticality || "(no criticality)"} · ${l.deploymentKey || "(no deployment)"}`
-    + ` · ${l.environment || "(no environment)"} · ${l.roots.length} root(s) · ${Object.keys(l.dispositions).length} choice(s)`
+    + ` · ${l.environment || "(no environment)"} · ${l.bindings.length} stack(s) · ${l.roots.length} root(s)`
+    + ` · ${l.decisions.length} decision(s) · ${Object.keys(l.dispositions).length} choice(s)`
   return (
     <div className="space-y-2 text-sm" data-testid="setup-review">
       <p>Saved revision {setup.intent_revision}: {line(saved)}</p>
+      {setup.status === "DRAFT" && setup.mode === "create" ? (
+        <PreviewPanel key={`${context}|${setup.setup_id}|${setup.state_version}`} read={preview} setupId={setup.setup_id}
+          stateVersion={setup.state_version} readPreview={readPreview} onPreviewAgain={onPreviewAgain} context={context} />
+      ) : null}
+      {needsPreview ? (
+        <p className="text-xs text-slate-600" data-testid="setup-review-preview-rule">
+          This setup binds a stack: Finish names the computed preview above, and is refused by name if what it would make the
+          system has changed since.
+        </p>
+      ) : null}
       {dirty ? (
         <p className="text-amber-800" data-testid="setup-review-unsaved">
           Unsaved changes on screen: {line(local)}. Save them before finishing -- Finish commits the saved revision above.
@@ -749,10 +1033,18 @@ function Progress({ setup, status, statusProblem, accountId, readApplied, readRe
   if (setup.status !== "FINISHED" || !setup.receipt) return <p className="text-sm text-slate-500">Not finished yet.</p>
   const association = setup.receipt.association
   const systemId = associatedSystemId(association)
+  const pin = setup.receipt.preview
   return (
     <div className="space-y-2 text-sm" data-testid="setup-progress">
       <p>Setup finished · saved as revision {association.completed_revision}
         {status?.association ? ` · association ${status.association.state.toLowerCase()}` : ""}</p>
+      {pin ? (
+        <p className="text-xs text-slate-600" data-testid="setup-progress-proposed">
+          Proposed at Finish (preview {pin.preview_digest.slice(0, 15)}…): {pin.counts.members} member(s), {pin.counts.dependencies}{" "}
+          dependenc{pin.counts.dependencies === 1 ? "y" : "ies"}, {pin.counts.held} held, {pin.counts.not_members} not a member --
+          what the reviewed preview proposed, not what is applied now.
+        </p>
+      ) : null}
       <AppliedStatus revision={association.completed_revision} accountIds={[accountId]}
         {...(readApplied ? { fetcher: readApplied } : {})} />
       {systemId ? <SystemResult systemKey={systemId} accountIds={[accountId]} {...(readResult ? { fetcher: readResult } : {})} /> : null}

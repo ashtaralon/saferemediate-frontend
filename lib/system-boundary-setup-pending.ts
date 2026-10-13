@@ -22,9 +22,16 @@
  * the tuple's digest). That list is read as written and NEVER written here, so an earlier-release tab still adding to it loses
  * nothing to a settlement in this one. A record this version cannot read, one whose key does not name its own request id, or
  * one holding another tuple is never resent and never removed.
+ *
+ * (S1a, setup contract level 4) A Finish that rests on a reviewed preview is a NEW storage version: ``version: 2``, kind
+ * "finish", with ``previewDigest`` REQUIRED and exactly the fields below -- never an optional field on version 1 (a version-1
+ * record carrying one is not read). Version-1 operations are read, resent and settled exactly as before: an outstanding one
+ * keeps its request id, body, base and person and is resent as version 1, never upgraded. A tab of an earlier release reads a
+ * version-2 record as nothing (its ``opOf`` takes version 1 only): it never resends and never settles it. Any other version is
+ * never resent and never retired. The version is part of the exact tuple a settlement matches.
  */
 import { sha256Bytes } from "@/lib/content-hash"
-import type { SetupIntent } from "@/lib/system-boundary-setup"
+import { PREVIEW_DIGEST, type SetupIntent } from "@/lib/system-boundary-setup"
 
 /** The list releases before S0 kept every operation in (read; never written by this release). */
 export const SETUP_PENDING_KEY = "cyntro.systemBoundary.setupPending.v1"
@@ -34,7 +41,6 @@ export const SETUP_PENDING_RECORD_PREFIX = `${SETUP_PENDING_KEY}.op.`
 export const SETUP_PENDING_RETIRED_PREFIX = `${SETUP_PENDING_KEY}.retired.`
 
 interface Common {
-  version: 1
   /** The verified person who started it; null: not known (kept in this page's memory only). */
   actor: string | null
   accountId: string
@@ -43,9 +49,14 @@ interface Common {
 }
 
 export type PendingSetupOp =
-  | (Common & { kind: "create" })
-  | (Common & { kind: "update"; setupId: string; base: number; steps: SetupIntent })
-  | (Common & { kind: "finish"; setupId: string; base: number })
+  | (Common & { version: 1; kind: "create" })
+  | (Common & { version: 1; kind: "update"; setupId: string; base: number; steps: SetupIntent })
+  | (Common & { version: 1; kind: "finish"; setupId: string; base: number })
+  /** (Level 4) A Finish naming the preview the person reviewed: its own storage version, the digest required. */
+  | (Common & { version: 2; kind: "finish"; setupId: string; base: number; previewDigest: string })
+
+/** Every field of a version-2 operation, exactly. */
+const V2_FINISH_KEYS = ["version", "kind", "actor", "accountId", "requestId", "startedAt", "setupId", "base", "previewDigest"]
 
 /** Where an operation is actually kept: browser storage (survives a reload) or this page's memory only. */
 export type Kept = "storage" | "memory"
@@ -69,11 +80,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-/** Exactly a v1 operation, or null (never resent). */
+/** Exactly a version-1 operation or a version-2 Finish, or null (never resent, never settled). */
 export function opOf(value: unknown): PendingSetupOp | null {
-  if (!isRecord(value) || value.version !== 1 || (value.actor !== null && (typeof value.actor !== "string" || !value.actor))
+  if (!isRecord(value) || (value.version !== 1 && value.version !== 2)
+      || (value.actor !== null && (typeof value.actor !== "string" || !value.actor))
       || typeof value.accountId !== "string" || !/^[0-9]{12}$/.test(value.accountId)
       || typeof value.requestId !== "string" || !UUID.test(value.requestId) || typeof value.startedAt !== "string") return null
+  if (value.version === 2) {
+    const keys = Object.keys(value)
+    return value.kind === "finish" && keys.length === V2_FINISH_KEYS.length && V2_FINISH_KEYS.every((k) => keys.includes(k))
+      && typeof value.setupId === "string" && UUID.test(value.setupId) && Number.isInteger(value.base)
+      && typeof value.previewDigest === "string" && PREVIEW_DIGEST.test(value.previewDigest)
+      ? value as unknown as PendingSetupOp : null
+  }
+  if ("previewDigest" in value) return null              // a digest is never an optional field of version 1
   if (value.kind === "create") return value as unknown as PendingSetupOp
   if (typeof value.setupId !== "string" || !UUID.test(value.setupId) || !Number.isInteger(value.base)) return null
   if (value.kind === "finish") return value as unknown as PendingSetupOp

@@ -3,7 +3,7 @@
  *
  * Progress's Applied and Result checks (components/system-boundary/applied-status.tsx, system-result.tsx) and the wizard's own
  * setup reads (setup-wizard.tsx), over REAL captures: __tests__/fixtures/system-boundary-captures/ and
- * system-boundary-setup-captures-v3/. The refusal is the one the backend routes answer for an account outside the person's
+ * system-boundary-setup-captures-v4/. The refusal is the one the backend routes answer for an account outside the person's
  * scope (api/system_boundary.py: 403 {code: PERSON_NOT_AUTHORIZED, account_id}); the setup refusal is the setup's own
  * SETUP_WITHHELD. FINISHING has no capture: it is the draft capture moved to FINISHING, as the wizard tests already do.
  */
@@ -26,7 +26,7 @@ const progress = (name: string) => {
   const { status, body } = json(`__tests__/fixtures/system-boundary-captures/${name}.json`)
   return { status: status as number, body: body as unknown }
 }
-const setupCapture = (name: string) => json(`__tests__/fixtures/system-boundary-setup-captures-v3/${name}.json`).body
+const setupCapture = (name: string) => json(`__tests__/fixtures/system-boundary-setup-captures-v4/${name}.json`).body
 const ACCOUNT = "111111111111"
 const APPLIED = progress("applied")
 const NOT_YET = progress("applied_not_applied_yet")

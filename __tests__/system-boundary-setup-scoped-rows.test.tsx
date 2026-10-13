@@ -5,13 +5,14 @@
  * The level-3 profile (backend unified/requirement_profile.py, served beside every view) needs (account_id, region) for
  * history:cloudtrail and history:vpc_flow; the wizard asked for neither Region and gave iac the FIRST ROOT's Region. A setup
  * holds one disposition per (subject, account, Region) -- the wizard kept one per subject. Every answer here is a REAL
- * capture (__tests__/fixtures/system-boundary-setup-captures-v3/, system-boundary-captures/stacks.json); an edit of one is said.
+ * capture (__tests__/fixtures/system-boundary-setup-captures-v4/, system-boundary-captures/stacks.json); an edit of one is said.
  */
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { SetupWizard, type SetupClient, type StackOption } from "@/components/system-boundary/setup-wizard"
+import { stackOptionsOf } from "@/components/system-boundary/guided-setups"
 import type { DeclarationsView } from "@/lib/system-boundary-authoring"
 import { expectedFacts, type AuthoredDisposition, type SetupIntent, type SetupView, type SetupWrite } from "@/lib/system-boundary-setup"
 import { setupPendingStore, type PendingSetupOp } from "@/lib/system-boundary-setup-pending"
@@ -20,7 +21,7 @@ import { parseStacksResponse } from "@/lib/system-boundary-stacks"
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const json = (file: string): any => JSON.parse(readFileSync(resolve(process.cwd(), "__tests__/fixtures", file), "utf8"))
 const VIEW: DeclarationsView = json("system-boundary/view_after_save.json").body
-const DRAFT: SetupView = json("system-boundary-setup-captures-v3/read_draft.json").body
+const DRAFT: SetupView = json("system-boundary-setup-captures-v4/read_draft.json").body
 const ACCOUNT = DRAFT.dispositions_derived[0].scope.account_id
 const ROOT_REGION = (DRAFT.intent.declaration as { roots: { region: string }[] }).roots[0].region
 
@@ -41,14 +42,14 @@ function stacksAnswer(): any {
 function stacks(): StackOption[] {
   const parsed = parseStacksResponse(200, stacksAnswer(), ACCOUNT)
   if (parsed.kind !== "data") throw new Error(`the edited capture must still parse: ${JSON.stringify(parsed)}`)
-  return parsed.stacks.filter((s) => s.settled).map((s) => ({ stack_id: s.stackId, label: `${s.stackName} (${s.region})`, region: s.region }))
+  return stackOptionsOf(parsed)                                          // exactly as Your setups maps them
 }
 
 function client(view: SetupView = DRAFT) {
   const updates: SetupIntent[] = []
   const c: SetupClient = {
     readSetup: vi.fn(async () => ({ kind: "OK" as const, value: structuredClone(view) })),
-    readSetupStatus: vi.fn(async () => ({ kind: "OK" as const, value: json("system-boundary-setup-captures-v3/status.json").body })),
+    readSetupStatus: vi.fn(async () => ({ kind: "OK" as const, value: json("system-boundary-setup-captures-v4/status.json").body })),
     updateSetup: vi.fn(async (_id: string, _rid: string, base: number, steps: SetupIntent): Promise<SetupWrite> => {
       updates.push(steps)
       return { kind: "SAVED", status: 200, view: { ...structuredClone(view), state_version: base + 1, intent: steps } }
@@ -153,7 +154,7 @@ describe("NSW-04: Regions the profile needs are asked for, row by row, never tak
     const owner = DRAFT.owner
     const { c, updates } = client()
     render(<GuidedSetups accountId={ACCOUNT} view={VIEW} picks={[]} actor={owner} client={c}
-      listSetups={async () => ({ kind: "OK" as const, value: json("system-boundary-setup-captures-v3/list.json").body })}
+      listSetups={async () => ({ kind: "OK" as const, value: json("system-boundary-setup-captures-v4/list.json").body })}
       readStacks={async () => ({ status: 200, body: census })} pendingStore={setupPendingStore(null, new Map<string, PendingSetupOp>())}
       readApplied={async () => ({ status: 503, body: {} })} readResult={async () => ({ status: 503, body: {} })} />)
     fireEvent.click(screen.getByTestId("setup-mine"))

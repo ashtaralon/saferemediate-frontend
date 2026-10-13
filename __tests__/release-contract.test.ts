@@ -28,10 +28,10 @@ describe("the release contract this frontend requires", () => {
   it("is exactly the shape the backend's bundle builder reads: account registration at level 5, the census read at 1, the wizard's", () => {
     expect(declaration).toEqual({ schema: "cyntro-release-contract/v1",
       requires: { account_census_read: 1, account_census_stacks_read: 1, account_registration: 5, declarations_applied: 1,
-                  system_boundary_result_read: 1, system_boundary_save: 2, system_boundary_setup: 3,
+                  system_boundary_result_read: 1, system_boundary_save: 2, system_boundary_setup: 4,
                   system_boundary_wizard_capability: 1 },
       accepts: { account_census_read: 1, account_census_stacks_read: 1, account_inventory_rows: 3, declarations_applied: 1,
-                 system_boundary_result_read: 1, system_boundary_setup: 3, system_boundary_wizard_capability: 1,
+                 system_boundary_result_read: 1, system_boundary_setup: 4, system_boundary_wizard_capability: 1,
                  systems_list_read: 2 } })
     expect(REQUIRED_ACCOUNT_REGISTRATION_CONTRACT).toBe(5)
     expect(CENSUS_CONTRACT).toBe("account_census_read/v1")
@@ -175,14 +175,14 @@ describe("what this frontend can read (accepts)", () => {
 
   // Onboarding G2: the guided setup. Level 1 is the answer with no contract (the backend's real captures); an answer carrying
   // any setup contract is a later level: a read is UNAVAILABLE and a write is never SAVED on it (resend the same request).
-  it("reads the guided setup at exactly its declared level: the v3-tagged answer parses, untagged or any other tag is not read", () => {
-    expect(declaration.accepts.system_boundary_setup).toBe(3)
-    const page = capture("system-boundary-setup-captures-v3", "read_draft") as { status: number; body: Record<string, unknown> }
-    expect(page.body.contract).toBe("system_boundary_setup/v3")
+  it("reads the guided setup at exactly its declared level: the v4-tagged answer parses, untagged or any other tag is not read", () => {
+    expect(declaration.accepts.system_boundary_setup).toBe(4)
+    const page = capture("system-boundary-setup-captures-v4", "read_draft") as { status: number; body: Record<string, unknown> }
+    expect(page.body.contract).toBe("system_boundary_setup/v4")
     expect(readAnswer({ status: page.status, json: page.body }, isView).kind).toBe("OK")
     const { contract: _tag, ...untagged } = structuredClone(page.body)
     for (const other of [untagged, { ...untagged, contract: "system_boundary_setup/v1" }, { ...untagged, contract: "system_boundary_setup/v2" },
-                         { ...untagged, contract: "system_boundary_setup/v4" }]) {
+                         { ...untagged, contract: "system_boundary_setup/v3" }, { ...untagged, contract: "system_boundary_setup/v5" }]) {
       expect(readAnswer({ status: 200, json: other }, isView)).toEqual({ kind: "UNAVAILABLE", status: 200, code: SETUP_CONTRACT_UNKNOWN })
       expect(writeAnswer({ status: 201, json: other })).toEqual({ kind: "RESEND_SAME", status: 201, code: SETUP_CONTRACT_UNKNOWN,
                                                                     detail: {} })

@@ -1,7 +1,7 @@
 /**
- * Onboarding G2 / G3-A / G3-G: the setup client (lib/system-boundary-setup.ts) over the REAL backend answers at setup contract
- * level 3 (__tests__/fixtures/system-boundary-setup-captures-v3/, pinned in its README; the level-1 and level-2 copies beside it
- * are refused), and
+ * Onboarding G2 / G3-A / G3-G / S1a: the setup client (lib/system-boundary-setup.ts) over the REAL backend answers at setup
+ * contract level 4 (__tests__/fixtures/system-boundary-setup-captures-v4/, pinned in its README; the level-1, level-2 and level-3
+ * copies beside it are refused), and
  * the authoring proxy's eight setup routes through the mounted route handlers -- exactly those, nothing else under setup/.
  */
 import { readFileSync } from "node:fs"
@@ -26,6 +26,7 @@ import {
   readAnswer,
   requestSentence,
   requiredFactsSentence,
+  SETUP_CONTRACT,
   SETUP_CONTRACT_UNKNOWN,
   SETUP_STEPS,
   writeAnswer,
@@ -36,7 +37,7 @@ import {
 
 type Capture = { status: number; body: unknown; _provenance: { request: { method: string; path: string } } }
 
-function capture(name: string, dir = "system-boundary-setup-captures-v3"): Capture {
+function capture(name: string, dir = "system-boundary-setup-captures-v4"): Capture {
   return JSON.parse(readFileSync(path.join(__dirname, "fixtures", dir, `${name}.json`), "utf8"))
 }
 
@@ -70,7 +71,7 @@ describe("the setup client reads the REAL answers, and nothing in between is inv
   it("an unproven write is RESEND_SAME: a 202, the network, a malformed 200, OUTCOME_UNKNOWN", () => {
     expect(writeAnswer({ status: 202, json: capture("read_draft").body }).kind).toBe("RESEND_SAME")
     expect(writeAnswer({ status: null, json: undefined })).toMatchObject({ kind: "RESEND_SAME", code: "NETWORK_ERROR" })
-    expect(writeAnswer({ status: 200, json: { setup_id: "x", contract: "system_boundary_setup/v3" } }))
+    expect(writeAnswer({ status: 200, json: { setup_id: "x", contract: SETUP_CONTRACT } }))
       .toMatchObject({ kind: "RESEND_SAME", code: "MALFORMED_RESPONSE" })
     expect(writeAnswer({ status: 503, json: { detail: { code: "OUTCOME_UNKNOWN" } } })).toMatchObject({ kind: "RESEND_SAME" })
   })
@@ -86,7 +87,7 @@ describe("the setup client reads the REAL answers, and nothing in between is inv
     const list = capture("list").body as { setups: unknown[] }
     expect(list.setups.length).toBe(1)
     expect(readAnswer(raw(capture("not_found")), isView)).toMatchObject({ kind: "REFUSED", status: 404, code: "SETUP_NOT_FOUND" })
-    expect(readAnswer({ status: 200, json: { status: "DRAFT", contract: "system_boundary_setup/v3" } }, isView))
+    expect(readAnswer({ status: 200, json: { status: "DRAFT", contract: SETUP_CONTRACT } }, isView))
       .toMatchObject({ kind: "UNAVAILABLE", code: "MALFORMED_RESPONSE" })
   })
 
@@ -108,6 +109,19 @@ describe("the setup client reads the REAL answers, and nothing in between is inv
       expect(read, name).toEqual({ kind: "UNAVAILABLE", status: 200, code: SETUP_CONTRACT_UNKNOWN })
     }
     expect(writeAnswer(raw(capture("finish", "system-boundary-setup-captures-v2")))).toEqual(
+      { kind: "RESEND_SAME", status: 201, code: SETUP_CONTRACT_UNKNOWN, detail: {} })
+  })
+
+  it("(S1a) a level-3 answer -- tagged v3 -- is never read as level 4, and a level-4 one differs from it only in that tag", () => {
+    for (const name of ["read_draft", "read_finished", "status", "finish"]) {
+      const old = capture(name, "system-boundary-setup-captures-v3")
+      expect((old.body as { contract: string }).contract, name).toBe("system_boundary_setup/v3")
+      expect({ ...(capture(name).body as object), contract: "system_boundary_setup/v3" }, name).toEqual(old.body)
+      if (name === "finish") continue                                  // a write: below
+      const read = name === "status" ? readAnswer(raw(old), isStatus) : readAnswer(raw(old), isView)
+      expect(read, name).toEqual({ kind: "UNAVAILABLE", status: 200, code: SETUP_CONTRACT_UNKNOWN })
+    }
+    expect(writeAnswer(raw(capture("finish", "system-boundary-setup-captures-v3")))).toEqual(
       { kind: "RESEND_SAME", status: 201, code: SETUP_CONTRACT_UNKNOWN, detail: {} })
   })
 

@@ -1,0 +1,23 @@
+{
+  "_provenance": {
+    "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
+    "request": {
+      "method": "POST",
+      "path": "/api/system-boundary/setup/b6b55f6c-cbe3-4d00-a8cc-6a3d4c824104/finish",
+      "params": null,
+      "body": {
+        "request_id": "00000000-0000-4000-8000-000000005104",
+        "base_state_version": 2,
+        "preview_digest": "v1:0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    }
+  },
+  "status": 409,
+  "cache_control": null,
+  "body": {
+    "detail": {
+      "code": "PREVIEW_CHANGED",
+      "preview_digest": "v1:b30586262db859a6eec39a3e6a5f697bb1f8cc31bef736ddfd24eae343e2fb1b"
+    }
+  }
+}

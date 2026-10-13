@@ -68,10 +68,11 @@ export interface StackBindingWizardProps {
 }
 
 type Step = "stacks" | "decisions" | "save" | "applied"
-type Resources = { kind: "loading" } | { kind: "rows"; rows: CensusRow[]; cut: boolean } | { kind: "failed"; reason: string }
+export type Resources = { kind: "loading" } | { kind: "rows"; rows: CensusRow[]; cut: boolean } | { kind: "failed"; reason: string }
 
-/** One stack's present, collected resources, read page by page from the census (the stack list carries counts only). */
-async function stackResources(readCensus: CensusFetcher, accountId: string, stackId: string): Promise<Resources> {
+/** One stack's present, collected resources, read page by page from the census (the stack list carries counts only). The
+ * guided setup (setup-wizard.tsx) reads a bound stack's resources through this same reader. */
+export async function stackResources(readCensus: CensusFetcher, accountId: string, stackId: string): Promise<Resources> {
   const rows: CensusRow[] = []
   let cursor: string | null = null
   for (let page = 0; page < MAX_RESOURCE_PAGES; page++) {

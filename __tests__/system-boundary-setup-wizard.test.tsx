@@ -1,6 +1,6 @@
 /**
  * Onboarding G2: the eight-step setup wizard (components/system-boundary/setup-wizard.tsx) over the REAL backend answers
- * (__tests__/fixtures/system-boundary-setup-captures-v3/, setup contract level 3) and the REAL declarations view golden. The client is injected so each
+ * (__tests__/fixtures/system-boundary-setup-captures-v4/, setup contract level 4) and the REAL declarations view golden. The client is injected so each
  * test sees exactly the requests the wizard sends; every answer it gets back is a capture.
  */
 import { readFileSync } from "node:fs"
@@ -19,7 +19,7 @@ import { GuidedSetups } from "@/components/system-boundary/guided-setups"
 function json(file: string): any {
   return JSON.parse(readFileSync(resolve(process.cwd(), file), "utf8"))
 }
-const capture = (name: string) => json(`__tests__/fixtures/system-boundary-setup-captures-v3/${name}.json`)
+const capture = (name: string) => json(`__tests__/fixtures/system-boundary-setup-captures-v4/${name}.json`)
 const VIEW: DeclarationsView = json("__tests__/fixtures/system-boundary/view_after_save.json").body
 const DRAFT: SetupView = capture("read_draft").body
 const FINISHED: SetupView = capture("finish").body
@@ -576,9 +576,9 @@ describe("G2-F18/F19: the start of a setup", () => {
   })
 })
 
-// ── onboarding G3-A: owner requests, as the backend derives them (captured at setup contract level 3) ──────────────────────────────
+// ── onboarding G3-A: owner requests, as the backend derives them (captured at setup contract level 4) ──────────────────────────────
 
-const V3 = (name: string) => json(`__tests__/fixtures/system-boundary-setup-captures-v3/${name}.json`)
+const V3 = (name: string) => json(`__tests__/fixtures/system-boundary-setup-captures-v4/${name}.json`)
 
 describe("G3-A: owner requests on Review and on Progress", () => {
   it("Review lists what finishing the SAVED revision will request -- the server's planned requests, nothing asked yet", async () => {

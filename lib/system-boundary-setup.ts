@@ -20,8 +20,10 @@ import { contentHash } from "@/lib/content-hash"
  *  without that exact tag -- an untagged level-1 answer, or any other level -- is not one this frontend reads: never parsed
  *  as level 2. The bundle builder refuses such a pair; this is the same rule at runtime. Level 3: ``required_facts`` is typed
  *  from the backend's versioned requirement profile (``RequiredFacts``) and every view serves that profile once
- *  (``requirement_profile``); a v2-tagged answer is now another level, refused like a v1 one. */
-export const SETUP_CONTRACT_LEVEL = 3
+ *  (``requirement_profile``); a v2-tagged answer is now another level, refused like a v1 one. Level 4 (S1a): the draft preview
+ *  (lib/system-boundary-setup-preview.ts) and a Finish that names the preview the person reviewed (``preview_digest``), whose
+ *  receipt pins it (``receipt.preview``); a v3-tagged answer is now another level. */
+export const SETUP_CONTRACT_LEVEL = 4
 export const SETUP_CONTRACT = `system_boundary_setup/v${SETUP_CONTRACT_LEVEL}`
 export const SETUP_CONTRACT_UNKNOWN = "SETUP_CONTRACT_UNKNOWN"
 
@@ -129,13 +131,27 @@ export interface SetupSummary {
   association: Association | null
 }
 
+/** (Level 4) A preview digest: the backend's canonical content hash. */
+export const PREVIEW_DIGEST = /^v1:[0-9a-f]{64}$/
+
+/** (Level 4) What a Finish that rested on a preview pinned in its receipt: the preview's identity and FULL counts as reviewed
+ *  -- historical ("proposed at Finish"), never the applied membership. A receipt without it was not previewed. */
+export interface PreviewPin {
+  preview_digest: string
+  basis_digest: string
+  result_digest: string
+  authored_revision: number
+  counts: { members: number; dependencies: number; held: number; not_members: number; stale_members: number; unlisted: number }
+  admission: Record<string, unknown>
+}
+
 export interface SetupView extends SetupSummary {
   intent: SetupIntent
   dispositions_derived: DerivedDisposition[]
   requirement_profile: RequirementProfile
   attempt: Record<string, unknown> | null
   outcome: { outcome: string; code: string; reconciled_by: string } | null
-  receipt: (Record<string, unknown> & { association: Association; attempt: number }) | null
+  receipt: (Record<string, unknown> & { association: Association; attempt: number; preview?: PreviewPin }) | null
   reconciliation: { state: string; attempt: number; recover_after: string; reason?: string } | null
   replayed?: boolean
 }
@@ -306,6 +322,17 @@ function coherentFacts(derived: DerivedDisposition[], profile: RequirementProfil
   })
 }
 
+const PIN_COUNTS = ["members", "dependencies", "held", "not_members", "stale_members", "unlisted"]
+
+/** (Level 4) A receipt's preview pin, read exactly: three digests, the authored revision it rested on, its full counts. */
+export function isPreviewPin(value: unknown): value is PreviewPin {
+  return isRecord(value) && exactly(value, ["preview_digest", "basis_digest", "result_digest", "authored_revision", "counts", "admission"])
+    && [value.preview_digest, value.basis_digest, value.result_digest].every((d) => typeof d === "string" && PREVIEW_DIGEST.test(d))
+    && isInt(value.authored_revision) && value.authored_revision >= 0 && isRecord(value.admission)
+    && isRecord(value.counts) && exactly(value.counts, PIN_COUNTS)
+    && PIN_COUNTS.every((k) => isInt((value.counts as Record<string, unknown>)[k]) && ((value.counts as Record<string, number>)[k] >= 0))
+}
+
 export function isView(value: unknown): value is SetupView {
   if (!isSummary(value)) return false
   const view = value as unknown as Record<string, unknown>
@@ -314,7 +341,8 @@ export function isView(value: unknown): value is SetupView {
     && (SETUP_STEPS as readonly string[]).includes(intent.resume_step)
     && Array.isArray(view.dispositions_derived) && view.dispositions_derived.every(isDerived)
     && isRequirementProfile(view.requirement_profile) && coherentFacts(view.dispositions_derived, view.requirement_profile)
-    && (view.receipt === null || (isRecord(view.receipt) && isAssociation(view.receipt.association)))
+    && (view.receipt === null || (isRecord(view.receipt) && isAssociation(view.receipt.association)
+      && (view.receipt.preview === undefined || isPreviewPin(view.receipt.preview))))
 }
 
 const isText = (value: unknown): value is string => typeof value === "string" && value.length > 0
@@ -489,8 +517,13 @@ export async function updateSetup(setupId: string, requestId: string, baseStateV
   return writeAnswer(await call(path(setupId), json("PUT", { request_id: requestId, base_state_version: baseStateVersion, steps })))
 }
 
-export async function finishSetup(setupId: string, requestId: string, baseStateVersion: number): Promise<SetupWrite> {
-  return writeAnswer(await call(path(setupId, "/finish"), json("POST", { request_id: requestId, base_state_version: baseStateVersion })))
+/** Finish the saved revision at ``baseStateVersion``. (Level 4) ``previewDigest``: the preview the person reviewed -- sent only
+ *  when given, so a Finish without one is byte-for-byte the request it always was (its replay identity unchanged). */
+export async function finishSetup(setupId: string, requestId: string, baseStateVersion: number,
+                                  previewDigest?: string): Promise<SetupWrite> {
+  return writeAnswer(await call(path(setupId, "/finish"), json("POST", {
+    request_id: requestId, base_state_version: baseStateVersion, ...(previewDigest === undefined ? {} : { preview_digest: previewDigest }),
+  })))
 }
 
 export async function cancelSetup(setupId: string, requestId: string, baseStateVersion: number): Promise<SetupWrite> {

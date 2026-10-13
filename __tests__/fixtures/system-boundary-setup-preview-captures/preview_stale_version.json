@@ -1,0 +1,22 @@
+{
+  "_provenance": {
+    "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/system-boundary/setup/b6b55f6c-cbe3-4d00-a8cc-6a3d4c824104/preview",
+      "params": {
+        "state_version": "1"
+      },
+      "body": null
+    }
+  },
+  "status": 409,
+  "cache_control": "no-store",
+  "body": {
+    "detail": {
+      "code": "SETUP_STATE_CHANGED",
+      "setup_status": "DRAFT",
+      "state_version": 2
+    }
+  }
+}
