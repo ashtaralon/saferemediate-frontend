@@ -147,14 +147,16 @@ function account(value: unknown, v2: boolean, ours: ReadonlySet<string>): Previe
     : display(value.display, accountCounts)
   if (shown === undefined) return null
   if (value.state === "COMPUTED" && (accountCounts === null || shown === null || !isRecord(value.coverage))) return null
-  // (S1b) The decoration: none at v1; at v2 every COMPUTED account carries one, and a HELD account carries one only when it
-  // was held after its rows were assembled (a diagnostic). Whole, naming only this draft's Deployments, and -- when the
-  // account lists the System -- the very decoration its display carries.
+  // (S1b) The decoration: none at v1; at v2 every account whose rows were assembled carries one -- every COMPUTED account,
+  // and a HELD one held after its rows were assembled (a diagnostic); an account held before carries no rows and none.
+  // Whole, naming only this draft's Deployments, and -- when the account lists the System -- the very decoration its
+  // display carries.
   let decorated: Decoration | null = null
   const members = shown ? shown.lists.members : []
   const displayed = isRecord(value.display) ? value.display : null
   if (!v2 || !("deployment_context_state" in value)) {
-    if ((v2 && value.state === "COMPUTED") || "deployment_context_state" in value || members.some((m) => "deployment_context" in m)
+    if ((v2 && (value.state === "COMPUTED" || shown !== null)) || "deployment_context_state" in value
+        || members.some((m) => "deployment_context" in m)
         || (displayed !== null && "deployment_context_state" in displayed)) return null
   } else {
     decorated = decoration(value.deployment_context_state)

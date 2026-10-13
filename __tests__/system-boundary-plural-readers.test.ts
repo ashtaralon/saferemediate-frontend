@@ -16,7 +16,7 @@ import {
 } from "@/lib/system-boundary-assessment"
 import { pairDeployments } from "@/lib/system-boundary-deployment-context"
 import { finishExplanation, finishExplanationWithheldSentence, type Pairing } from "@/lib/system-boundary-finish-result"
-import { parseResultResponse, RESULT_CONTRACT, type ResultServed } from "@/lib/system-boundary-result"
+import { parseResultResponse, RESULT_CONTRACT, RESULT_CONTRACT_V2, type ResultServed } from "@/lib/system-boundary-result"
 import {
   intentDeploymentKeys, isPluralIntent, isStatus, isView, pinnedDeployments, readAnswer, SETUP_CONTRACT_UNKNOWN,
   type SetupView,
@@ -163,6 +163,32 @@ describe("the draft preview v1 / v2", () => {
       .toEqual(malformed())
   })
 
+  // Isolating controls (FE mutants M08 / M09): each answer below fails ONE rule only -- every context still names a draft
+  // Deployment, and no member carries a context the account does not -- so only that rule can refuse it.
+  it("refuses a repeated draft Deployment id even when every context names a draft Deployment", () => {
+    const body = read(PREVIEWS, "plural_preview").body
+    const ids: string[] = body.draft_targets.deployment_ids
+    expect(parsePreview(200, { ...body, draft_targets: { ...body.draft_targets, deployment_ids: [...ids, ids[1]] } })).toEqual(malformed())
+  })
+
+  it("refuses a COMPUTED v2 account that carries no decoration at all (account, display and members alike)", () => {
+    const body = structuredClone(read(PREVIEWS, "plural_preview").body)
+    const account = body.accounts[0]
+    delete account.deployment_context_state
+    delete account.display.deployment_context_state
+    for (const m of account.display.members) delete m.deployment_context
+    expect(parsePreview(200, body)).toEqual(malformed())
+    // held WITH its rows (assembled, then held) it still needs one; held BEFORE its rows (no counts, display or coverage --
+    // the backend's held-before-assembly account) it carries none, and is read
+    const held = structuredClone(body)
+    held.state = "HELD"
+    held.accounts[0] = { ...held.accounts[0], state: "HELD", reason: "CENSUS_NOT_SERVED:stale" }
+    expect(parsePreview(200, held)).toEqual(malformed())
+    const { counts: _c, display: _d, coverage: _v, ...early } = held.accounts[0]
+    expect(parsePreview(200, { ...held, accounts: [{ ...early, reason: "READ_HELD" }] }))
+      .toMatchObject({ kind: "OK", value: { state: "HELD" } })
+  })
+
   it("refuses a page whose entries do not carry contexts exactly as its account's decoration says", () => {
     const body = read(PREVIEWS, "plural_preview_page").body
     const entries: any[] = body.page.entries   // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -231,6 +257,16 @@ describe("the consolidated account assessment (A7 reading A)", () => {
     expect(remainderLines(account.explanation!)).toEqual(["1 member(s) belong to the System as a whole, not to one Deployment."])
   })
 
+  it("withholds an account's explanation when a context names a draft Deployment at another version (FE mutant M22)", () => {
+    // an edit: one member's context names its (draft) Deployment at version 2 -- the reader admits it (the key is the
+    // draft's), and only the assessment's own version rule withholds it
+    const body = structuredClone(read(PREVIEWS, "plural_preview").body)
+    body.accounts[0].display.members[0].deployment_context.deployments[0].version = 2
+    const parsed = parsePreview(200, body)
+    if (parsed.kind !== "OK") throw new Error(JSON.stringify(parsed))
+    expect(assess(parsed.value, ["prod", "staging"]).accounts[0]).toMatchObject({ explanation: null, withheld: "CONTEXT_NOT_THIS_DRAFT" })
+  })
+
   it("withholds every per-Deployment number by name rather than attribute on a guess", () => {
     const p = preview("plural_preview")
     expect(assess(p, ["prod"]).deployments).toBeNull()        // not the draft's Deployments
@@ -265,6 +301,15 @@ describe("the served result v2 and THIS Finish's per-Deployment explanation", ()
     expect(parse({ ...noKey, contract: RESULT_CONTRACT })).toBe("unavailable")
     const withheld = result("served_context_withheld").capture.body
     expect(parse({ ...withheld, members: [first, ...withheld.members.slice(1)] })).toBe("unavailable")
+  })
+
+  it("refuses a level-2 answer of ANY state without the decoration key (isolating control, FE mutant M20)", () => {
+    // the real held answer (level 1), tagged level 2: with the key (null, as level 2 writes it) it is read; without, it is not
+    const held = read("system-boundary-captures", "result_v1_held")
+    const accountId = String(held._provenance.request.query.account_id)
+    const v2 = { ...structuredClone(held.body), contract: RESULT_CONTRACT_V2 }
+    expect(parseResultResponse(held.status, { ...v2, deployment_context_state: null }, accountId).kind).toBe("held")
+    expect(parseResultResponse(held.status, v2, accountId).kind).toBe("unavailable")
   })
 
   // The C3f-R harness (tests/test_system_boundary_result_captures.py) roots the regional instance i-...1 and the role under
