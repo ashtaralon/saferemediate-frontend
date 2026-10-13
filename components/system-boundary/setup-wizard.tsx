@@ -768,9 +768,10 @@ function scopeWords(scope: AuthoredDisposition["scope"]): string {
   return `${scope.account_id} / ${scope.region ?? "all Regions"}`
 }
 
-/** A derived row named so two Regions of one subject are told apart. */
+/** A derived row named so two Regions of one subject are told apart -- (S1b) and two Deployments' code / iac choices. */
 function rowLabel(d: DerivedDisposition): string {
   return `${SUBJECTS[d.subject]?.label ?? d.subject}${d.scope.region ? ` (${d.scope.region})` : ""}`
+    + (d.scope.deployment === undefined ? "" : ` · Deployment ${d.scope.deployment}`)
 }
 
 /** (S0 NSW-04) One subject's rows -- each its own (account, Region), never merged -- and, where THE served profile scopes the

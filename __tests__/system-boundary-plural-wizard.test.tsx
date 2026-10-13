@@ -233,6 +233,10 @@ describe("Review: the consolidated account assessment, and the OUTER state gover
     expect(screen.getByTestId(`setup-assessment-deployments-${account}-prod`).textContent).toContain("prod: 3 member(s) of its own")
     expect(screen.getByTestId(`setup-assessment-deployments-${account}-staging`).textContent).toContain("staging: 1 member(s) of its own")
     expect(screen.getByTestId(`setup-assessment-${account}`).textContent).toContain("4 member(s), each counted once")
+    // each Deployment's own infrastructure choice is told apart in Review (same subject, same Region)
+    const review = screen.getByTestId("setup-review").textContent ?? ""
+    expect(review).toContain("Infrastructure as code (eu-west-1) · Deployment prod")
+    expect(review).toContain("Infrastructure as code (eu-west-1) · Deployment staging")
     const finish = screen.getByTestId("setup-finish") as HTMLButtonElement
     expect(finish.disabled).toBe(false)
     fireEvent.click(finish)
