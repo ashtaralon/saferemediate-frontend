@@ -11,7 +11,9 @@ import { readFileSync } from "node:fs"
 import path from "node:path"
 import { describe, expect, it } from "vitest"
 
-import { assess, assessmentWithheldSentence, DRAFT_DEPLOYMENT_VERSION } from "@/lib/system-boundary-assessment"
+import {
+  assess, assessmentWithheldSentence, deploymentLine, DRAFT_DEPLOYMENT_VERSION, remainderLines,
+} from "@/lib/system-boundary-assessment"
 import { pairDeployments } from "@/lib/system-boundary-deployment-context"
 import { finishExplanation, finishExplanationWithheldSentence, type Pairing } from "@/lib/system-boundary-finish-result"
 import { parseResultResponse, RESULT_CONTRACT, type ResultServed } from "@/lib/system-boundary-result"
@@ -202,6 +204,31 @@ describe("the consolidated account assessment (A7 reading A)", () => {
     expect([prod.shared, staging.shared, account.explanation!.systemLevel, account.explanation!.foreign]).toEqual([[], [], [], []])
     expect(account.counts!.members).toBe(4)                   // the backend's unique count, not a per-Deployment sum
     expect(a.finishable).toBe(true)
+  })
+
+  it("says a shared member as shared -- MULTIPLE and MIXED -- and a System-level one apart, never as one Deployment's own", () => {
+    // Every real context is SINGLE; three members' contexts are edited here, each to another valid resolution, and the
+    // account's decoration stays whole (every listed member still carries one).
+    const body = structuredClone(read(PREVIEWS, "plural_preview").body)
+    const ids: string[] = body.draft_targets.deployment_ids
+    const [prodKey, stagingKey] = ids.map((id) => `DEPLOYMENT#${id}`)
+    const members: any[] = body.accounts[0].display.members   // eslint-disable-line @typescript-eslint/no-explicit-any
+    const byName = (suffix: string) => members.find((m) => m.resource_uid.endsWith(suffix))
+    byName("sg-1").deployment_context = { resolution: "MULTIPLE", deployments: [prodKey, stagingKey].sort().map((key) => ({ key, version: 1 })) }
+    byName("app-role").deployment_context = { resolution: "MIXED", deployments: [{ key: prodKey, version: 1 }] }
+    byName("i-2").deployment_context = { resolution: "SYSTEM_LEVEL", deployments: [] }
+    body.accounts[0].deployment_context_state = body.accounts[0].display.deployment_context_state
+    const parsed = parsePreview(200, body)
+    if (parsed.kind !== "OK") throw new Error(JSON.stringify(parsed))
+    const [account] = assess(parsed.value, ["prod", "staging"]).accounts
+    const [prod, staging] = account.explanation!.deployments
+    expect(prod.single.map((u) => u.split("/").pop())).toEqual(["i-1"])
+    expect(prod.shared.map((s) => [s.uid.split("/").pop(), s.resolution]).sort()).toEqual([["app-role", "MIXED"], ["sg-1", "MULTIPLE"]])
+    expect(staging.single).toEqual([])
+    expect(staging.shared.map((s) => [s.uid.split("/").pop(), s.resolution])).toEqual([["sg-1", "MULTIPLE"]])
+    expect(account.explanation!.systemLevel.map((u) => u.split("/").pop())).toEqual(["i-2"])
+    expect(deploymentLine(prod)).toBe("prod: 1 member(s) of its own; 1 shared with another Deployment; 1 also reached from the System as a whole.")
+    expect(remainderLines(account.explanation!)).toEqual(["1 member(s) belong to the System as a whole, not to one Deployment."])
   })
 
   it("withholds every per-Deployment number by name rather than attribute on a guess", () => {

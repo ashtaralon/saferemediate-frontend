@@ -14,7 +14,9 @@ import { SetupWizard, type SetupClient, type StackOption } from "@/components/sy
 import type { DeclarationsView, StackBinding } from "@/lib/system-boundary-authoring"
 import { pairDeployments, type PairedDeployment } from "@/lib/system-boundary-deployment-context"
 import type { SetupIntent, SetupView, SetupWrite } from "@/lib/system-boundary-setup"
-import { addDeployment, draftDeclaration, keyOf, loadIntent, removeDeployment, type IntentLocal } from "@/lib/system-boundary-setup-intent"
+import {
+  addDeployment, draftDeclaration, keyOf, loadIntent, removeDeployment, withRootsOf, type IntentLocal,
+} from "@/lib/system-boundary-setup-intent"
 import { setupPendingStore, type PendingSetupOp } from "@/lib/system-boundary-setup-pending"
 import { parsePreview, type PreviewFetcher } from "@/lib/system-boundary-setup-preview"
 
@@ -109,6 +111,21 @@ describe("the intent model reads and writes the plural shape losslessly", () => 
     expect(removeDeployment(added.local, "prod")).toMatchObject({ kind: "refused" })
     expect(addDeployment(added.local, "prod")).toMatchObject({ kind: "refused" })        // already a Deployment
     expect(addDeployment(added.local, "stag ing")).toMatchObject({ kind: "refused" })    // not a key the backend admits
+  })
+})
+
+describe("each Deployment's scopes are its OWN entries' cells", () => {
+  it("roots picked for staging in another Region change staging's scopes only; a root of prod is not taken by staging", () => {
+    const local = loaded(SETUPS("plural_read_draft").body)
+    const prodRoot = local.roots.find((p) => keyOf(p.root) === "prod")!
+    // an edit: the staging root's Region, so the two Deployments' cells differ
+    const elsewhere = local.roots.filter((p) => keyOf(p.root) === "staging")
+      .map((p) => ({ ...p, root: { ...p.root, region: "eu-west-2" } }))
+    const moved = withRootsOf(local, "staging", elsewhere)
+    if (moved.kind !== "ok") throw new Error(moved.why)
+    const scopes = Object.fromEntries(moved.local.deployments!.map((d) => [d.deploymentKey, d.scopes.map((c) => c.region)]))
+    expect(scopes).toEqual({ prod: ["eu-west-1"], staging: ["eu-west-2"] })
+    expect(withRootsOf(local, "staging", [prodRoot])).toMatchObject({ kind: "refused" })
   })
 })
 
