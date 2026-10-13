@@ -303,13 +303,18 @@ describe("the served result v2 and THIS Finish's per-Deployment explanation", ()
     expect(parse({ ...withheld, members: [first, ...withheld.members.slice(1)] })).toBe("unavailable")
   })
 
-  it("refuses a level-2 answer of ANY state without the decoration key (isolating control, FE mutant M20)", () => {
-    // the real held answer (level 1), tagged level 2: with the key (null, as level 2 writes it) it is read; without, it is not
+  it("reads the decoration key exactly by level: every level-2 answer carries it, no level-1 answer does (FE mutant M20)", () => {
+    // the real held answer (level 1): tagged level 2 it is read with the key (null, as level 2 writes it) and not without;
+    // at level 1 it is read without the key and NOT with it -- the one direction only the key rule decides (a missing key
+    // at level 2 is also refused by the non-served-is-null rule)
     const held = read("system-boundary-captures", "result_v1_held")
     const accountId = String(held._provenance.request.query.account_id)
+    const v1 = structuredClone(held.body)
     const v2 = { ...structuredClone(held.body), contract: RESULT_CONTRACT_V2 }
     expect(parseResultResponse(held.status, { ...v2, deployment_context_state: null }, accountId).kind).toBe("held")
     expect(parseResultResponse(held.status, v2, accountId).kind).toBe("unavailable")
+    expect(parseResultResponse(held.status, v1, accountId).kind).toBe("held")
+    expect(parseResultResponse(held.status, { ...v1, deployment_context_state: null }, accountId).kind).toBe("unavailable")
   })
 
   // The C3f-R harness (tests/test_system_boundary_result_captures.py) roots the regional instance i-...1 and the role under
