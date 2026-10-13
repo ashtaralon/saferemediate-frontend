@@ -546,6 +546,15 @@ describe("S1a R7: the finished setup's result accounts and THIS Finish's applied
     expect(screen.getByTestId(`finish-result-pairing-${ACCOUNT}`).textContent).not.toContain("This Finish's applied result")
   })
 
+  it("S1A-R7-CORR-PAIR-01: another account's Applied beside an unavailable result names no 'as of' generation", async () => {
+    const foreign = appliedAt(41)                                      // an edit: right shape and generation, another account
+    foreign.body = { ...foreign.body, account_id: "999988887777" }
+    mountFinished(FIN, vi.fn(async () => foreign), vi.fn(async () => ({ status: 503, body: { detail: { code: "RESULT_STORE_UNAVAILABLE" } } })))
+    await settle()
+    expect(screen.getByTestId(`finish-result-applied-${ACCOUNT}`).textContent).toContain("APPLIED_IDENTITY_MISMATCH")
+    expect(screen.getByTestId(`finish-result-pairing-${ACCOUNT}`).textContent).not.toContain("as of generation")
+  })
+
   it("S1A-R7-PAIR-02: a served result naming another System shows none of its rows; it is refused by name", async () => {
     const foreign = resultAt(41)                                        // an edit: right account and generation, another System
     foreign.body = { ...foreign.body, system_key: `${SYSTEM_ID}x` }

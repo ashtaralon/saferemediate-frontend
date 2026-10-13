@@ -19,7 +19,9 @@ export type Pairing =
 
 export function pairing(applied: ParsedApplied, result: ParsedResult,
                         { accountId, systemKey, completedRevision }: { accountId: string; systemKey: string; completedRevision: number }): Pairing {
-  const asOf = result.kind === "served" ? result.generation : applied.kind === "applied" ? applied.generation : null
+  // (S1A-R7-CORR-PAIR-01) The "as of" fallback uses Applied's generation only when that answer is THIS account's.
+  const asOf = result.kind === "served" ? result.generation
+    : applied.kind === "applied" && applied.accountId === accountId ? applied.generation : null
   const updating = (why: string): Pairing => ({ kind: "updating", asOf, why })
   if (applied.kind !== "applied" || applied.accountId !== accountId) return updating("NOT_APPLIED")
   if (applied.appliedRevision === null || applied.appliedRevision < completedRevision) return updating("APPLIED_BEFORE_THIS_FINISH")

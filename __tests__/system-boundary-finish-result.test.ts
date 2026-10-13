@@ -141,3 +141,20 @@ describe("SW-S1A-20261013-12 correction", () => {
     expect(appliedLine(applied(), 1, pairing(applied(), result(older), at(1)), ACCOUNT)).toContain("this save is applied in membership generation 41")
   })
 })
+
+describe("SW-S1A-20261013-13 correction", () => {
+  const unavailable = parseResultResponse(503, { contract: "system_boundary_result_read/v1", state: "unavailable",
+    reason_code: "RESULT_STORE_UNAVAILABLE", account_id: ACCOUNT, system_key: SYSTEM }, ACCOUNT)  // a constructed 503, said
+  it("S1A-R7-CORR-PAIR-01: with no served result, another account's Applied generation is never the 'as of'", () => {
+    expect(unavailable.kind).toBe("unavailable")
+    const foreign = parseAppliedResponse(200, { ...structuredClone(APPLIED.body), account_id: "999988887777" })   // an edit
+    const p = pairing(foreign, unavailable, at(1))
+    expect(p).toEqual({ kind: "updating", asOf: null, why: "NOT_APPLIED" })
+    expect(pairingSentence(p)).not.toContain("as of generation")
+  })
+  it("the matching account's Applied generation stays the 'as of' when no result is served", () => {
+    const p = pairing(applied(), unavailable, at(1))
+    expect(p).toEqual({ kind: "updating", asOf: 41, why: "RESULT_NOT_SERVED" })
+    expect(pairingSentence(p)).toContain("as of generation 41")
+  })
+})
