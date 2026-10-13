@@ -168,6 +168,8 @@ export function parsePreview(status: number | null, json: unknown): PreviewRead 
   if ((json.state === "COMPUTED") !== read.every((a) => a.state === "COMPUTED")) return malformed
   const shown = json.page === undefined ? null : page(json.page, previewDigest)
   if (json.page !== undefined && shown === null) return malformed
+  // (S1A-UI-PREVIEW-02) a page of an account this preview does not have is no page of it
+  if (shown !== null && !read.some((a) => a.accountId === shown.accountId)) return malformed
   return { kind: "OK", value: {
     state: json.state as PreviewState, previewDigest, basisDigest, resultDigest,
     setup: { setupId: setup.setup_id, intentRevision: setup.intent_revision, stateVersion: setup.state_version },
@@ -233,6 +235,8 @@ const PREVIEW_REFUSALS: Record<string, string> = {
   PREVIEW_MODE_UNSUPPORTED: "This setup corrects existing declarations; a preview is computed only for a new system.",
   PREVIEW_CURSOR_INVALID: "That page of the preview could not be read. Preview again.",
   SETUP_STATE_CHANGED: "The setup changed since this screen read it. It is read again.",
+  PREVIEW_OF_ANOTHER_VERSION: "That answer is of another saved version of this setup; nothing of it was added.",
+  PAGE_OF_ANOTHER_LIST: "That page answered another account or list; nothing of it was added.",
   SETUP_WITHHELD: "This setup includes an account you cannot read now, so it is not shown.",
   BASE_REVISION_CONFLICT: "Declarations changed since this setup was saved. Nothing was saved; save the setup again and review the new preview.",
 }
@@ -241,7 +245,29 @@ export function previewRefusalSentence(code: string): string | null {
   return PREVIEW_REFUSALS[code] ?? null
 }
 
-/** A preview read in words (never a claim the browser makes). */
+const listOf = (value: unknown): unknown[] => (Array.isArray(value) ? value : [])
+const named = (value: unknown): string => (typeof value === "string" ? value : JSON.stringify(value))
+
+/** (S1A-UI-PREVIEW-03) What a COMPUTED account's coverage says the plan did not reach, in words -- exactly the limits the
+ *  backend supplied (``complete``/``incomplete_reason``, ``partial``, ``withheld``, ``frontier_count``,
+ *  ``conflicting_rows``); none when it names none. A held account is said apart (heldSentence), never as a limit. */
+export function coverageLimits(account: PreviewAccount): string[] {
+  const c = account.coverage
+  if (!c) return []
+  const limits: string[] = []
+  if (c.complete === false) limits.push(`not completely planned${c.incomplete_reason ? ` (${named(c.incomplete_reason)})` : ""}`)
+  const partial = listOf(c.partial)
+  if (partial.length) limits.push(`partly planned: ${partial.map(named).join(", ")}`)
+  const withheld = listOf(c.withheld)
+  if (withheld.length) limits.push(`${withheld.length} withheld: ${withheld.slice(0, 5).map(named).join(", ")}${withheld.length > 5 ? ", ..." : ""}`)
+  if (typeof c.frontier_count === "number" && c.frontier_count > 0) limits.push(`${c.frontier_count} resource(s) at the edge of the plan were not followed`)
+  const conflicting = listOf(c.conflicting_rows)
+  if (conflicting.length) limits.push(`${conflicting.length} conflicting row(s)`)
+  return limits
+}
+
+/** A preview read in words (never a claim the browser makes). A computed preview whose coverage names limits, or with rows
+ *  in no list, is said to be limited -- never a whole answer. */
 export function previewSentence(read: PreviewRead): string {
   if (read.kind === "REFUSED") return `${previewRefusalSentence(read.code) ?? "The preview was refused."} (${read.code})`
   if (read.kind === "UNAVAILABLE") return `The preview could not be read (${read.code}).`
@@ -249,8 +275,14 @@ export function previewSentence(read: PreviewRead): string {
   const c = p.counts
   const whole = `${c.members} member${c.members === 1 ? "" : "s"} (${c.stale_members} last seen), ${c.dependencies} `
     + `dependenc${c.dependencies === 1 ? "y" : "ies"}, ${c.held} held, ${c.not_members} not a member`
-  return p.state === "COMPUTED"
-    ? `If you finish saved revision ${p.setup.intentRevision}, this system would have ${whole}. Nothing is applied yet.`
-    : `The preview is held: ${p.accounts.filter((a) => a.state !== "COMPUTED").length} account(s) could not be computed, so these `
-      + `counts (${whole}) are not a whole answer and cannot be finished.`
+  if (p.state !== "COMPUTED") {
+    return `The preview is held: ${p.accounts.filter((a) => a.state !== "COMPUTED").length} account(s) could not be computed, so `
+      + `these counts (${whole}) are not a whole answer and cannot be finished.`
+  }
+  const limited = p.accounts.filter((a) => coverageLimits(a).length).length
+  if (!limited && !c.unlisted) return `If you finish saved revision ${p.setup.intentRevision}, this system would have ${whole}. Nothing is applied yet.`
+  const why = [limited ? `${limited} account(s) not completely covered` : "", c.unlisted ? `${c.unlisted} row(s) in no list` : ""]
+    .filter(Boolean).join(", ")
+  return `If you finish saved revision ${p.setup.intentRevision}, this system would have ${whole} -- but this preview is limited `
+    + `(${why}; shown below), so it is not a complete answer. Nothing is applied yet.`
 }

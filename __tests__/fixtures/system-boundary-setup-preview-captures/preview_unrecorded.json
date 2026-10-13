@@ -1,0 +1,188 @@
+{
+  "_provenance": {
+    "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/system-boundary/setup/61abcb60-02f4-492c-888e-e3427397b462/preview",
+      "params": {
+        "state_version": "2"
+      },
+      "body": null
+    }
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "body": {
+    "contract": "system_boundary_setup_preview/v1",
+    "state": "COMPUTED",
+    "preview_digest": "v1:4a48dd75649777bc8a40f517dba3b362b82a7d6e25809c365742743564a446ea",
+    "basis_digest": "v1:356c7b788b7aea5bc6bafb9edae61bc015361668e06698aeff1980d52f0ec94b",
+    "result_digest": "v1:40e3d7849bcd9128fc0cfa96f4487fa0351272261f291d4873fe3e99256672df",
+    "setup": {
+      "setup_id": "61abcb60-02f4-492c-888e-e3427397b462",
+      "intent_revision": 2,
+      "state_version": 2
+    },
+    "draft_targets": {
+      "system_id": "authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f",
+      "deployment_id": "authored_deployment:9727d62b9a8cd7b27eb3bf7f0e3c8c55dccab3c667221bbe89e277bf2bdb516e"
+    },
+    "rules": {
+      "a7": "a7_rules_v2",
+      "projector": "1.0.0",
+      "row_schema": "system-membership-row-v2",
+      "stack_input": "stack_membership_input/v1",
+      "result_contract": "system_boundary_result_read/v1",
+      "preview_contract": "system_boundary_setup_preview/v1",
+      "limits": {
+        "work_budget": 5000000,
+        "max_resources": 250000,
+        "max_edges": 1000000
+      }
+    },
+    "counts": {
+      "members": 3,
+      "dependencies": 0,
+      "held": 0,
+      "not_members": 0,
+      "stale_members": 0,
+      "unlisted": 0
+    },
+    "accounts": [
+      {
+        "account_id": "111122223333",
+        "state": "COMPUTED",
+        "reason": null,
+        "coverage": {
+          "complete": true,
+          "incomplete_reason": null,
+          "partial": [],
+          "withheld": [],
+          "frontier_count": 0,
+          "conflicting_rows": [],
+          "retirement_support": {
+            "work_used": 0,
+            "limit": 4999909,
+            "complete": true
+          },
+          "stacks": {
+            "input": {
+              "version": "stack_membership_input/v1",
+              "census_status": "served",
+              "census_pin": {
+                "generation": 1,
+                "source_identity": "v1:55450ba3d9c6246d4e88989f330349519109be2a13622f7f1d50767620e4d413",
+                "attempt": "a580349b416b45798351c57d2fd479c6",
+                "inventory_generation": 1
+              },
+              "stacks": [
+                [
+                  "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+                  1,
+                  "exclusive",
+                  "authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f",
+                  "authored_deployment:9727d62b9a8cd7b27eb3bf7f0e3c8c55dccab3c667221bbe89e277bf2bdb516e",
+                  ""
+                ]
+              ],
+              "hash": "v1:5c1ff750007c9b658e48075e71b667b29e25ba19f397b33e08838eb9710d0fb3"
+            },
+            "counts": {
+              "stacks": 1,
+              "usable": 1,
+              "roots": 3,
+              "candidates": 0,
+              "listed_only": 0,
+              "not_in_generation": 0,
+              "excluded": 0,
+              "shared_foundation": 0,
+              "nested_stacks": 0,
+              "held_recreated": 0,
+              "waiting": 0
+            },
+            "tag_shadow": {
+              "count": 0,
+              "rows": [],
+              "rows_cut": false
+            },
+            "not_built": [],
+            "deferred_by_spec": [
+              "R7_LISTED_ONLY_MEMBERSHIP"
+            ]
+          }
+        },
+        "counts": {
+          "members": 3,
+          "stale_members": 0,
+          "dependencies": 0,
+          "held": 0,
+          "not_members": 0
+        },
+        "display": {
+          "system_key": "authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f",
+          "system_name": "Payments",
+          "members": [
+            {
+              "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/instance/i-1",
+              "resource_type": "ec2:instance",
+              "state": "ACTIVE",
+              "proof": {
+                "source": "stack",
+                "stack_id": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+                "listing_stack": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+                "logical_id": "Web",
+                "proof": "stack_listing",
+                "identity": "marker"
+              },
+              "valid_from": "2026-08-06T10:00:00+00:00"
+            },
+            {
+              "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/security-group/sg-1",
+              "resource_type": "ec2:security-group",
+              "state": "ACTIVE",
+              "proof": {
+                "source": "stack",
+                "stack_id": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+                "listing_stack": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+                "logical_id": "WebSg",
+                "proof": "stack_listing",
+                "identity": "marker"
+              },
+              "valid_from": "2026-08-06T10:00:00+00:00"
+            },
+            {
+              "resource_uid": "aws://aws/111122223333/global/iam/role/app-role",
+              "resource_type": "iam:role",
+              "state": "ACTIVE",
+              "proof": {
+                "source": "stack",
+                "stack_id": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+                "listing_stack": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+                "logical_id": "WebRole",
+                "proof": "stack_listing",
+                "identity": "marker"
+              },
+              "valid_from": "2026-08-06T10:00:00+00:00"
+            }
+          ],
+          "dependencies": [],
+          "held": [],
+          "not_members": [],
+          "counts": {
+            "members": 3,
+            "stale_members": 0,
+            "dependencies": 0,
+            "held": 0,
+            "not_members": 0
+          },
+          "omitted": {}
+        },
+        "inventory": {
+          "generation": 1,
+          "projected_through": "2026-08-06T10:00:00+00:00"
+        }
+      }
+    ],
+    "setup_contract": "system_boundary_setup/v4"
+  }
+}

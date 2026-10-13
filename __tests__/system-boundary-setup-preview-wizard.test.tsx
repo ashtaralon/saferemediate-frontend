@@ -324,3 +324,144 @@ describe("what this release cannot carry back, and the rest of a long list", () 
       [cut.accounts[0].display.members[0].resource_uid])
   })
 })
+
+describe("SW-S1A-20261013-09 corrections", () => {
+  it("S1A-UI-LIFECYCLE-01: a refusal the backend did NOT record keeps the exact v2 request -- persisted, read-only, resent exactly", async () => {
+    const draft: SetupView = cap("draft_unrecorded").body
+    const finishing: SetupView = cap("read_finishing_unrecorded").body
+    const unrecorded = cap("finish_input_changed_unrecorded")
+    const reads = [draft, finishing]
+    const s = storage()
+    const store = freshStore(s)
+    const c: SetupClient = {
+      readSetup: vi.fn(async () => ({ kind: "OK" as const, value: structuredClone(reads.length > 1 ? reads.shift()! : reads[0]) })),
+      readSetupStatus: vi.fn(async () => ({ kind: "OK" as const, value: cap("status").body })),
+      updateSetup: vi.fn(),
+      finishSetup: vi.fn(async () => writeAnswer({ status: unrecorded.status, json: unrecorded.body })),
+    }
+    render(<SetupWizard setupId={draft.setup_id} accountId={ACCOUNT} view={VIEW} picks={[]} onClose={() => undefined} client={c}
+      pendingStore={store} actor={ACTOR} stacks={{ state: "served", stacks: STACKS }} readPreview={previewOf(cap("preview_unrecorded").body)} />)
+    await settle()
+    fireEvent.click(finishButton())
+    await settle()
+    const [first] = (c.finishSetup as ReturnType<typeof vi.fn>).mock.calls
+    const kept = freshStore(s).read()                                     // a reload: the same browser storage, a new page
+    expect(kept).toEqual([{ version: 2, kind: "finish", actor: ACTOR, accountId: ACCOUNT, setupId: draft.setup_id, requestId: first[1],
+                            base: draft.state_version, startedAt: expect.any(String), previewDigest: cap("preview_unrecorded").body.preview_digest }])
+    const alert = screen.getByRole("alert").textContent ?? ""
+    expect(alert).toContain("could not be recorded (GRANT_REVOKED)")
+    expect(alert).not.toContain("draft again")
+    expect(screen.getByTestId("setup-state").textContent).toContain("Setup finishing")
+    expect(screen.queryByTestId("setup-finish")).toBeNull()                // read-only: no new Finish, no edits
+    fireEvent.click(screen.getByRole("button", { name: "Check the save again" }))
+    await settle()
+    const calls = (c.finishSetup as ReturnType<typeof vi.fn>).mock.calls
+    expect(calls).toHaveLength(2)
+    expect(calls[1]).toEqual(calls[0])                                    // the SAME request id, base and digest
+  })
+
+  it("S1A-UI-LIFECYCLE-01 control: a RECORDED refusal is definitive -- settled, and the setup is a draft again", async () => {
+    const recorded = cap("finish_input_changed")
+    const store = freshStore()
+    const { c } = client(DRAFT, { finishSetup: vi.fn(async () => writeAnswer({ status: recorded.status, json: recorded.body })) })
+    mount(c, { store })
+    await settle()
+    fireEvent.click(finishButton())
+    await settle()
+    expect(store.read()).toEqual([])
+    expect(screen.getByRole("alert").textContent).toContain("draft again")
+  })
+
+  function cutPreview() {                                               // an edit: the summary lists one member, omits the other
+    const cut = structuredClone(cap("preview").body)
+    cut.accounts[0].display.omitted = { members: cut.accounts[0].display.members.length - 1 }
+    cut.accounts[0].display.members = cut.accounts[0].display.members.slice(0, 1)
+    return cut
+  }
+
+  /** The first page of the members list, delayed until released; any later page answers the second. */
+  function delayedPages() {
+    const resolvers: (() => void)[] = []
+    const pageCalls: { cursor: string | null }[] = []
+    const readPreview: PreviewFetcher = vi.fn(async (_sid, _v, pageOf) => {
+      if (!pageOf) return parsePreview(200, cutPreview())
+      pageCalls.push({ cursor: pageOf.cursor ?? null })
+      const body = pageOf.cursor ? cap("preview_page_next").body : cap("preview_page").body
+      if (!pageOf.cursor) await new Promise<void>((resolve) => { resolvers.push(resolve) })
+      return parsePreview(200, structuredClone(body))
+    })
+    return { readPreview, resolvers, pageCalls }
+  }
+  const memberRows = () => within(screen.getByTestId("setup-preview-members")).getAllByRole("listitem")
+    .map((li) => li.textContent?.split(" -- ")[0])
+
+  it("S1A-UI-PREVIEW-01: a double click while the first page is out sends ONE request (the in-flight fence)", async () => {
+    const { readPreview, resolvers, pageCalls } = delayedPages()
+    mount(client().c, { readPreview })
+    await settle()
+    fireEvent.click(screen.getByRole("button", { name: "Show all (1 more)" }))
+    await settle()
+    fireEvent.click(screen.getByRole("button", { name: "Reading…" }))
+    await settle()
+    expect(pageCalls).toEqual([{ cursor: null }])
+    await act(async () => { resolvers.forEach((resolve) => resolve()) })
+    await settle()
+    expect(memberRows()).toEqual([cap("preview_page").body.page.entries[0].resource_uid])
+  })
+
+  it("S1A-UI-PREVIEW-01: whatever reaches the list, answered in either order, each page is shown once and the rest stays reachable", async () => {
+    const { readPreview, resolvers } = delayedPages()
+    mount(client().c, { readPreview })
+    await settle()
+    fireEvent.click(screen.getByRole("button", { name: "Show all (1 more)" }))
+    await settle()
+    fireEvent.click(screen.getByRole("button", { name: /Reading…|Show all/ }))
+    await settle()
+    await act(async () => { [...resolvers].reverse().forEach((resolve) => resolve()) })     // any second answer first
+    await settle()
+    expect(memberRows()).toEqual([cap("preview_page").body.page.entries[0].resource_uid])
+    fireEvent.click(screen.getByRole("button", { name: "Show more" }))
+    await settle()
+    expect(memberRows()).toEqual([cap("preview_page").body.page.entries[0].resource_uid, cap("preview_page_next").body.page.entries[0].resource_uid])
+    expect(screen.queryByRole("button", { name: "Show more" })).toBeNull()
+  })
+
+  it.each([
+    ["another list", (b: any) => { b.page.bucket = "dependencies" }, "PAGE_OF_ANOTHER_LIST"],              // eslint-disable-line @typescript-eslint/no-explicit-any
+    ["another saved version", (b: any) => { b.setup.state_version += 1 }, "PREVIEW_OF_ANOTHER_VERSION"],   // eslint-disable-line @typescript-eslint/no-explicit-any
+  ])("S1A-UI-PREVIEW-02: a same-preview page of %s is refused; rows and cursor unchanged", async (_label, edit, code) => {
+    const wrong = structuredClone(cap("preview_page").body)            // an edit: the response names something else
+    edit(wrong)
+    const answers = [wrong, cap("preview_page").body]
+    const readPreview: PreviewFetcher = vi.fn(async (_sid, _v, pageOf) =>
+      parsePreview(200, structuredClone(pageOf ? answers.shift() : cutPreview())))
+    mount(client().c, { readPreview })
+    await settle()
+    fireEvent.click(screen.getByRole("button", { name: "Show all (1 more)" }))
+    await settle()
+    const list = screen.getByTestId("setup-preview-members")
+    expect(list.textContent).toContain(code)
+    expect(within(list).getAllByRole("listitem")).toHaveLength(1)
+    fireEvent.click(screen.getByRole("button", { name: "Show all (1 more)" }))  // the same first cursor again: the right page
+    await settle()
+    expect((readPreview as ReturnType<typeof vi.fn>).mock.calls[2][2]).toEqual({ accountId: ACCOUNT, bucket: "members", cursor: null })
+    expect(within(screen.getByTestId("setup-preview-members")).getAllByRole("listitem").map((li) => li.textContent?.split(" -- ")[0]))
+      .toEqual([cap("preview_page").body.page.entries[0].resource_uid])
+  })
+
+  it("S1A-UI-PREVIEW-03: a COMPUTED preview with coverage limits says so; a complete one shows none", async () => {
+    const partial = structuredClone(cap("preview").body)             // an edit: the documented coverage shape, limits supplied
+    Object.assign(partial.accounts[0].coverage, { complete: false, incomplete_reason: "WORK_BUDGET_EXHAUSTED", frontier_count: 3 })
+    partial.counts.unlisted = 2
+    const view = mount(client().c, { readPreview: previewOf(partial) })
+    await settle()
+    expect(screen.getByTestId("setup-preview-summary").textContent).toContain("but this preview is limited")
+    expect(screen.getByTestId(`setup-preview-limits-${ACCOUNT}`).textContent).toContain("not completely planned (WORK_BUDGET_EXHAUSTED)")
+    expect(screen.getByTestId("setup-preview-unlisted").textContent).toContain("2 row(s)")
+    view.unmount()
+    mount(client().c)
+    await settle()
+    expect(screen.queryByTestId(`setup-preview-limits-${ACCOUNT}`)).toBeNull()
+    expect(screen.queryByTestId("setup-preview-unlisted")).toBeNull()
+  })
+})

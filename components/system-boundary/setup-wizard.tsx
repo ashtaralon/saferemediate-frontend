@@ -39,6 +39,7 @@ import {
   type IntentLocal,
 } from "@/lib/system-boundary-setup-intent"
 import {
+  coverageLimits,
   heldSentence,
   previewRefusalSentence,
   previewSentence,
@@ -63,6 +64,7 @@ import {
   requiredFactsSentence,
   finishSetup as finishSetupDefault,
   freshRequestId,
+  isUnrecordedRefusal,
   readSetup as readSetupDefault,
   readSetupStatus as readSetupStatusDefault,
   SETUP_STEPS,
@@ -203,6 +205,14 @@ function intentKey(intent: Pick<SetupIntent, "declaration" | "dispositions">): s
 
 /** Words for a write that did not save: what to do next, never a guess at what the backend did. */
 function explain(answer: Exclude<SetupWrite, { kind: "SAVED" }>): string {
+  if (answer.kind === "RESEND_SAME" && isUnrecordedRefusal(answer.detail)) {
+    // (S1A-UI-LIFECYCLE-01) refused, but the refusal was NOT recorded: the save is still open on the server, never "a draft again"
+    const setup = answer.detail.setup as { status?: unknown; not_recorded_because?: unknown }
+    const because = typeof setup.not_recorded_because === "string" ? ` (${setup.not_recorded_because})` : ""
+    return `The save was refused (${answer.code}), but the refusal could not be recorded${because}: the setup stays `
+      + `${typeof setup.status === "string" ? setup.status.toLowerCase() : "finishing"} until an author who may still save it `
+      + "checks it. This request is kept unchanged; \"Check the save again\" resends exactly it."
+  }
   if (answer.kind === "RESEND_SAME") return `Not confirmed yet (${answer.code}). Try again: the same request is resent, unchanged.`
   if (answer.code === "VERSION_CONFLICT") return "This setup changed elsewhere. It was reloaded; your typing is kept, save again."
   const preview = previewRefusalSentence(answer.code)
@@ -333,6 +343,9 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
     if (currentContext.current !== sentIn) return                        // a later context: its screen is not this answer's
     if (answer.kind === "RESEND_SAME") {
       setProblem(explain(answer))
+      // An unrecorded refusal left the save open (FINISHING): read the setup again so it is shown read-only, as it is -- the
+      // kept request stays the only thing resent from here.
+      if (isUnrecordedRefusal(answer.detail)) await load(true)
       return
     }
     setPending(null)
@@ -880,25 +893,45 @@ function PreviewPanel({ read, setupId, stateVersion, readPreview, onPreviewAgain
   onPreviewAgain: () => void
   context: string
 }) {
-  const [pages, setPages] = useState<Record<string, { entries: ResultRow[]; next: string | null; problem: string | null }>>({})
+  // (S1A-UI-PREVIEW-01/02) Each list's pages, read one request at a time: a page is accepted only as the answer to the
+  // cursor that list is waiting for (each cursor once), and only when it names THIS preview, setup and version, account and
+  // list -- anything else changes neither its rows nor its cursor. Rows are never de-duplicated: two rows of one resource are
+  // two rows.
+  type Paged = { entries: ResultRow[]; next: string | null; done: boolean; cursors: string[]; problem: string | null }
+  const [pages, setPages] = useState<Record<string, Paged>>({})
+  const [loading, setLoading] = useState<Record<string, boolean>>({})
+  const inflight = useRef(new Set<string>())
   const shown = read?.kind === "OK" ? read.value : null
   const pageKey = (accountId: string, list: ResultList) => `${context}|${shown?.previewDigest}|${accountId}|${list}`
   const more = (accountId: string, list: ResultList) => {
     if (!shown) return
     const key = pageKey(accountId, list)
-    const cursor = pages[key]?.next ?? null
+    const before = pages[key]
+    if (inflight.current.has(key) || before?.done) return               // one request per list; a finished list asks no more
+    const cursor = before?.cursors.length ? before.next : null
+    const token = cursor ?? ""
+    inflight.current.add(key)
+    setLoading((current) => ({ ...current, [key]: true }))
     void readPreview(setupId, stateVersion, { accountId, bucket: list, cursor }).then((answer) => {
+      inflight.current.delete(key)
+      setLoading((current) => ({ ...current, [key]: false }))
       setPages((current) => {
-        const before = current[key] ?? { entries: [], next: null, problem: null }
-        if (answer.kind !== "OK" || answer.value.previewDigest !== shown.previewDigest || !answer.value.page) {
-          const code = answer.kind === "OK" ? "PREVIEW_CHANGED" : answer.code
-          return { ...current, [key]: { ...before, problem: `${previewRefusalSentence(code) ?? "That page could not be read."} (${code})` } }
-        }
-        return { ...current, [key]: { entries: [...before.entries, ...answer.value.page.entries], next: answer.value.page.next,
-                                      problem: null } }
+        const now = current[key] ?? { entries: [], next: null, done: false, cursors: [], problem: null }
+        const waiting = now.cursors.length ? (now.next ?? null) : ""
+        if (now.done || now.cursors.includes(token) || waiting !== token) return current      // not the answer this list awaits
+        const refuse = (code: string) => ({ ...current, [key]: { ...now,
+          problem: `${previewRefusalSentence(code) ?? "That page could not be read."} (${code})` } })
+        if (answer.kind !== "OK") return refuse(answer.code)
+        const value = answer.value
+        if (value.previewDigest !== shown.previewDigest) return refuse("PREVIEW_CHANGED")
+        if (value.setup.setupId !== setupId || value.setup.stateVersion !== stateVersion) return refuse("PREVIEW_OF_ANOTHER_VERSION")
+        if (!value.page || value.page.accountId !== accountId || value.page.bucket !== list) return refuse("PAGE_OF_ANOTHER_LIST")
+        return { ...current, [key]: { entries: [...now.entries, ...value.page.entries], next: value.page.next,
+                                      done: value.page.next === null, cursors: [...now.cursors, token], problem: null } }
       })
     })
   }
+  const unlisted = shown?.counts.unlisted ?? 0
   return (
     <div className="space-y-2 rounded border p-2" data-testid="setup-preview">
       <div className="flex items-center gap-2">
@@ -914,6 +947,11 @@ function PreviewPanel({ read, setupId, stateVersion, readPreview, onPreviewAgain
             Preview {shown.previewDigest.slice(0, 15)}… of saved revision {shown.setup.intentRevision} (state version{" "}
             {shown.setup.stateVersion}); rules {String(shown.rules.a7 ?? "?")}, projector {String(shown.rules.projector ?? "?")}.
           </p>
+          {unlisted > 0 ? (
+            <p className="text-xs text-amber-800" data-testid="setup-preview-unlisted">
+              {unlisted} row(s) of this system are in no list shown here (unlisted).
+            </p>
+          ) : null}
           {shown.accounts.map((account) => (
             <div key={account.accountId} className="text-xs" data-testid={`setup-preview-account-${account.accountId}`}>
               <p>
@@ -921,11 +959,21 @@ function PreviewPanel({ read, setupId, stateVersion, readPreview, onPreviewAgain
                 {account.inventory.generation !== null ? ` · inventory generation ${account.inventory.generation}` : ""}
                 {account.inventory.projectedThrough ? `, evidence as of ${account.inventory.projectedThrough}` : ""}
               </p>
+              {account.state === "COMPUTED" && coverageLimits(account).length ? (
+                <ul className="text-amber-800" data-testid={`setup-preview-limits-${account.accountId}`}>
+                  {coverageLimits(account).map((limit) => <li key={limit}>{limit}</li>)}
+                </ul>
+              ) : null}
               {account.display ? PREVIEW_LISTS_SHOWN.map((list) => {
-                const paged = pages[pageKey(account.accountId, list)]
-                const listed = paged && paged.entries.length ? paged.entries : account.display!.lists[list]
-                const left = (account.counts?.[list] ?? 0) - listed.length
-                return listed.length || left > 0 ? (
+                const key = pageKey(account.accountId, list)
+                const paged = pages[key]
+                const count = account.counts?.[list] ?? 0
+                const summary = account.display!.lists[list]
+                const listed = paged && paged.entries.length ? paged.entries : summary
+                // More is offered by the PAGE cursor (never by counting rows): before any page, while the summary is cut;
+                // after, while the last accepted page names a next one.
+                const offer = paged && paged.cursors.length ? !paged.done : summary.length < count
+                return listed.length || count > 0 ? (
                   <details key={list} open={list === "members"} data-testid={`setup-preview-${list}`}>
                     <summary>{LIST_TITLES[list]} ({account.counts?.[list] ?? listed.length})</summary>
                     <ul className="text-slate-600">
@@ -935,10 +983,13 @@ function PreviewPanel({ read, setupId, stateVersion, readPreview, onPreviewAgain
                         </li>
                       ))}
                     </ul>
-                    {left > 0 && (!paged || paged.next !== null || !paged.entries.length) ? (
+                    {offer ? (
                       <Button type="button" size="sm" variant="ghost" onClick={() => more(account.accountId, list)}>
-                        {paged?.entries.length ? "Show more" : `Show all (${left} more)`}
+                        {loading[key] ? "Reading…" : paged?.cursors.length ? "Show more" : `Show all (${count - summary.length} more)`}
                       </Button>
+                    ) : null}
+                    {paged?.done && paged.entries.length !== count ? (
+                      <p className="text-amber-800">The pages list {paged.entries.length} of the {count} counted; they disagree.</p>
                     ) : null}
                     {paged?.problem ? <p className="text-amber-800">{paged.problem}</p> : null}
                   </details>

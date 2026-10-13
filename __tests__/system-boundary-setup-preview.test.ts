@@ -25,6 +25,7 @@ import {
   type SetupView,
 } from "@/lib/system-boundary-setup"
 import {
+  coverageLimits,
   heldSentence,
   parsePreview,
   PREVIEW_CONTRACT_UNKNOWN,
@@ -87,6 +88,28 @@ describe("the preview reader reads the REAL answers, and refuses anything else b
     const other = structuredClone(capture("preview_page").body)
     other.page.preview_digest = capture("preview").body.preview_digest.replace(/.$/, (c: string) => (c === "0" ? "1" : "0"))
     expect(parsePreview(200, other)).toEqual({ kind: "UNAVAILABLE", status: 200, code: "MALFORMED_RESPONSE" })
+    const stranger = structuredClone(capture("preview_page").body)    // an edit: a page of an account this preview does not have
+    stranger.page.account_id = "999988887777"
+    expect(parsePreview(200, stranger)).toEqual({ kind: "UNAVAILABLE", status: 200, code: "MALFORMED_RESPONSE" })
+  })
+
+  it("(S1A-UI-PREVIEW-03) a COMPUTED preview's coverage limits and unlisted rows are said; a complete one stays concise", () => {
+    const complete = parsePreview(200, capture("preview").body)
+    if (complete.kind !== "OK") throw new Error("expected OK")
+    expect(coverageLimits(complete.value.accounts[0])).toEqual([])
+    expect(previewSentence(complete)).not.toContain("limited")
+    const partial = structuredClone(capture("preview").body)          // an edit: the documented coverage shape, limits supplied
+    Object.assign(partial.accounts[0].coverage, { complete: false, incomplete_reason: "WORK_BUDGET_EXHAUSTED", partial: ["retirements"],
+                                                   withheld: ["aws://aws/111122223333/eu-west-1/ec2/vpc/vpc-1"], frontier_count: 3 })
+    partial.counts.unlisted = 1
+    const read = parsePreview(200, partial)
+    if (read.kind !== "OK") throw new Error("expected OK")
+    expect(read.value.state).toBe("COMPUTED")
+    expect(coverageLimits(read.value.accounts[0])).toEqual([
+      "not completely planned (WORK_BUDGET_EXHAUSTED)", "partly planned: retirements",
+      "1 withheld: aws://aws/111122223333/eu-west-1/ec2/vpc/vpc-1", "3 resource(s) at the edge of the plan were not followed"])
+    expect(previewSentence(read)).toContain("but this preview is limited (1 account(s) not completely covered, 1 row(s) in no list")
+    expect(previewSentence(read)).toContain("not a complete answer")
   })
 
   it("refusals are read by name: a stale version and a FINISHED setup are SETUP_STATE_CHANGED", () => {
@@ -141,6 +164,22 @@ describe("a Finish names the preview reviewed; its receipt pins it", () => {
     const after = readAnswer({ status: 200, json: capture("read_after_input_changed").body }, isView)
     expect(after.kind === "OK" && after.value.status).toBe("DRAFT")
     expect(after.kind === "OK" && after.value.outcome?.code).toBe("PREVIEW_INPUT_CHANGED")
+  })
+
+  it("(S1A-UI-LIFECYCLE-01) a refusal the backend did NOT record is unresolved -- resent, never settled; recorded and pre-attempt ones are definitive", () => {
+    const unrecorded = capture("finish_input_changed_unrecorded")
+    expect(unrecorded.body.detail.setup).toEqual({ attempt: 1, recorded: false, status: "FINISHING", not_recorded_because: "GRANT_REVOKED" })
+    expect(writeAnswer({ status: unrecorded.status, json: unrecorded.body })).toMatchObject(
+      { kind: "RESEND_SAME", status: 409, code: "PREVIEW_INPUT_CHANGED" })
+    const recorded = capture("finish_input_changed")
+    expect(recorded.body.detail.setup.recorded).toBe(true)
+    expect(writeAnswer({ status: recorded.status, json: recorded.body })).toMatchObject({ kind: "REFUSED", code: "PREVIEW_INPUT_CHANGED" })
+    for (const name of ["finish_preview_required", "finish_preview_changed", "finish_not_computed"]) {   // before any attempt
+      expect(capture(name).body.detail.setup, name).toBeUndefined()
+      expect(writeAnswer({ status: 409, json: capture(name).body }).kind, name).toBe("REFUSED")
+    }
+    const read = readAnswer({ status: 200, json: capture("read_finishing_unrecorded").body }, isView)
+    expect(read.kind === "OK" && read.value.status).toBe("FINISHING")
   })
 
   it("finishSetup sends the digest only when given: a Finish without one is the request it always was", async () => {

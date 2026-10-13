@@ -4,7 +4,7 @@ The real answers of the backend's `/api/system-boundary/setup*` routes at setup 
 `contract: system_boundary_setup/v4`. Level 4 adds the draft preview (`GET /setup/{id}/preview`) and the preview-bearing Finish
 (`preview_digest`); none of these source-free setups needs a preview, so these answers are level 3's with the new tag (8 tags
 differ from `../system-boundary-setup-captures-v3/`, nothing else). Each file is a byte-for-byte copy of
-`tests/fixtures/system_boundary_setup_captures_v4/` at saferemediate-backend **f0facfe616532ebb822a48ce42d03d331096b1ac**
+`tests/fixtures/system_boundary_setup_captures_v4/` at saferemediate-backend **4fe40ac40ce7a72076bc4e9045ac912eb6feff27**
 (branch claude/onboarding-s1a, local). That commit's
 `tests/test_system_boundary_setup_captures.py::test_the_real_setup_route_answers_are_exactly_the_captures` asserts the mounted
 routes still answer exactly these.

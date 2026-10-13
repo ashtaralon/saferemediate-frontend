@@ -5,9 +5,11 @@ The real answers of the backend's `/api/system-boundary/setup*` routes for a Clo
 meet (stale version, FINISHED, PREVIEW_REQUIRED, PREVIEW_CHANGED, PREVIEW_NOT_COMPUTED, PREVIEW_INPUT_CHANGED), the Finish that
 pins the preview (`receipt.preview`), its replay, and the setups read back. `census_collected.json` is the account census at the collected
 depth (`account_census_read/v1`, the census route mounted with the enforced serving guard on the same install): the bound
-stack's resources the guided setup offers per-resource decisions on. Each file is a byte-for-byte copy of
+stack's resources the guided setup offers per-resource decisions on. The `*_unrecorded` files are a refusal the backend could not
+record (the authoring grant revoked before the refusal was recorded: `detail.setup.recorded=false`, FINISHING, GRANT_REVOKED)
+and the setup read back still FINISHING. Each file is a byte-for-byte copy of
 `tests/fixtures/system_boundary_setup_preview_captures/` at saferemediate-backend
-**f0facfe616532ebb822a48ce42d03d331096b1ac** (branch claude/onboarding-s1a, local).
+**4fe40ac40ce7a72076bc4e9045ac912eb6feff27** (branch claude/onboarding-s1a, local).
 
 How they were captured: `tests/cyntro_data/test_system_boundary_preview_captures.py` on the CF harness of
 `test_system_boundary_preview_cf.py` -- the inventory and census published by their REAL producers, the REAL setup routes and

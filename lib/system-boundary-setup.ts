@@ -496,7 +496,17 @@ export function writeAnswer(raw: Raw): SetupWrite {
   const named = refusal(raw.json)
   if (!named) return { kind: "RESEND_SAME", status: raw.status, code: "MALFORMED_RESPONSE", detail: {} }
   if (RESEND_CODES.has(named.code)) return { kind: "RESEND_SAME", status: raw.status, ...named }
+  // (S1A-UI-LIFECYCLE-01) A refusal of a WRITTEN attempt that the backend did not record (``detail.setup.recorded`` not
+  // true: the person may no longer author its save, or the record lost a race) leaves the attempt FINISHING for an
+  // authorized author to reconcile -- its outcome is not known yet, so the request is kept and resent exactly, never settled.
+  // Recorded refusals and refusals made before any attempt (no ``setup`` block) stay definitive.
+  if (isUnrecordedRefusal(named.detail)) return { kind: "RESEND_SAME", status: raw.status, ...named }
   return { kind: "REFUSED", status: raw.status, ...named }
+}
+
+/** Whether a refusal's detail names a written attempt whose refusal the backend did NOT record. */
+export function isUnrecordedRefusal(detail: Record<string, unknown>): boolean {
+  return isRecord(detail.setup) && detail.setup.recorded !== true
 }
 
 function json(method: string, body: unknown): RequestInit {
