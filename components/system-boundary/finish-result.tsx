@@ -12,12 +12,20 @@
  *
  * (S1A-R7-PAIR-01/02) "includes this save" is said about the membership SHOWN only when the pairing proves it; a result naming
  * another account or System is refused by name and none of it is shown -- a same-System older generation stays, as updating.
+ *
+ * (S1b, N4a) A plural setup's result (``pinned``: its Deployments as its receipt pinned them) is explained per Deployment
+ * only for THIS Finish's applied result whose every context is of that receipt; otherwise the explanation is withheld by
+ * name and the lists are shown as before.
  */
 import { useCallback, useEffect, useRef, useState } from "react"
+import { DeploymentExplanationCards } from "@/components/system-boundary/deployment-explanation"
 import { ResultLists } from "@/components/system-boundary/system-result"
 import { Button } from "@/components/ui/button"
 import { fetchApplied, parseAppliedResponse, type ParsedApplied } from "@/lib/system-boundary-applied"
-import { appliedLine, pairing, pairingSentence, resultIsOurs } from "@/lib/system-boundary-finish-result"
+import type { PairedDeployment } from "@/lib/system-boundary-deployment-context"
+import {
+  appliedLine, finishExplanation, finishExplanationWithheldSentence, pairing, pairingSentence, resultIsOurs,
+} from "@/lib/system-boundary-finish-result"
 import { fetchResult, parseResultResponse, resultSentence, type ParsedResult } from "@/lib/system-boundary-result"
 
 export interface FinishResultProps {
@@ -26,12 +34,15 @@ export interface FinishResultProps {
   accountIds: string[]
   readApplied?: (accountId: string) => Promise<{ status: number; body: unknown }>
   readResult?: (accountId: string, systemKey: string) => Promise<{ status: number; body: unknown }>
+  /** (S1b) A plural setup's Deployments paired with what its receipt pinned (null: they do not pair); absent for a single
+   *  setup, whose result is shown exactly as before. */
+  pinned?: PairedDeployment[] | null
 }
 
 type Pair = { applied: ParsedApplied; result: ParsedResult }
 
 export function FinishResult({ systemKey, completedRevision, accountIds, readApplied = fetchApplied,
-                               readResult = fetchResult }: FinishResultProps) {
+                               readResult = fetchResult, pinned }: FinishResultProps) {
   const [answers, setAnswers] = useState<Record<string, Pair | "loading">>({})
   const generation = useRef(0)
   const check = useCallback(() => {
@@ -58,6 +69,7 @@ export function FinishResult({ systemKey, completedRevision, accountIds, readApp
         }
         const paired = pairing(answer.applied, answer.result, { accountId: id, systemKey, completedRevision })
         const ours = resultIsOurs(answer.result, id, systemKey)
+        const explained = pinned === undefined || !ours ? null : finishExplanation(paired, answer.result, pinned)
         return (
           <div key={id} className="space-y-1 text-sm" data-testid={`finish-result-${id}`}>
             <p data-testid={`finish-result-applied-${id}`}>
@@ -70,6 +82,14 @@ export function FinishResult({ systemKey, completedRevision, accountIds, readApp
                 The result answered another account or system (RESULT_IDENTITY_MISMATCH); nothing of it is shown here.
               </p>
             )}
+            {explained?.kind === "explained" ? (
+              <DeploymentExplanationCards explanation={explained.explanation} testId={`finish-result-deployments-${id}`} />
+            ) : null}
+            {explained?.kind === "withheld" ? (
+              <p className="text-xs text-slate-600" data-testid={`finish-result-deployments-withheld-${id}`}>
+                {finishExplanationWithheldSentence(explained.why)}
+              </p>
+            ) : null}
             {ours && answer.result.kind === "served" ? <ResultLists answer={answer.result} /> : null}
           </div>
         )

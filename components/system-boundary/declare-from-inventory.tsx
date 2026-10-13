@@ -49,6 +49,7 @@ import {
   capabilitySentence,
   fetchCapability,
   parseCapabilityResponse,
+  pluralCreateOffered,
   type ParsedCapability,
 } from "@/lib/system-boundary-capability"
 import { pendingStore, type PendingStore } from "@/lib/system-boundary-pending"
@@ -191,7 +192,7 @@ function Declarer({ accountId, renderInventory, readDeclarations = readView, rea
           </div>
           {view.kind === "OK" ? (
             <GuidedSetups accountId={accountId} view={view.value} picks={[...picks.values()]} actor={actor}
-              open={openDeclareFlow} {...guided} />
+              open={openDeclareFlow} pluralOffered={capability !== null && pluralCreateOffered(capability)} {...guided} />
           ) : null}
           {openDeclareFlow ? (
             <p className="text-xs text-slate-600" data-testid="declare-flow-guide">

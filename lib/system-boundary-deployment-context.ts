@@ -104,12 +104,12 @@ export function pairDeployments(deploymentKeys: readonly string[], pinned: reado
   return keys.map((deploymentKey, i) => ({ deploymentKey, key: pinned[i].key, version: pinned[i].version }))
 }
 
-/** One Deployment's explanation: its SINGLE members, and the members it SHARES (MULTIPLE / MIXED naming it) -- said apart,
- *  never folded into "its" members. */
+/** One Deployment's explanation: its SINGLE members, and the members it SHARES (MULTIPLE / MIXED naming it, each with its
+ *  resolution, so it is said as such) -- said apart, never folded into "its" members. */
 export interface DeploymentExplanation {
   deployment: PairedDeployment
   single: string[]
-  shared: string[]
+  shared: { uid: string; resolution: "MULTIPLE" | "MIXED" }[]
 }
 
 /** The members grouped per Deployment, over the members LISTED (a capped list's omitted members are counted apart, never
@@ -126,7 +126,7 @@ export interface Explanation {
 export function explain(state: Decoration, members: readonly Record<string, unknown>[], omitted: number,
                         paired: readonly PairedDeployment[]): Explanation | null {
   if (state.state !== "SERVED") return null
-  const byKey = new Map(paired.map((d) => [d.key, { deployment: d, single: [] as string[], shared: [] as string[] }]))
+  const byKey = new Map(paired.map((d): [string, DeploymentExplanation] => [d.key, { deployment: d, single: [], shared: [] }]))
   const systemLevel: string[] = []
   const foreign: string[] = []
   for (const member of members) {
@@ -145,8 +145,9 @@ export function explain(state: Decoration, members: readonly Record<string, unkn
       foreign.push(uid)                                                 // another Deployment, or another version of one
       continue
     }
-    for (const entry of named as { single: string[]; shared: string[] }[]) {
-      ;(context.resolution === "SINGLE" ? entry.single : entry.shared).push(uid)
+    for (const entry of named as DeploymentExplanation[]) {
+      if (context.resolution === "SINGLE") entry.single.push(uid)
+      else entry.shared.push({ uid, resolution: context.resolution as "MULTIPLE" | "MIXED" })
     }
   }
   return { deployments: [...byKey.values()], systemLevel, foreign, listed: members.length, omitted }

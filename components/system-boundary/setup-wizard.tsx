@@ -20,9 +20,18 @@
  * roots, binding or decisions do. Review shows the PREVIEW of the saved revision -- what finishing it would make the system,
  * computed by the backend's own planner and written nowhere -- and a Finish of a setup that binds a stack names the preview
  * the person reviewed (a version-2 pending Finish), only while the screen is saved and the preview is of exactly that version.
+ *
+ * (S1b, setup level 5; contract D) A second Deployment is offered only where the capability says this build may send a plural
+ * create (``pluralOffered``) AND the setup was read at level 5; otherwise every step is exactly the single one. In a plural
+ * setup each Deployment carries its own key and environment, its roots, its one stack and that stack's decisions, and its
+ * own code / infrastructure choices (never an owner request: N2); the account x Region sources are chosen once for the union.
+ * Review shows the consolidated account assessment and each Deployment's members (A7, N3) -- the preview's OUTER state alone
+ * allows Finish -- and the result explains per Deployment only what THIS Finish's receipt pins (N4).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { DeploymentExplanationCards } from "@/components/system-boundary/deployment-explanation"
 import { FinishResult } from "@/components/system-boundary/finish-result"
+import { assess, assessmentWithheldSentence } from "@/lib/system-boundary-assessment"
 import { stackResources, type Resources } from "@/components/system-boundary/stack-binding-wizard"
 import { Button } from "@/components/ui/button"
 import { fetchCensusPage, rowName, type CensusFetcher, type CensusRow } from "@/lib/account-census"
@@ -30,19 +39,31 @@ import type { DeclarationsView, ResourceDecision, StackBinding } from "@/lib/sys
 import { buildDeclaration, type PickedRoot } from "@/lib/system-boundary-declaration"
 import { notMemberSentence, proofSentence, type ResultList, type ResultRow } from "@/lib/system-boundary-result"
 import {
+  addDeployment,
+  bindingOf,
   bindsStack,
+  DEPLOYMENT_SCOPED_SUBJECTS,
   draftDeclaration,
+  keyOf,
   loadIntent,
+  MAX_DEPLOYMENTS,
+  removeDeployment,
+  renameDeployment,
   stackBinding,
   withBoundary,
+  withDeployment,
+  withRootsOf,
+  type DeploymentChange,
   type IntentLocal,
 } from "@/lib/system-boundary-setup-intent"
 import {
   coverageLimits,
   heldSentence,
+  PREVIEW_CONTRACT_V2,
   previewRefusalSentence,
   previewSentence,
   readPreview as readPreviewDefault,
+  type Preview,
   type PreviewFetcher,
   type PreviewRead,
 } from "@/lib/system-boundary-setup-preview"
@@ -63,10 +84,15 @@ import {
   requiredFactsSentence,
   finishSetup as finishSetupDefault,
   freshRequestId,
+  intentDeploymentKeys,
+  isPluralIntent,
   isUnrecordedRefusal,
+  pinnedDeployments,
   readSetup as readSetupDefault,
   readSetupStatus as readSetupStatusDefault,
+  SETUP_CONTRACT_LEVEL,
   SETUP_STEPS,
+  setupLevelOf,
   STEP_TITLES,
   updateSetup as updateSetupDefault,
   type AuthoredDisposition,
@@ -116,6 +142,9 @@ export interface SetupWizardProps {
   readPreview?: PreviewFetcher
   /** Injectable for tests; default: the census page read (a bound stack's resources, for per-resource decisions). */
   readCensus?: CensusFetcher
+  /** (S1b) Whether the capability read says this build may send a plural create (lib/system-boundary-capability
+   *  ``pluralCreateOffered``); a second Deployment is offered only then, and only on a setup read at level 5. */
+  pluralOffered?: boolean
 }
 
 /** A CloudFormation stack the census serves for this account: the Region it is in, its status and the census publication it
@@ -164,9 +193,10 @@ const SOURCE_FEATURE: Record<string, string> = {
 /** (S0 NSW-04) The Region names a disposition scope may carry -- the backend's own rule (unified/system_boundary_setup._REGION). */
 const REGION = /^[a-z0-9-]{1,32}$/
 
-/** One disposition's identity: a setup holds at most one per (subject, account, Region); the backend refuses a duplicate. */
-function rowKey(d: { subject: string; scope: { account_id: string; region?: string } }): string {
-  return `${d.subject}|${d.scope.account_id}|${d.scope.region ?? ""}`
+/** One disposition's identity: a setup holds at most one per (subject, account, Region) -- (S1b) and Deployment, for a code /
+ *  iac choice of a plural setup; the backend refuses a duplicate. */
+function rowKey(d: { subject: string; scope: { account_id: string; region?: string; deployment?: string } }): string {
+  return `${d.subject}|${d.scope.account_id}|${d.scope.region ?? ""}${d.scope.deployment === undefined ? "" : `|${d.scope.deployment}`}`
 }
 
 /** (S0 NSW-04) Whether THE served requirement profile needs a Region in this subject's scope for it to be supported. */
@@ -230,7 +260,7 @@ function explain(answer: Exclude<SetupWrite, { kind: "SAVED" }>): string {
 
 export function SetupWizard({ setupId, accountId, view, picks, onClose, client: injected, stacks, readApplied, readResult,
                              actor = null, pendingStore, readPreview = readPreviewDefault,
-                             readCensus = fetchCensusPage }: SetupWizardProps) {
+                             readCensus = fetchCensusPage, pluralOffered = false }: SetupWizardProps) {
   const client = useMemo(() => ({ ...DEFAULT_CLIENT, ...injected }), [injected])
   const store = useMemo(() => pendingStore ?? setupPendingStore(), [pendingStore])
   const [setup, setSetup] = useState<SetupView | null>(null)
@@ -425,6 +455,17 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
   const derived = new Map(setup.dispositions_derived.map((d) => [rowKey(d), d]))
   const editable = setup.status === "DRAFT"
   const set = (patch: Partial<Local>) => setLocal((current) => (current ? { ...current, ...patch } : current))
+  // (S1b) The plural shape is the SAVED/typed intent's (A9); a second Deployment is offered only per the capability AND level 5.
+  const plural = local.deployments !== null
+  const canAddDeployment = editable && pluralOffered && setup.mode === "create" && setupLevelOf(setup) === SETUP_CONTRACT_LEVEL
+    && (local.deployments?.length ?? 1) < MAX_DEPLOYMENTS
+  /** (S1b) Apply a Deployment change, or say why not (nothing changes). */
+  const change = (make: (current: Local) => DeploymentChange): string | null => {
+    const answer = make(local)
+    if (answer.kind === "refused") return answer.why
+    setLocal(answer.local)
+    return null
+  }
   /** (S0 NSW-04) The row at ``index`` with ``choice`` -- its scope kept exactly as authored -- or, with no choice, removed. */
   /** The stacks a row may use: the census list of ITS account -- this screen lists only this account's, so a row of another
    *  account is offered none and keeps what it has until that account's own list is read. */
@@ -437,6 +478,12 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
     if (proposed.choice === "requested" && !proposed.scope.region && needsRegion(proposed.subject, setup.requirement_profile)) {
       return "A request needs a Region: the requirement profile asks for one."
     }
+    if (plural && proposed.choice === "requested" && DEPLOYMENT_SCOPED_SUBJECTS.has(proposed.subject)) {
+      return "An owner request is made per account and Region, not per Deployment (OWNER_REQUEST_NOT_DEPLOYMENT_SCOPED)."
+    }
+    const owner = plural && proposed.ref?.kind === "stack_binding"
+      ? local.bindings.find((b) => b.stack_id === proposed.ref?.key && keyOf(b) !== proposed.scope.deployment) : undefined
+    if (owner) return `That stack is Deployment ${keyOf(owner)}'s; a stack belongs to one Deployment here (DISPOSITION_REF_OTHER_DEPLOYMENT).`
     if (proposed.choice === "use_existing" && proposed.ref?.kind === "stack_binding" && !stacksFor(proposed)) {
       return `No CloudFormation stacks of account ${proposed.scope.account_id} are listed here, so none can be used for it.`
     }
@@ -460,9 +507,13 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
     if (after && !bindings.some((b) => b.stack_id === after)) {
       const option = row ? stacksFor(row)?.find((s) => s.stack_id === after) : undefined
       if (!option) return "That stack is not in this account's census list, so it cannot be bound here."
-      bindings = [...bindings, stackBinding(row!.scope.account_id, option)]
+      bindings = [...bindings, bindingOf(stackBinding(row!.scope.account_id, option), plural ? row!.scope.deployment : undefined)]
     }
-    if (bindings.length > 1) return "This release binds one stack per setup; change the stack already chosen instead."
+    // (S1b) one stack per Deployment in a plural setup; one per setup otherwise, exactly as before
+    if (plural) {
+      const keys = bindings.map((b) => keyOf(b) ?? "")
+      if (new Set(keys).size !== keys.length) return "This release binds one stack per Deployment; change the stack it already uses instead."
+    } else if (bindings.length > 1) return "This release binds one stack per setup; change the stack already chosen instead."
     return bindings
   }
   /** The row at ``index`` (-1: appended) as ``row`` (null: removed), with the bindings and scopes that follow -- or why not
@@ -498,11 +549,13 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
                        ref: { kind: "stack_binding" as const, key: stackId } }
     return refused(index, proposed) ?? placeRow(index, proposed)
   }
-  /** A NEW row of ``subject`` for this account at ``region`` (all of the account when none), or why not: a Region the backend
-   *  would refuse, or anything ``refused`` names. */
-  const addRow = (subject: string, region: string, choice: Choice): string | null => {
+  /** A NEW row of ``subject`` for this account at ``region`` (all of the account when none) -- (S1b) of Deployment
+   *  ``deployment`` for a code / iac row of a plural setup -- or why not: a Region the backend would refuse, or anything
+   *  ``refused`` names. */
+  const addRow = (subject: string, region: string, choice: Choice, deployment?: string): string | null => {
     if (region && !REGION.test(region)) return `"${region}" is not a Region name.`
-    const proposed = authored(subject, region ? { account_id: accountId, region } : { account_id: accountId }, choice)
+    const scope = { account_id: accountId, ...(region ? { region } : {}), ...(deployment === undefined ? {} : { deployment }) }
+    const proposed = authored(subject, scope, choice)
     return refused(-1, proposed) ?? placeRow(-1, proposed)
   }
   /** (S1a) The person's verdict on one resource of the bound stack (null: as the stack says), exactly as the stack wizard
@@ -510,9 +563,12 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
   const decide = (row: CensusRow, binding: StackBinding, verdict: ResourceDecision["verdict"] | null) => setLocal((current) => {
     if (!current) return current
     const others = current.decisions.filter((d) => !(d.account_id === binding.account_id && d.resource_uid === row.row_key))
+    // (S1b) a decision of a plural setup names the Deployment whose stack it decides
+    const named = keyOf(binding)
     const decisions = verdict === null ? others : [...others, {
       account_id: binding.account_id, region: row.region, resource_uid: row.row_key, verdict,
       selection: { row_key: row.row_key, stack_id: row.cfn?.stack_id ?? null, census: { generation: binding.selection.census.generation } },
+      ...(named === undefined ? {} : { deployment_key: named }),
     }]
     return withBoundary(current, { decisions })
   })
@@ -520,7 +576,8 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
     decisions: current.decisions.filter((d) => d !== decision) }) : current))
   // Regions this setup already names, offered (never chosen) for a Region a subject needs.
   const knownRegions = [...new Set([
-    ...local.scopes.filter((c) => c.account_id === accountId).map((c) => c.region),
+    ...(local.deployments ? local.deployments.flatMap((d) => d.scopes) : local.scopes)
+      .filter((c) => c.account_id === accountId).map((c) => c.region),
     ...(stacks?.state === "served" ? stacks.stacks.map((s) => s.region) : []),
   ])].sort()
   // (S1a) The one stack binding of this account the person may decide resources of.
@@ -584,7 +641,14 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
             </label>
           </>
         ) : null}
-        {step === "deployments" ? (
+        {step === "deployments" && local.deployments ? (
+          <Deployments deployments={local.deployments} view={view} editable={editable} canAdd={canAddDeployment}
+            onRename={(i, key) => change((current) => renameDeployment(current, i, key))}
+            onField={(i, patch) => setLocal((current) => (current ? withDeployment(current, i, patch) : current))}
+            onAdd={(key) => change((current) => addDeployment(current, key))}
+            onRemove={(key) => change((current) => removeDeployment(current, key))} />
+        ) : null}
+        {step === "deployments" && !local.deployments ? (
           <>
             <label className="block text-sm">Deployment key
               <input className="mt-1 block w-full rounded border px-2 py-1" value={local.deploymentKey} disabled={!editable}
@@ -605,6 +669,7 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
               This deployment covers the accounts and Regions of the stack, roots and decisions you choose
               ({local.scopes.map((c) => `${c.account_id} ${c.region}`).join(", ") || "none yet"}).
             </p>
+            {canAddDeployment ? <AddDeployment onAdd={(key) => change((current) => addDeployment(current, key))} /> : null}
           </>
         ) : null}
         {step === "code_and_infrastructure" || step === "required_data" || step === "historical_data" ? (
@@ -612,18 +677,30 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
             {step === "code_and_infrastructure" && stacks?.state === "unavailable" ? (
               <p className="text-xs text-slate-500" data-testid="setup-stacks-unavailable">CloudFormation stacks: {stacks.reason}</p>
             ) : null}
-            {Object.entries(SUBJECTS).filter(([, meta]) => meta.step === step).map(([subject, meta]) => (
-              <Subject key={subject} subject={subject} label={meta.label} choices={meta.choices} editable={editable}
-                rows={local.dispositions.flatMap((d, index) => (d.subject === subject
-                  ? [{ index, d, derived: derived.get(rowKey(d)), stacks: meta.refKind === "stack_binding" ? stacksFor(d) : null }] : []))}
-                regional={needsRegion(subject, setup.requirement_profile)} regions={knownRegions}
-                onChoose={chooseAt} onAdd={(region, choice) => addRow(subject, region, choice)}
-                stackOptions={meta.refKind === "stack_binding" && stacks?.state === "served" ? stacks.stacks : null}
-                onStack={stackAt} />
+            {/* (S1b, N1) in a plural setup each Deployment has its own code / iac choices; every other subject stays once */}
+            {(plural && step === "code_and_infrastructure" ? local.deployments!.map((d) => d.deploymentKey) : [undefined]).map((key) => (
+              <div key={key ?? "all"} className={key === undefined ? "space-y-3" : "space-y-2 rounded border border-violet-200 p-2"}
+                data-testid={key === undefined ? undefined : `setup-deployment-subjects-${key}`}>
+                {key === undefined ? null : <p className="text-sm font-medium">Deployment {key}</p>}
+                {Object.entries(SUBJECTS).filter(([, meta]) => meta.step === step).map(([subject, meta]) => (
+                  <Subject key={subject} subject={subject} label={meta.label} deployment={key} editable={editable}
+                    choices={plural && DEPLOYMENT_SCOPED_SUBJECTS.has(subject) ? meta.choices.filter((c) => c !== "requested") : meta.choices}
+                    rows={local.dispositions.flatMap((d, index) => (d.subject === subject && d.scope.deployment === key
+                      ? [{ index, d, derived: derived.get(rowKey(d)), stacks: meta.refKind === "stack_binding" ? stacksFor(d) : null }] : []))}
+                    regional={needsRegion(subject, setup.requirement_profile)} regions={knownRegions}
+                    onChoose={chooseAt} onAdd={(region, choice) => addRow(subject, region, choice, key)}
+                    stackOptions={meta.refKind === "stack_binding" && stacks?.state === "served" ? stacks.stacks : null}
+                    onStack={stackAt} />
+                ))}
+              </div>
             ))}
           </>
         ) : null}
-        {step === "resource_boundaries" ? (
+        {step === "resource_boundaries" && local.deployments ? (
+          <PluralBoundaries local={local} picks={picks} editable={editable} accountId={accountId} readCensus={readCensus}
+            onPicks={(key) => change((current) => withRootsOf(current, key, picks))} onDecide={decide} onRemove={undecide} />
+        ) : null}
+        {step === "resource_boundaries" && !local.deployments ? (
           <>
             <p className="text-sm">{local.roots.length} root resource(s) in this setup.</p>
             <ul className="text-xs text-slate-600" data-testid="setup-roots">
@@ -697,9 +774,11 @@ function rowLabel(d: DerivedDisposition): string {
 
 /** (S0 NSW-04) One subject's rows -- each its own (account, Region), never merged -- and, where THE served profile scopes the
  *  subject by Region, a way to add it for a Region the person names (rows of the setup's Regions are offered, never chosen). */
-function Subject({ subject, label, choices, editable, rows, regional, regions, onChoose, onAdd, stackOptions, onStack }: {
+function Subject({ subject, label, deployment, choices, editable, rows, regional, regions, onChoose, onAdd, stackOptions, onStack }: {
   subject: string
   label: string
+  /** (S1b) The Deployment these rows are of (a plural setup's code / iac); undefined: the setup's or the union's. */
+  deployment?: string
   choices: Choice[]
   editable: boolean
   rows: { index: number; d: AuthoredDisposition; derived: DerivedDisposition | undefined; stacks: StackOption[] | null }[]
@@ -713,7 +792,8 @@ function Subject({ subject, label, choices, editable, rows, regional, regions, o
 }) {
   const [region, setRegion] = useState("")
   const [problem, setProblem] = useState<string | null>(null)
-  const listId = `setup-regions-${subject.replace(/[^A-Za-z0-9_-]/g, "-")}`         // an id a selector can name
+  const scoped = deployment === undefined ? subject : `${subject}-${deployment}`
+  const listId = `setup-regions-${scoped.replace(/[^A-Za-z0-9_-]/g, "-")}`          // an id a selector can name
   const options = (empty: string, offered: StackOption[] | null) => (
     <>
       <option value="">{empty}</option>
@@ -731,10 +811,10 @@ function Subject({ subject, label, choices, editable, rows, regional, regions, o
     if (!refused) setRegion("")
   }
   return (
-    <div className="rounded border p-2 text-sm" data-testid={`setup-subject-${subject}`}>
+    <div className="rounded border p-2 text-sm" data-testid={`setup-subject-${scoped}`}>
       <p>{label}</p>
       {rows.map(({ index, d, derived, stacks }) => (
-        <div key={rowKey(d)} className="mt-1" data-testid={`setup-row-${subject}-${d.scope.region ?? "all"}`}>
+        <div key={rowKey(d)} className="mt-1" data-testid={`setup-row-${scoped}-${d.scope.region ?? "all"}`}>
           <label className="block">
             <span className="text-xs text-slate-600">{scopeWords(d.scope)}</span>
             <select className="ml-2 rounded border px-2 py-1" value={d.choice} disabled={!editable}
@@ -770,6 +850,119 @@ function Subject({ subject, label, choices, editable, rows, regional, regions, o
         </div>
       ) : null}
       {problem ? <p role="alert" className="mt-1 text-xs text-amber-800">{problem}</p> : null}
+    </div>
+  )
+}
+
+/** (S1b) A NEW Deployment's key, added on request -- offered only where the capability and the setup level allow it. */
+function AddDeployment({ onAdd }: { onAdd: (key: string) => string | null }) {
+  const [key, setKey] = useState("")
+  const [problem, setProblem] = useState<string | null>(null)
+  return (
+    <div className="space-y-1 rounded border border-dashed p-2 text-sm" data-testid="setup-add-deployment">
+      <p className="text-xs text-slate-600">
+        Another Deployment of this system in this account (for example staging beside prod): each gets its own stack, roots and
+        code / infrastructure choices; the account&apos;s data sources are chosen once for all of them.
+      </p>
+      <div className="flex items-center gap-2">
+        <input className="rounded border px-2 py-1" value={key} placeholder="Deployment key" aria-label="New Deployment key"
+          maxLength={64} onChange={(e) => setKey(e.target.value)} />
+        <Button type="button" size="sm" variant="outline" onClick={() => {
+          const refused = onAdd(key)
+          setProblem(refused)
+          if (!refused) setKey("")
+        }}>Add a Deployment</Button>
+      </div>
+      {problem ? <p role="alert" className="text-xs text-amber-800">{problem}</p> : null}
+    </div>
+  )
+}
+
+/** (S1b) A plural setup's Deployments: each one's key, environment and own word, and the cells its own entries make. A key
+ *  change renames what names it; a Deployment is removed only while nothing names it. */
+function Deployments({ deployments, view, editable, canAdd, onRename, onField, onAdd, onRemove }: {
+  deployments: NonNullable<Local["deployments"]>
+  view: DeclarationsView
+  editable: boolean
+  canAdd: boolean
+  onRename: (index: number, key: string) => string | null
+  onField: (index: number, patch: { environment?: string; environmentRaw?: string }) => void
+  onAdd: (key: string) => string | null
+  onRemove: (key: string) => string | null
+}) {
+  const [problem, setProblem] = useState<string | null>(null)
+  return (
+    <div className="space-y-2" data-testid="setup-deployments">
+      {deployments.map((d, i) => (
+        <div key={i} className="space-y-1 rounded border p-2 text-sm" data-testid={`setup-deployment-${i}`}>
+          <label className="block">Deployment key
+            <input className="mt-1 block w-full rounded border px-2 py-1" value={d.deploymentKey} disabled={!editable} maxLength={64}
+              onChange={(e) => setProblem(onRename(i, e.target.value))} />
+          </label>
+          <label className="block">Environment
+            <select className="mt-1 block rounded border px-2 py-1" value={d.environment} disabled={!editable}
+              onChange={(e) => onField(i, { environment: e.target.value })}>
+              <option value="">Choose…</option>
+              {view.limits.environments.map((env) => <option key={env} value={env}>{env}</option>)}
+            </select>
+          </label>
+          <label className="block">Your own word for it (optional)
+            <input className="mt-1 block w-full rounded border px-2 py-1" value={d.environmentRaw} disabled={!editable}
+              maxLength={view.limits.max_environment_raw} onChange={(e) => onField(i, { environmentRaw: e.target.value })} />
+          </label>
+          <p className="text-xs text-slate-500" data-testid={`setup-scopes-${i}`}>
+            Covers the accounts and Regions of its own stack, roots and decisions
+            ({d.scopes.map((c) => `${c.account_id} ${c.region}`).join(", ") || "none yet"}).
+          </p>
+          {editable && deployments.length > 1 ? (
+            <Button type="button" size="sm" variant="ghost" onClick={() => setProblem(onRemove(d.deploymentKey))}>
+              Remove this Deployment
+            </Button>
+          ) : null}
+        </div>
+      ))}
+      {problem ? <p role="alert" className="text-xs text-amber-800">{problem}</p> : null}
+      {canAdd ? <AddDeployment onAdd={onAdd} /> : null}
+    </div>
+  )
+}
+
+/** (S1b) A plural setup's roots and decisions, per Deployment: the person's picks become ONE Deployment's roots, and each
+ *  Deployment's bound stack offers its own resources to decide. */
+function PluralBoundaries({ local, picks, editable, accountId, readCensus, onPicks, onDecide, onRemove }: {
+  local: Local
+  picks: PickedRoot[]
+  editable: boolean
+  accountId: string
+  readCensus: CensusFetcher
+  onPicks: (key: string) => string | null
+  onDecide: (row: CensusRow, binding: StackBinding, verdict: ResourceDecision["verdict"] | null) => void
+  onRemove: (decision: ResourceDecision) => void
+}) {
+  const [problem, setProblem] = useState<string | null>(null)
+  return (
+    <div className="space-y-2">
+      {local.deployments!.map(({ deploymentKey: key }) => {
+        const roots = local.roots.filter((p) => keyOf(p.root) === key)
+        const bound = local.bindings.find((b) => b.account_id === accountId && keyOf(b) === key) ?? null
+        return (
+          <div key={key} className="space-y-1 rounded border border-violet-200 p-2 text-sm" data-testid={`setup-boundaries-${key}`}>
+            <p className="font-medium">Deployment {key}: {roots.length} root resource(s)</p>
+            <ul className="text-xs text-slate-600">{roots.map((p) => <li key={p.root.resource_uid}>{p.label}</li>)}</ul>
+            <Button type="button" size="sm" variant="outline" disabled={!editable || picks.length === 0}
+              onClick={() => setProblem(onPicks(key))}>
+              Use my {picks.length} pick(s) for {key}
+            </Button>
+            <Decisions bound={bound} decisions={local.decisions.filter((d) => keyOf(d) === key)} editable={editable}
+              accountId={accountId} readCensus={readCensus} onDecide={onDecide} onRemove={onRemove} />
+          </div>
+        )
+      })}
+      {problem ? <p role="alert" className="text-xs text-amber-800">{problem}</p> : null}
+      <p className="text-xs text-slate-500">
+        Which resources belong to the system, and to which Deployment, is computed from the saved setup: Review shows it before
+        you finish.
+      </p>
     </div>
   )
 }
@@ -884,13 +1077,15 @@ const LIST_TITLES: Record<ResultList, string> = {
 /** (S1a R3/R6) The preview of the saved revision: its state, each account's state, evidence time and lists with their
  *  explanations, and the rest of a list the summary cuts, page by page -- every page a view of THIS preview (a page of another
  *  preview is never added to it). Never applied membership. */
-function PreviewPanel({ read, setupId, stateVersion, readPreview, onPreviewAgain, context }: {
+function PreviewPanel({ read, setupId, stateVersion, readPreview, onPreviewAgain, context, deploymentKeys }: {
   read: PreviewRead | null
   setupId: string
   stateVersion: number
   readPreview: PreviewFetcher
   onPreviewAgain: () => void
   context: string
+  /** (S1b) The saved intent's Deployment keys, to name a v2 preview's Deployments (agreed A3 order). */
+  deploymentKeys: string[]
 }) {
   // (S1A-UI-PREVIEW-01/02) Each list's pages, read one request at a time: a page is accepted only as the answer to the
   // cursor that list is waiting for (each cursor once), and only when it names THIS preview, setup and version, account and
@@ -946,6 +1141,7 @@ function PreviewPanel({ read, setupId, stateVersion, readPreview, onPreviewAgain
             Preview {shown.previewDigest.slice(0, 15)}… of saved revision {shown.setup.intentRevision} (state version{" "}
             {shown.setup.stateVersion}); rules {String(shown.rules.a7 ?? "?")}, projector {String(shown.rules.projector ?? "?")}.
           </p>
+          {shown.contract === PREVIEW_CONTRACT_V2 ? <Assessment preview={shown} deploymentKeys={deploymentKeys} /> : null}
           {unlisted > 0 ? (
             <p className="text-xs text-amber-800" data-testid="setup-preview-unlisted">
               {unlisted} row(s) of this system are in no list shown here (unlisted).
@@ -1008,6 +1204,52 @@ function PreviewPanel({ read, setupId, stateVersion, readPreview, onPreviewAgain
 
 const PREVIEW_LISTS_SHOWN: readonly ResultList[] = ["members", "dependencies", "held", "not_members"]
 
+/** (S1b, A7 reading A / N3) The consolidated account assessment of a plural draft's preview: per account, the backend's unique
+ *  counts and admitted inventory, each Deployment's members (said apart from the ones it shares), and the remainder that was
+ *  not assessed -- never "complete" or "unused" from absence. A held preview's account says nothing per Deployment. */
+function Assessment({ preview, deploymentKeys }: { preview: Preview; deploymentKeys: string[] }) {
+  const assessment = assess(preview, deploymentKeys)
+  return (
+    <div className="space-y-2 rounded border border-violet-200 p-2 text-xs" data-testid="setup-assessment">
+      <p className="font-medium">Account assessment, over every Deployment of this setup</p>
+      {!assessment.finishable ? (
+        <p className="text-amber-800" data-testid="setup-assessment-held">
+          This preview is held, so it is not a whole answer and Finish waits for a computed one. Nothing below is said per
+          Deployment for a held account, whatever it was computed with before it was held.
+        </p>
+      ) : null}
+      {assessment.accounts.map((account) => (
+        <div key={account.accountId} className="space-y-1" data-testid={`setup-assessment-${account.accountId}`}>
+          <p>
+            Account {account.accountId}: {account.assessed && account.counts
+              ? `${account.counts.members} member(s), each counted once however many Deployments reach it`
+              : `not assessed -- ${heldSentence(account.heldReason)}`}
+            {account.inventory.generation !== null ? ` · on inventory generation ${account.inventory.generation}` : ""}
+          </p>
+          {account.limits.length ? (
+            <ul className="text-amber-800" data-testid={`setup-assessment-limits-${account.accountId}`}>
+              {account.limits.map((limit) => <li key={limit}>Not assessed: {limit}</li>)}
+            </ul>
+          ) : null}
+          {account.explanation ? (
+            <DeploymentExplanationCards explanation={account.explanation} testId={`setup-assessment-deployments-${account.accountId}`} />
+          ) : (
+            <p className="text-slate-600" data-testid={`setup-assessment-withheld-${account.accountId}`}>
+              {assessmentWithheldSentence(account.withheld ?? "PREVIEW_WITHOUT_CONTEXT")}
+            </p>
+          )}
+        </div>
+      ))}
+      {assessment.unlisted ? (
+        <p className="text-amber-800">{assessment.unlisted} row(s) are in no list, so they are not assessed here.</p>
+      ) : null}
+      <p className="text-slate-500">
+        A resource not listed here is not shown to be unused or outside the system: only what the preview computed is said.
+      </p>
+    </div>
+  )
+}
+
 function Review({ local, view, setup, dirty, status, statusProblem, preview, needsPreview, onPreviewAgain, readPreview, context }: {
   local: Local
   view: DeclarationsView
@@ -1025,22 +1267,27 @@ function Review({ local, view, setup, dirty, status, statusProblem, preview, nee
   const loaded = loadIntent(setup.intent)
   if (loaded.kind !== "ok") return null
   const saved = loaded.local
-  const built = buildDeclaration({
+  // (S1b) The single-shape builder's checks are the single shape's; a plural intent is checked by the backend at Finish, by step.
+  const built = saved.deployments ? { ok: true as const } : buildDeclaration({
     roots: saved.roots,
     system: { mode: "new", displayName: saved.displayName, criticality: saved.criticality || null },
     deployment: { mode: "new", deploymentKey: saved.deploymentKey, environment: saved.environment, environmentRaw: saved.environmentRaw },
     ...(saved.bindings.length ? { stacks: saved.bindings.map((binding) => ({ binding, label: binding.stack_id })) } : {}),
     ...(saved.decisions.length ? { decisions: saved.decisions.map((decision) => ({ decision, label: decision.resource_uid })) } : {}),
   }, view)
-  const line = (l: Local) => `${l.displayName || "(no name)"} · ${l.criticality || "(no criticality)"} · ${l.deploymentKey || "(no deployment)"}`
-    + ` · ${l.environment || "(no environment)"} · ${l.bindings.length} stack(s) · ${l.roots.length} root(s)`
+  const deployments = (l: Local) => (l.deployments
+    ? `${l.deployments.length} Deployments (${l.deployments.map((d) => `${d.deploymentKey || "(no key)"}: ${d.environment || "(no environment)"}`).join(", ")})`
+    : `${l.deploymentKey || "(no deployment)"} · ${l.environment || "(no environment)"}`)
+  const line = (l: Local) => `${l.displayName || "(no name)"} · ${l.criticality || "(no criticality)"} · ${deployments(l)}`
+    + ` · ${l.bindings.length} stack(s) · ${l.roots.length} root(s)`
     + ` · ${l.decisions.length} decision(s) · ${Object.keys(l.dispositions).length} choice(s)`
   return (
     <div className="space-y-2 text-sm" data-testid="setup-review">
       <p>Saved revision {setup.intent_revision}: {line(saved)}</p>
       {setup.status === "DRAFT" && setup.mode === "create" ? (
         <PreviewPanel key={`${context}|${setup.setup_id}|${setup.state_version}`} read={preview} setupId={setup.setup_id}
-          stateVersion={setup.state_version} readPreview={readPreview} onPreviewAgain={onPreviewAgain} context={context} />
+          stateVersion={setup.state_version} readPreview={readPreview} onPreviewAgain={onPreviewAgain} context={context}
+          deploymentKeys={intentDeploymentKeys(setup.intent)} />
       ) : null}
       {needsPreview ? (
         <p className="text-xs text-slate-600" data-testid="setup-review-preview-rule">
@@ -1100,6 +1347,7 @@ function Progress({ setup, status, statusProblem, context, readApplied, readResu
       {setup.result_scope?.state === "SERVED" && systemId ? (
         <FinishResult key={`${context}|${setup.setup_id}|${setup.receipt.attempt}|${association.completed_revision}`}
           systemKey={systemId} completedRevision={association.completed_revision} accountIds={setup.result_scope.accounts}
+          {...(isPluralIntent(setup.intent) ? { pinned: pinnedDeployments(setup) } : {})}
           {...(readApplied ? { readApplied } : {})} {...(readResult ? { readResult } : {})} />
       ) : (
         <p className="text-xs text-amber-800" data-testid="setup-progress-scope-unavailable">

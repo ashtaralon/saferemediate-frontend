@@ -59,11 +59,13 @@ export interface GuidedSetupsProps {
   /** Passed to the wizard's Progress and results (its applied-state and result reads); default: the wizard's own. */
   readApplied?: (accountId: string) => Promise<{ status: number; body: unknown }>
   readResult?: (accountId: string, systemKey: string) => Promise<{ status: number; body: unknown }>
+  /** (S1b) Passed to the wizard: whether the capability read says this build may send a plural create. Default: not. */
+  pluralOffered?: boolean
 }
 
 export function GuidedSetups({ accountId, view, picks, actor, open = false, listSetups = listSetupsDefault,
                                createSetup = createSetupDefault, readStacks = fetchStacks, client,
-                               pendingStore, readApplied, readResult }: GuidedSetupsProps) {
+                               pendingStore, readApplied, readResult, pluralOffered = false }: GuidedSetupsProps) {
   const store = useMemo(() => pendingStore ?? setupPendingStore(), [pendingStore])
   const [mine, setMine] = useState<SetupSummary[] | null>(null)
   // (installed QA 0.10.10) This person's FINISHED setups, listed apart: the wizard opens a finished setup on Progress and
@@ -157,7 +159,7 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
   if (openId) {
     return (
       <SetupWizard setupId={openId} accountId={accountId} view={view} picks={picks} stacks={stacks} client={client}
-        actor={actor} pendingStore={store} readApplied={readApplied} readResult={readResult}
+        actor={actor} pendingStore={store} readApplied={readApplied} readResult={readResult} pluralOffered={pluralOffered}
         onClose={() => {
           setOpenId(null)
           if (mine !== null) void refresh()

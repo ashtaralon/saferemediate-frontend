@@ -87,11 +87,14 @@ export function assessmentWithheldSentence(why: string): string {
   return `Per-Deployment members are not shown: ${words[why] ?? "the Deployment context is withheld"} (${why}).`
 }
 
-/** One Deployment's line: its own members and the members it shares, said apart. */
+/** One Deployment's line: its own members, and the members it shares -- with another Deployment (MULTIPLE) or with the
+ *  System as a whole (MIXED) -- each said apart. */
 export function deploymentLine(entry: Explanation["deployments"][number]): string {
-  const own = `${entry.single.length} member(s) of its own`
-  const shared = entry.shared.length === 0 ? "" : `; ${entry.shared.length} shared with another Deployment or the System as a whole`
-  return `${entry.deployment.deploymentKey}: ${own}${shared}.`
+  const multiple = entry.shared.filter((s) => s.resolution === "MULTIPLE").length
+  const mixed = entry.shared.length - multiple
+  return `${entry.deployment.deploymentKey}: ${entry.single.length} member(s) of its own`
+    + (multiple ? `; ${multiple} shared with another Deployment` : "")
+    + (mixed ? `; ${mixed} also reached from the System as a whole` : "") + "."
 }
 
 /** What an explanation does NOT attribute to one Deployment, in words: System-level members and a capped list's omitted ones. */
