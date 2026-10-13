@@ -171,6 +171,10 @@ describe("SW-S1A-20261013-35 correction (S1A-APPLIED-UNKNOWN-01)", () => {
     ["a backend person-key refusal (a 503 detail body)", 503, { detail: { code: "PERSON_KEYS_UNAVAILABLE" } }],
     ["a body that is not JSON (read as null)", 504, null],
     ["a JSON body that is not an object", 200, ["not", "an", "object"]],
+    // (SW-S1B-20261013-02 read-path qualification) a non-object body keeps its HTTP status -- only a fetch that threw is 0 --
+    // so an authentication / redirect answer that is not a JSON object lands here too, never as "refused":
+    ["a 401 whose body is not JSON (e.g. an authentication page)", 401, null],
+    ["a 200 whose body is not JSON (e.g. a sign-in page reached by a redirect)", 200, null],
   ]
 
   it("an Applied that could not be read is UNKNOWN, never 'not applied' -- and never this Finish's applied result", () => {
