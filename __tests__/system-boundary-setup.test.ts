@@ -112,11 +112,13 @@ describe("the setup client reads the REAL answers, and nothing in between is inv
       { kind: "RESEND_SAME", status: 201, code: SETUP_CONTRACT_UNKNOWN, detail: {} })
   })
 
-  it("(S1a) a level-3 answer -- tagged v3 -- is never read as level 4, and a level-4 one differs from it only in that tag", () => {
+  it("(S1a) a level-3 answer -- tagged v3 -- is never read as level 4; a level-4 one differs from it only in that tag and result_scope", () => {
     for (const name of ["read_draft", "read_finished", "status", "finish"]) {
       const old = capture(name, "system-boundary-setup-captures-v3")
       expect((old.body as { contract: string }).contract, name).toBe("system_boundary_setup/v3")
-      expect({ ...(capture(name).body as object), contract: "system_boundary_setup/v3" }, name).toEqual(old.body)
+      const { result_scope: scope, ...rest } = capture(name).body as Record<string, unknown>
+      expect(scope === null || (typeof scope === "object" && (scope as { v?: unknown }).v === 1), name).toBe(true)
+      expect({ ...rest, contract: "system_boundary_setup/v3" }, name).toEqual(old.body)
       if (name === "finish") continue                                  // a write: below
       const read = name === "status" ? readAnswer(raw(old), isStatus) : readAnswer(raw(old), isView)
       expect(read, name).toEqual({ kind: "UNAVAILABLE", status: 200, code: SETUP_CONTRACT_UNKNOWN })

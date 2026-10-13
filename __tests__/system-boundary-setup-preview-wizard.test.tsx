@@ -465,3 +465,75 @@ describe("SW-S1A-20261013-09 corrections", () => {
     expect(screen.queryByTestId("setup-preview-unlisted")).toBeNull()
   })
 })
+
+describe("S1a R7: the finished setup's result accounts and THIS Finish's applied result", () => {
+  const FIN: SetupView = cap("read_finished").body
+  const SYSTEM_ID = FIN.receipt!.association.system.key.slice("SYSTEM#".length)
+  /** The real Applied / result answers (system-boundary-captures), moved to this setup's account and System -- an edit. */
+  const appliedAt = (generation: number) => ({ status: 200, body: { ...json("system-boundary-captures/applied.json").body,
+    account_id: FIN.result_scope!.state === "SERVED" ? FIN.result_scope!.accounts[0] : "", generation,
+    applied_revision: FIN.receipt!.association.completed_revision, saved_revision: FIN.receipt!.association.completed_revision } })
+  const resultAt = (generation: number) => ({ status: 200, body: { ...json("system-boundary-captures/result.json").body,
+    account_id: (FIN.result_scope as { accounts: string[] }).accounts[0], system_key: SYSTEM_ID, generation } })
+
+  function mountFinished(view: SetupView, readApplied: ReturnType<typeof vi.fn>, readResult: ReturnType<typeof vi.fn>,
+                         screenAccount = "999988887777") {
+    return render(<SetupWizard setupId={view.setup_id} accountId={screenAccount} view={VIEW} picks={[]} onClose={() => undefined}
+      client={client(view).c} pendingStore={freshStore()} actor={ACTOR} readApplied={readApplied} readResult={readResult} />)
+  }
+
+  it("reads exactly the pinned scope's accounts (never this screen's) and pairs the same generation as applied", async () => {
+    expect(FIN.result_scope).toEqual({ v: 1, state: "SERVED", accounts: [ACCOUNT], from: FIN.receipt!.association.deployments[0] })
+    const readApplied = vi.fn(async () => appliedAt(41))
+    const readResult = vi.fn(async () => resultAt(41))
+    mountFinished(FIN, readApplied, readResult)
+    await settle()
+    expect(readApplied.mock.calls).toEqual([[ACCOUNT]])
+    expect(readResult.mock.calls).toEqual([[ACCOUNT, SYSTEM_ID]])
+    expect(screen.getByTestId(`finish-result-pairing-${ACCOUNT}`).textContent).toBe("This Finish's applied result -- membership generation 41.")
+    expect(screen.getByTestId("setup-progress-proposed").textContent).toContain("not what is applied now")
+  })
+
+  it("an older result beside a newer Applied is 'updating, as of generation G' -- never this Finish's applied result", async () => {
+    mountFinished(FIN, vi.fn(async () => appliedAt(41)), vi.fn(async () => resultAt(40)))
+    await settle()
+    const said = screen.getByTestId(`finish-result-pairing-${ACCOUNT}`).textContent ?? ""
+    expect(said).toContain("Updating")
+    expect(said).toContain("as of generation 40")
+    expect(said).not.toContain("This Finish's applied result")
+  })
+
+  it("a race: the first read's answer (old result) arriving after Check again's (paired) changes nothing", async () => {
+    let releaseFirst: (() => void) | null = null
+    let reads = 0
+    const readApplied = vi.fn(async () => appliedAt(41))
+    const readResult = vi.fn(async () => {
+      reads += 1
+      if (reads === 1) {                                                  // the first read is slow and answers an OLD result
+        await new Promise<void>((resolve) => { releaseFirst = resolve })
+        return resultAt(40)
+      }
+      return resultAt(41)
+    })
+    mountFinished(FIN, readApplied, readResult)
+    await settle()
+    fireEvent.click(within(screen.getByTestId("finish-result")).getByRole("button", { name: "Check again" }))
+    await settle()
+    expect(screen.getByTestId(`finish-result-pairing-${ACCOUNT}`).textContent).toBe("This Finish's applied result -- membership generation 41.")
+    await act(async () => { releaseFirst!() })
+    await settle()
+    expect(screen.getByTestId(`finish-result-pairing-${ACCOUNT}`).textContent).toBe("This Finish's applied result -- membership generation 41.")
+  })
+
+  it("an UNAVAILABLE result scope names its reason and reads nothing -- never today's or this screen's accounts", async () => {
+    const missing = structuredClone(FIN)                                // an edit: the pinned Deployment history is gone
+    missing.result_scope = { v: 1, state: "UNAVAILABLE", reason: "DEPLOYMENT_HISTORY_MISSING", from: FIN.receipt!.association.deployments[0] }
+    const readApplied = vi.fn(async () => appliedAt(41))
+    const readResult = vi.fn(async () => resultAt(41))
+    mountFinished(missing, readApplied, readResult, ACCOUNT)
+    await settle()
+    expect(screen.getByTestId("setup-progress-scope-unavailable").textContent).toContain("DEPLOYMENT_HISTORY_MISSING")
+    expect(readApplied).not.toHaveBeenCalled()
+    expect(readResult).not.toHaveBeenCalled()
+  })
+})

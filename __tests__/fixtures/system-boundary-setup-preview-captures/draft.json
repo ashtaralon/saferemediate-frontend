@@ -3,7 +3,7 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
     "request": {
       "method": "PUT",
-      "path": "/api/system-boundary/setup/b6b55f6c-cbe3-4d00-a8cc-6a3d4c824104",
+      "path": "/api/system-boundary/setup/629107a8-862e-4e9f-bbcf-580407633fdb",
       "params": null,
       "body": {
         "request_id": "00000000-0000-4000-8000-000000005102",
@@ -35,7 +35,7 @@
                 "selection": {
                   "census": {
                     "generation": 1,
-                    "source_identity": "v1:3156c2122b0b30296a63afaf02e83dc63863f2a25392cf9131db8ee29fde78cf"
+                    "source_identity": "v1:f5a106c6bab887d4f4d725655c8225d6e782a3fb5b9ec85bc4efa9e036636a7b"
                   },
                   "stack_status": "UPDATE_COMPLETE"
                 }
@@ -76,7 +76,7 @@
   "status": 200,
   "cache_control": "no-store",
   "body": {
-    "setup_id": "b6b55f6c-cbe3-4d00-a8cc-6a3d4c824104",
+    "setup_id": "629107a8-862e-4e9f-bbcf-580407633fdb",
     "status": "DRAFT",
     "mode": "create",
     "owner": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
@@ -86,8 +86,8 @@
     "accounts_seen": [
       "111122223333"
     ],
-    "created_at": "2026-10-13T02:39:25.839868+00:00",
-    "updated_at": "2026-10-13T02:39:25.848497+00:00",
+    "created_at": "2026-10-13T03:20:07.759685+00:00",
+    "updated_at": "2026-10-13T03:20:07.768318+00:00",
     "predecessor": null,
     "successor": null,
     "association": null,
@@ -101,7 +101,7 @@
             "selection": {
               "census": {
                 "generation": 1,
-                "source_identity": "v1:3156c2122b0b30296a63afaf02e83dc63863f2a25392cf9131db8ee29fde78cf"
+                "source_identity": "v1:f5a106c6bab887d4f4d725655c8225d6e782a3fb5b9ec85bc4efa9e036636a7b"
               },
               "stack_status": "UPDATE_COMPLETE"
             },
@@ -169,9 +169,9 @@
             "registration_id": "0123456789abcdef0123456789abcdef",
             "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
             "publication": {
-              "attempt": "a9fb8c9c52e04b77b94a8b0b205c5a44",
+              "attempt": "8c8582fbceaf48e8b2bbd252f23fdc82",
               "generation": 1,
-              "source_identity": "v1:3156c2122b0b30296a63afaf02e83dc63863f2a25392cf9131db8ee29fde78cf",
+              "source_identity": "v1:f5a106c6bab887d4f4d725655c8225d6e782a3fb5b9ec85bc4efa9e036636a7b",
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7"
             },
             "stack_status": "UPDATE_COMPLETE",
@@ -273,6 +273,7 @@
     "outcome": null,
     "receipt": null,
     "reconciliation": null,
+    "result_scope": null,
     "contract": "system_boundary_setup/v4"
   }
 }

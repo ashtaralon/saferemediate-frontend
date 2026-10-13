@@ -412,6 +412,7 @@
     "outcome": null,
     "receipt": null,
     "reconciliation": null,
+    "result_scope": null,
     "contract": "system_boundary_setup/v4"
   }
 }

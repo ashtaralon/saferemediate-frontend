@@ -3,7 +3,7 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
     "request": {
       "method": "GET",
-      "path": "/api/system-boundary/setup/7f270c93-c539-41ba-b687-a1669103014e/preview",
+      "path": "/api/system-boundary/setup/f1b188ba-9a0e-474f-b1d1-d92d211974f8/preview",
       "params": {
         "state_version": "2"
       },
@@ -15,11 +15,11 @@
   "body": {
     "contract": "system_boundary_setup_preview/v1",
     "state": "COMPUTED",
-    "preview_digest": "v1:6ad38c85554d5cd5ed2af430ab64acd98c45b4ea0ea71e9467ea4c2fdfac955c",
-    "basis_digest": "v1:c6c1753233187f2122068e8dc81c1659307cac065249b02ca6844c45274091ad",
-    "result_digest": "v1:b63e304af4ce9761d826657625f019f390f5618d2658f26ce10ce903bf3a83eb",
+    "preview_digest": "v1:1e2765c3ba49603a69e6b5b53f0a96fef8e16aaa43b036e6af1e3489d24a7d71",
+    "basis_digest": "v1:b89d38e60bfd7b597b39a52849d6c45d0eb7e600ff96b573577483119d60377c",
+    "result_digest": "v1:ac67b6864693d286ca52d38f80a9c5c9089380df9b4d96f13d8865a54ef8557f",
     "setup": {
-      "setup_id": "7f270c93-c539-41ba-b687-a1669103014e",
+      "setup_id": "f1b188ba-9a0e-474f-b1d1-d92d211974f8",
       "intent_revision": 2,
       "state_version": 2
     },
@@ -71,8 +71,8 @@
               "census_status": "served",
               "census_pin": {
                 "generation": 1,
-                "source_identity": "v1:1da301b7fd9a551fe76d824df0ec152ce524254d4b999ea12fcb4f8fcf2a285f",
-                "attempt": "fd1b268176b946f79c7a8bb77b789e0e",
+                "source_identity": "v1:cfbe8a9fa3b2d985daabf234cbb075b0350273b535206bf941594640749de9a8",
+                "attempt": "29d4d51731c9488c9b4c90363e685c87",
                 "inventory_generation": 1
               },
               "stacks": [
@@ -85,7 +85,7 @@
                   ""
                 ]
               ],
-              "hash": "v1:a01309908c96b6206913059ba0ef502a4bf9e7cf82b21965aa550d1d59d542a7"
+              "hash": "v1:92cdc85cf405390e83597c02ebd686d04dd927fa0fe92432f5a807482c1b551b"
             },
             "counts": {
               "stacks": 1,

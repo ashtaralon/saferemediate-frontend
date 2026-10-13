@@ -3,7 +3,7 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
     "request": {
       "method": "GET",
-      "path": "/api/system-boundary/setup/b6b55f6c-cbe3-4d00-a8cc-6a3d4c824104/preview",
+      "path": "/api/system-boundary/setup/629107a8-862e-4e9f-bbcf-580407633fdb/preview",
       "params": {
         "state_version": "2"
       },
@@ -15,11 +15,11 @@
   "body": {
     "contract": "system_boundary_setup_preview/v1",
     "state": "COMPUTED",
-    "preview_digest": "v1:b30586262db859a6eec39a3e6a5f697bb1f8cc31bef736ddfd24eae343e2fb1b",
-    "basis_digest": "v1:f508ee1b4e1e318cfb12bd2b59e26139ebe0ffeed6168b17bcf760d2129e9352",
-    "result_digest": "v1:e5476030099e21e9c8294fa79136f626df77e2434be2c0bd4a13cdc478e86486",
+    "preview_digest": "v1:33f6545c5c3069e1dcdb206f6177c1ef5ed6464fc9981a0eb81ecdf7ba4a7011",
+    "basis_digest": "v1:147f0f1254cfeb94dfe82c9a40685e7a59fbebef35e1c17d0c1194d33f0b8e15",
+    "result_digest": "v1:8126948774a5afe809130473386a69c0b5f76031435235a547d3247011bf2cf7",
     "setup": {
-      "setup_id": "b6b55f6c-cbe3-4d00-a8cc-6a3d4c824104",
+      "setup_id": "629107a8-862e-4e9f-bbcf-580407633fdb",
       "intent_revision": 2,
       "state_version": 2
     },
@@ -71,8 +71,8 @@
               "census_status": "served",
               "census_pin": {
                 "generation": 1,
-                "source_identity": "v1:3156c2122b0b30296a63afaf02e83dc63863f2a25392cf9131db8ee29fde78cf",
-                "attempt": "a9fb8c9c52e04b77b94a8b0b205c5a44",
+                "source_identity": "v1:f5a106c6bab887d4f4d725655c8225d6e782a3fb5b9ec85bc4efa9e036636a7b",
+                "attempt": "8c8582fbceaf48e8b2bbd252f23fdc82",
                 "inventory_generation": 1
               },
               "stacks": [
@@ -85,7 +85,7 @@
                   ""
                 ]
               ],
-              "hash": "v1:d9bb9fc4744097a9ced47649bfb67b4fa8b8fadd34ea735767f599ec64b92329"
+              "hash": "v1:0d7e3212b43418c3bc1f19967e8dba82b90176fc831711a9658e68d8772c4a42"
             },
             "counts": {
               "stacks": 1,

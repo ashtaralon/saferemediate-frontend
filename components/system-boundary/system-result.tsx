@@ -22,6 +22,7 @@ import {
   type ParsedResult,
   type ResultList,
   type ResultRow,
+  type ResultServed,
 } from "@/lib/system-boundary-result"
 
 const LIST_TITLES: Record<ResultList, string> = {
@@ -76,32 +77,39 @@ export function SystemResult({ systemKey, accountIds, fetcher = fetchResult }: S
               <span className="font-mono text-xs">{id}</span>:{" "}
               {answer === undefined || answer === "loading" ? "reading…" : resultSentence(answer)}
             </p>
-            {answer !== undefined && answer !== "loading" && answer.kind === "served"
-              ? (["members", "dependencies", "held", "not_members"] as const).map((list) => (
-                  <details key={list} open={list === "members"}>
-                    <summary className="text-xs font-medium text-slate-700">
-                      {LIST_TITLES[list]} ({answer.counts[list]})
-                    </summary>
-                    <ul className="mt-1 space-y-0.5 text-xs">
-                      {answer.lists[list].map((row) => (
-                        <li key={`${row.resource_uid}|${String(row.kind ?? "")}`}>
-                          <span className="font-mono">{row.resource_uid}</span>
-                          {row.resource_type ? <span className="text-slate-500"> ({row.resource_type})</span> : null}
-                          {" -- "}{rowLine(list, row)}
-                        </li>
-                      ))}
-                      {answer.lists[list].length === 0 ? <li className="text-slate-500">None.</li> : null}
-                      {answer.omitted[list] ? (
-                        <li className="text-amber-800">{answer.omitted[list]} more not shown here (counted above).</li>
-                      ) : null}
-                    </ul>
-                  </details>
-                ))
-              : null}
+            {answer !== undefined && answer !== "loading" && answer.kind === "served" ? <ResultLists answer={answer} /> : null}
           </div>
         )
       })}
       <Button type="button" size="sm" variant="ghost" onClick={check}>Check again</Button>
     </section>
+  )
+}
+
+/** One served result's lists, each row with what a person reads (the Result screen's, and a finished setup's -- one rendering). */
+export function ResultLists({ answer }: { answer: ResultServed }) {
+  return (
+    <>
+      {(["members", "dependencies", "held", "not_members"] as const).map((list) => (
+        <details key={list} open={list === "members"}>
+          <summary className="text-xs font-medium text-slate-700">
+            {LIST_TITLES[list]} ({answer.counts[list]})
+          </summary>
+          <ul className="mt-1 space-y-0.5 text-xs">
+            {answer.lists[list].map((row) => (
+              <li key={`${row.resource_uid}|${String(row.kind ?? "")}`}>
+                <span className="font-mono">{row.resource_uid}</span>
+                {row.resource_type ? <span className="text-slate-500"> ({row.resource_type})</span> : null}
+                {" -- "}{rowLine(list, row)}
+              </li>
+            ))}
+            {answer.lists[list].length === 0 ? <li className="text-slate-500">None.</li> : null}
+            {answer.omitted[list] ? (
+              <li className="text-amber-800">{answer.omitted[list]} more not shown here (counted above).</li>
+            ) : null}
+          </ul>
+        </details>
+      ))}
+    </>
   )
 }

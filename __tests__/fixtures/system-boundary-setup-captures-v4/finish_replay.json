@@ -435,6 +435,17 @@
       "written_at": "2026-10-12T01:00:00.000000+00:00"
     },
     "reconciliation": null,
+    "result_scope": {
+      "v": 1,
+      "state": "SERVED",
+      "accounts": [
+        "111111111111"
+      ],
+      "from": {
+        "key": "DEPLOYMENT#authored_deployment:688eed3054bdef36ecbcbff81ec397e02b333c858a87e6665317c8ec60b1400c",
+        "version": 1
+      }
+    },
     "replayed": true,
     "contract": "system_boundary_setup/v4"
   }

@@ -9,7 +9,7 @@ stack's resources the guided setup offers per-resource decisions on. The `*_unre
 record (the authoring grant revoked before the refusal was recorded: `detail.setup.recorded=false`, FINISHING, GRANT_REVOKED)
 and the setup read back still FINISHING. Each file is a byte-for-byte copy of
 `tests/fixtures/system_boundary_setup_preview_captures/` at saferemediate-backend
-**4fe40ac40ce7a72076bc4e9045ac912eb6feff27** (branch claude/onboarding-s1a, local).
+**0fef0bdc87d2dd34d6d629fe53ce52f490c4eeb5** (branch claude/onboarding-s1a, local).
 
 How they were captured: `tests/cyntro_data/test_system_boundary_preview_captures.py` on the CF harness of
 `test_system_boundary_preview_cf.py` -- the inventory and census published by their REAL producers, the REAL setup routes and

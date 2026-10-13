@@ -145,6 +145,12 @@ export interface PreviewPin {
   admission: Record<string, unknown>
 }
 
+/** (S1a R7) The accounts a finished setup's result is read in: the committed Deployment at the version its receipt pinned
+ *  (``from``), or why they cannot be named. A decoration beside the receipt; null before a receipt exists. */
+export type ResultScope =
+  | { v: 1; state: "SERVED"; accounts: string[]; from: { key: string; version: number } }
+  | { v: 1; state: "UNAVAILABLE"; reason: string; from?: { key: string; version: number } }
+
 export interface SetupView extends SetupSummary {
   intent: SetupIntent
   dispositions_derived: DerivedDisposition[]
@@ -152,6 +158,7 @@ export interface SetupView extends SetupSummary {
   attempt: Record<string, unknown> | null
   outcome: { outcome: string; code: string; reconciled_by: string } | null
   receipt: (Record<string, unknown> & { association: Association; attempt: number; preview?: PreviewPin }) | null
+  result_scope: ResultScope | null
   reconciliation: { state: string; attempt: number; recover_after: string; reason?: string } | null
   replayed?: boolean
 }
@@ -221,6 +228,7 @@ export interface SetupStatus {
   dispositions: DerivedDisposition[]
   requirement_profile: RequirementProfile
   operations: OwnerRequest[]
+  result_scope: ResultScope | null
 }
 
 export type SetupRead<T> =
@@ -333,6 +341,24 @@ export function isPreviewPin(value: unknown): value is PreviewPin {
     && PIN_COUNTS.every((k) => isInt((value.counts as Record<string, unknown>)[k]) && ((value.counts as Record<string, number>)[k] >= 0))
 }
 
+const isSource = (value: unknown): boolean =>
+  isRecord(value) && exactly(value, ["key", "version"]) && typeof value.key === "string" && value.key.startsWith("DEPLOYMENT#")
+  && isInt(value.version) && value.version >= 1
+
+/** (S1a R7) A result scope read exactly: SERVED names 12-digit accounts (sorted, distinct) and the pinned Deployment; else
+ *  UNAVAILABLE with its reason. Present on every level-4 view and status (null before a receipt). */
+export function isResultScope(value: unknown): value is ResultScope {
+  if (!isRecord(value) || value.v !== 1) return false
+  if (value.state === "SERVED") {
+    const accounts = value.accounts
+    return exactly(value, ["v", "state", "accounts", "from"]) && Array.isArray(accounts) && accounts.length > 0
+      && accounts.every((a) => typeof a === "string" && /^[0-9]{12}$/.test(a))
+      && accounts.every((a, i) => i === 0 || (accounts[i - 1] as string) < a) && isSource(value.from)
+  }
+  return value.state === "UNAVAILABLE" && typeof value.reason === "string" && value.reason.length > 0
+    && (exactly(value, ["v", "state", "reason"]) || (exactly(value, ["v", "state", "reason", "from"]) && isSource(value.from)))
+}
+
 export function isView(value: unknown): value is SetupView {
   if (!isSummary(value)) return false
   const view = value as unknown as Record<string, unknown>
@@ -343,6 +369,7 @@ export function isView(value: unknown): value is SetupView {
     && isRequirementProfile(view.requirement_profile) && coherentFacts(view.dispositions_derived, view.requirement_profile)
     && (view.receipt === null || (isRecord(view.receipt) && isAssociation(view.receipt.association)
       && (view.receipt.preview === undefined || isPreviewPin(view.receipt.preview))))
+    && "result_scope" in view && (view.result_scope === null ? view.receipt === null : isResultScope(view.result_scope))
 }
 
 const isText = (value: unknown): value is string => typeof value === "string" && value.length > 0
@@ -434,6 +461,7 @@ export function isStatus(value: unknown): value is SetupStatus {
     && Array.isArray(value.dispositions) && value.dispositions.every(isDerived)
     && isRequirementProfile(value.requirement_profile) && coherentFacts(value.dispositions, value.requirement_profile)
     && Array.isArray(value.operations) && value.operations.every(isOperation)
+    && "result_scope" in value && (value.result_scope === null || isResultScope(value.result_scope))
 }
 
 const isPage = (value: unknown): value is { setups: SetupSummary[]; next_cursor: string | null } =>

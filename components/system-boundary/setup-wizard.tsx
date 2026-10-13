@@ -22,9 +22,8 @@
  * the person reviewed (a version-2 pending Finish), only while the screen is saved and the preview is of exactly that version.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { AppliedStatus } from "@/components/system-boundary/applied-status"
+import { FinishResult } from "@/components/system-boundary/finish-result"
 import { stackResources, type Resources } from "@/components/system-boundary/stack-binding-wizard"
-import { SystemResult } from "@/components/system-boundary/system-result"
 import { Button } from "@/components/ui/button"
 import { fetchCensusPage, rowName, type CensusFetcher, type CensusRow } from "@/lib/account-census"
 import type { DeclarationsView, ResourceDecision, StackBinding } from "@/lib/system-boundary-authoring"
@@ -1096,9 +1095,16 @@ function Progress({ setup, status, statusProblem, accountId, readApplied, readRe
           what the reviewed preview proposed, not what is applied now.
         </p>
       ) : null}
-      <AppliedStatus revision={association.completed_revision} accountIds={[accountId]}
-        {...(readApplied ? { fetcher: readApplied } : {})} />
-      {systemId ? <SystemResult systemKey={systemId} accountIds={[accountId]} {...(readResult ? { fetcher: readResult } : {})} /> : null}
+      {/* (S1a R7) the accounts of THIS Finish's result: the Deployment as the receipt pinned it -- never this screen's account */}
+      {setup.result_scope?.state === "SERVED" && systemId ? (
+        <FinishResult systemKey={systemId} completedRevision={association.completed_revision} accountIds={setup.result_scope.accounts}
+          {...(readApplied ? { readApplied } : {})} {...(readResult ? { readResult } : {})} />
+      ) : (
+        <p className="text-xs text-amber-800" data-testid="setup-progress-scope-unavailable">
+          The accounts of this result cannot be named ({setup.result_scope?.state === "UNAVAILABLE" ? setup.result_scope.reason
+            : systemId ? "NO_RESULT_SCOPE" : "NO_SYSTEM"}); nothing is shown as applied.
+        </p>
+      )}
       <ul className="text-xs text-slate-600">
         {setup.dispositions_derived.map((d) => (
           <li key={rowKey(d)}>{rowLabel(d)}: {derivedSentence(d)}

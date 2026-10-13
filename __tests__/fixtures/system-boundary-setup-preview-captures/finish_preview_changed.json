@@ -3,7 +3,7 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
     "request": {
       "method": "POST",
-      "path": "/api/system-boundary/setup/b6b55f6c-cbe3-4d00-a8cc-6a3d4c824104/finish",
+      "path": "/api/system-boundary/setup/629107a8-862e-4e9f-bbcf-580407633fdb/finish",
       "params": null,
       "body": {
         "request_id": "00000000-0000-4000-8000-000000005104",
@@ -17,7 +17,7 @@
   "body": {
     "detail": {
       "code": "PREVIEW_CHANGED",
-      "preview_digest": "v1:b30586262db859a6eec39a3e6a5f697bb1f8cc31bef736ddfd24eae343e2fb1b"
+      "preview_digest": "v1:33f6545c5c3069e1dcdb206f6177c1ef5ed6464fc9981a0eb81ecdf7ba4a7011"
     }
   }
 }

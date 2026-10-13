@@ -3,7 +3,7 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
     "request": {
       "method": "GET",
-      "path": "/api/system-boundary/setup/0f5c0117-91ee-4e08-9929-6fae5944cb7d/preview",
+      "path": "/api/system-boundary/setup/8c5ffd9f-970b-4495-a00c-8448fadcf3d2/preview",
       "params": {
         "state_version": "2"
       },
@@ -15,11 +15,11 @@
   "body": {
     "contract": "system_boundary_setup_preview/v1",
     "state": "HELD",
-    "preview_digest": "v1:ef467b255a679f26e55fe55c25d8fe6165f6d22617965b60f4e20925eeca34c7",
-    "basis_digest": "v1:4110022a32f661c1d9593b2b3acbffe3be0a6f2a4d0e03b77ce38544ba39cc77",
+    "preview_digest": "v1:b66cfc03ecc784b65eccd80a5b9684ec8559fbcd4d24f2879441f2dbb86ea3f4",
+    "basis_digest": "v1:e8b1bd950f3bd308bc0b6ab0133026d1e6d3d3678b60d53b1c1675d813544d00",
     "result_digest": "v1:d1bb224cca258031b50111a6874486f30d046fc2c5b6e33f28cdd7f852d0fd73",
     "setup": {
-      "setup_id": "0f5c0117-91ee-4e08-9929-6fae5944cb7d",
+      "setup_id": "8c5ffd9f-970b-4495-a00c-8448fadcf3d2",
       "intent_revision": 2,
       "state_version": 2
     },
