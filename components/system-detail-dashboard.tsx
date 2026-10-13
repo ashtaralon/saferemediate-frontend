@@ -82,7 +82,7 @@ import { fetchWithTransientRetry } from "@/lib/transient-retry"
 import { normalizeSecurityFinding, asCount } from "@/lib/security-finding-normalize"
 import { RequestEpoch } from "@/lib/request-epoch"
 import { SystemExecutiveOverview } from "@/components/system-detail/system-executive-overview"
-import { useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
+import { selectedCatalogRow, useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
 import { HISTORY_BEFORE_UNKNOWN, NOT_OBSERVED_IN_RECORDED_WINDOW } from "@/lib/observation-coverage"
 
 // Lazy load heavy components with dynamic imports for better performance
@@ -726,6 +726,9 @@ const ENVIRONMENT_OPTIONS = [
 // COMPONENT
 // =============================================================================
 
+type SystemMeta = { criticality: string; environment: string; accountId: string | null; region: string | null }
+const EMPTY_SYSTEM_META: SystemMeta = { criticality: "", environment: "", accountId: null, region: null }
+
 export function SystemDetailDashboard({ systemName, systemKey = null, systemAccountId = null, onBack, onNavigateToSection, initialTab, initialAttackPathMode }: SystemDetailDashboardProps) {
   const systemsCatalog = useScopedSystemCatalog()
   // Attacker Map lives as an internal chip next to Attack Path (not a Risk sub-tab).
@@ -782,17 +785,17 @@ export function SystemDetailDashboard({ systemName, systemKey = null, systemAcco
   // /api/systems). account_id and region are nullable — when the
   // collector hasn't surfaced them yet, the System Context card
   // renders "—" rather than fabricating "eu-west-1" / "745783559495".
-  const [systemMeta, setSystemMeta] = useState<{
-    criticality: string
-    environment: string
-    accountId: string | null
-    region: string | null
-  }>({
-    criticality: "",
-    environment: "",
-    accountId: null,
-    region: null,
+  // (F31-META-ORDER-02) The metadata is the CONTEXT's it was read for: this identity, in this scoped catalogue. Anything
+  // rendered reads ``systemMeta``, which is the stored answer only while that context is still current; otherwise it is
+  // empty. A previous system's header, overview or downstream props therefore never show, even before the new read
+  // lands.
+  const metaContext = `${identity}|${systemsCatalog.url ?? ""}`
+  const [storedSystemMeta, setStoredSystemMeta] = useState<SystemMeta & { context: string | null }>({
+    ...EMPTY_SYSTEM_META, context: null,
   })
+  const systemMeta: SystemMeta = storedSystemMeta.context === metaContext ? storedSystemMeta : EMPTY_SYSTEM_META
+  // Each read takes the next generation; an answer is accepted only while it is the latest read's.
+  const metaGeneration = useRef(0)
 
   // Initialize severityCounts with default values
   // `apiTotal` is the severity endpoint's own validated open-findings total.
@@ -1386,35 +1389,37 @@ export function SystemDetailDashboard({ systemName, systemKey = null, systemAcco
     setRemediatingPermission(null)
   }
 
-  const fetchSystemMeta = async () => {
-    if (!systemsCatalog.url) return
+  const fetchSystemMeta = async (context: string, generation: number) => {
+    // Only the latest read's answer is stored, and always with the context it was read for. A refusal, no match or an
+    // error stores EMPTY: it withholds; it never leaves an earlier answer standing.
+    const settle = (meta: SystemMeta) => {
+      if (generation === metaGeneration.current) setStoredSystemMeta({ ...meta, context })
+    }
+    if (!systemsCatalog.url) return settle(EMPTY_SYSTEM_META)
     try {
       // Use cached /api/proxy/systems (5m server cache + edge SWR), NOT
       // /systems/available (no-store, 90s cold path). The available route
       // was timing out under Render pressure and left the header stuck on
       // "AWS region pending" even when systems data was warm elsewhere.
       const res = await fetch(systemsCatalog.url)
-      if (res.ok) {
-        const data = await res.json()
-        // A7 B5: by key when the link carries one; by name only when exactly ONE row has that name -- the first of several
-        // would show another system's account and region as this one's.
-        const rows: any[] = Array.isArray(data.systems) ? data.systems : []
-        const matches = systemKey
-          ? rows.filter((s: any) =>
-              s.system_key === systemKey && (s.identity?.account_id ?? null) === (systemAccountId ?? null))
-          : rows.filter((s: any) => (s.SystemName || s.name || s.systemName) === systemName)
-        const match = matches.length === 1 ? matches[0] : null
-        if (match) {
-          setSystemMeta({
-            criticality: match.criticality || "",
-            environment: match.environment || "",
-            accountId: match.account_id || match.accountId || null,
-            region: match.region || null,
-          })
-        }
-      }
+      if (!res.ok) return settle(EMPTY_SYSTEM_META)
+      const data = await res.json()
+      // (F31-META-IDENTITY-01) THE selection rule the page selected this system by (selectCatalogSystem):
+      // - an authored key stays selected under an account narrowing;
+      // - a tag / source key only in its own account;
+      // - a name only when it is unrepeated.
+      // Never a second matcher, never a name fallback.
+      const match = selectedCatalogRow(
+        { system: systemName, accountId: systemAccountId, systemKey }, data, systemsCatalog.customerId) as any
+      settle(match ? {
+        criticality: match.criticality || "",
+        environment: match.environment || "",
+        accountId: match.account_id || match.accountId || null,
+        region: match.region || null,
+      } : EMPTY_SYSTEM_META)
     } catch (e) {
       console.error("[v0] Error fetching system metadata:", e)
+      settle(EMPTY_SYSTEM_META)
     }
   }
 
@@ -1479,8 +1484,13 @@ export function SystemDetailDashboard({ systemName, systemKey = null, systemAcco
   }
 
   useEffect(() => {
-    fetchSystemMeta()
-  }, [systemName, systemKey, systemAccountId, systemsCatalog.url])
+    const generation = ++metaGeneration.current
+    fetchSystemMeta(metaContext, generation)
+    // A read still in flight when the context changes or the page unmounts is fenced out.
+    return () => {
+      if (metaGeneration.current === generation) metaGeneration.current += 1
+    }
+  }, [metaContext])
 
   // The executive Overview reads one bounded, server-composed snapshot.
   // Legacy fetchAllData remains for old helpers while they are retired, but

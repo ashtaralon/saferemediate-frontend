@@ -97,10 +97,17 @@ function validIdentity(raw: unknown, name: string, scopeCustomerId: string | nul
 /** The catalogue answer's rows as entries, judged against the scope's tenant. An answer of a Systems list contract this
  *  frontend does not know has no entries (the reading hook reports it unavailable). */
 export function catalogEntries(body: unknown, scopeCustomerId: string | null | undefined): CatalogEntry[] {
+  return catalogRows(body, scopeCustomerId).map(({ entry }) => entry)
+}
+
+/** Each entry with the answer row it was read from (the same entries, in the same order, as ``catalogEntries``). */
+function catalogRows(
+  body: unknown, scopeCustomerId: string | null | undefined,
+): { entry: CatalogEntry; row: Record<string, unknown> }[] {
   const level = systemsListLevel(body)
   const rows = (body && typeof body === "object" ? (body as { systems?: unknown }).systems : null)
   if (level === null || !Array.isArray(rows)) return []
-  const entries: CatalogEntry[] = []
+  const read: { entry: CatalogEntry; row: Record<string, unknown> }[] = []
   for (const row of rows) {
     if (!row || typeof row !== "object") continue
     const record = row as Record<string, unknown>
@@ -108,16 +115,18 @@ export function catalogEntries(body: unknown, scopeCustomerId: string | null | u
     if (!name) continue
     if (level === 2) {
       const membership = systemRowIdentity(record)
-      entries.push({ name, identity: null, membership, status: membership ? "MEMBERSHIP" : "MALFORMED", repeated: false })
+      read.push({ row: record,
+                  entry: { name, identity: null, membership, status: membership ? "MEMBERSHIP" : "MALFORMED", repeated: false } })
       continue
     }
     const present = record.catalog_identity !== undefined && record.catalog_identity !== null
     const identity = present ? validIdentity(record.catalog_identity, name, scopeCustomerId) : null
-    entries.push({ name, identity, status: !present ? "LEGACY" : identity ? "IDENTIFIED" : "MALFORMED", repeated: false })
+    read.push({ row: record,
+                entry: { name, identity, status: !present ? "LEGACY" : identity ? "IDENTIFIED" : "MALFORMED", repeated: false } })
   }
   const counts = new Map<string, number>()
-  for (const entry of entries) counts.set(labelKey(entry.name), (counts.get(labelKey(entry.name)) ?? 0) + 1)
-  return entries.map((entry) => ({ ...entry, repeated: (counts.get(labelKey(entry.name)) ?? 0) > 1 }))
+  for (const { entry } of read) counts.set(labelKey(entry.name), (counts.get(labelKey(entry.name)) ?? 0) + 1)
+  return read.map(({ entry, row }) => ({ row, entry: { ...entry, repeated: (counts.get(labelKey(entry.name)) ?? 0) > 1 } }))
 }
 
 export type CatalogSelection =
@@ -169,6 +178,26 @@ export function selectCatalogSystem(
   if (matches.length > 1) return { kind: "AMBIGUOUS", entries: matches }
   const [only] = matches
   return only.status === "MALFORMED" ? { kind: "IDENTITY_UNAVAILABLE", entry: only } : { kind: "SELECTED", entry: only }
+}
+
+/**
+ * (F31-META-IDENTITY-01) The answer ROW of the one system ``requested`` names, by THE selection rule
+ * (``selectCatalogSystem``). A detail page reads its metadata through this, never a second matcher:
+ * - an authored key, which spans accounts, stays selected under an account narrowing;
+ * - a tag / source key's row is selected only in its own account;
+ * - a label is matched only when it is unrepeated.
+ * Null when nothing is requested, and for anything but SELECTED (ambiguous, malformed, not found, an unknown contract).
+ */
+export function selectedCatalogRow(
+  requested: { system?: string | null; accountId?: string | null; region?: string | null; systemKey?: string | null },
+  body: unknown,
+  scopeCustomerId: string | null | undefined,
+): Record<string, unknown> | null {
+  if (!labelKey(requested.system) && !String(requested.systemKey || "").trim()) return null
+  const rows = catalogRows(body, scopeCustomerId)
+  const selection = selectCatalogSystem(requested, rows.map(({ entry }) => entry))
+  if (selection.kind !== "SELECTED") return null
+  return rows.find(({ entry }) => entry === selection.entry)?.row ?? null
 }
 
 /**
