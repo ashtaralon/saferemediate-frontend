@@ -155,7 +155,7 @@ describe("SW-S1A-20261013-13 correction", () => {
   })
   it("the matching account's Applied generation stays the 'as of' when no result is served", () => {
     const p = pairing(applied(), unavailable, at(1))
-    expect(p).toEqual({ kind: "updating", asOf: 41, why: "RESULT_NOT_SERVED" })
+    expect(p).toEqual({ kind: "unknown", asOf: 41, why: "RESULT_UNREADABLE" })   // (SW-S1A-20261013-35) was RESULT_NOT_SERVED
     expect(pairingSentence(p)).toContain("as of generation 41")
   })
 })
@@ -228,5 +228,34 @@ describe("SW-S1A-20261013-35 correction (S1A-APPLIED-UNKNOWN-01)", () => {
     expect(pairing(foreign, parseResultResponse(0, null, ACCOUNT), at(1)))
       .toEqual({ kind: "unknown", asOf: null, why: "APPLIED_IDENTITY_MISMATCH" })
     expect(pairing(applied(), result(), at(1))).toEqual({ kind: "applied_result", generation: 41 })
+  })
+})
+
+describe("SW-S1A-20261013-35 correction, the result side", () => {
+  it("a result read that failed is RESULT_UNREADABLE, never 'not served' -- Applied of this account keeps its own words", () => {
+    for (const [status, body] of [[0, null], [502, { detail: { code: "AUTHORING_BACKEND_UNAVAILABLE" } }],          // constructed,
+                                  [503, { detail: { code: "ACCOUNT_REGISTRY_UNAVAILABLE" } }]] as const) {      // said
+      const unreadable = parseResultResponse(status, body, ACCOUNT)
+      expect(unreadable.kind).toBe("unavailable")
+      const p = pairing(applied(), unreadable, at(1))
+      expect(p).toEqual({ kind: "unknown", asOf: 41, why: "RESULT_UNREADABLE" })
+      expect(pairingSentence(p)).toContain("Unknown -- the result for this system could not be read in this account")
+      expect(pairingSentence(p)).not.toMatch(/not served/)
+      expect(appliedLine(applied(), 1, p, ACCOUNT)).toContain("this save is applied in membership generation 41")
+    }
+  })
+
+  it("a refused result read is RESULT_REFUSED; a genuinely held result is still RESULT_NOT_SERVED", () => {
+    const refused = parseResultResponse(401, { detail: { code: "PERSON_TOKEN_INVALID" } }, ACCOUNT)
+    expect(pairing(applied(), refused, at(1))).toEqual({ kind: "unknown", asOf: 41, why: "RESULT_REFUSED" })
+    const held = json("system-boundary-captures", "result_v1_held")
+    const p = pairing(applied(), parseResultResponse(held.status, held.body, ACCOUNT), at(1))
+    expect(p).toEqual({ kind: "updating", asOf: 41, why: "RESULT_NOT_SERVED" })
+    expect(pairingSentence(p)).toContain("the result for this system is not served in this account")
+  })
+
+  it("an Applied built before this Finish keeps its own name even when the result could not be read", () => {
+    expect(pairing(applied(), parseResultResponse(0, null, ACCOUNT), at(2)))
+      .toEqual({ kind: "updating", asOf: 41, why: "APPLIED_BEFORE_THIS_FINISH" })
   })
 })

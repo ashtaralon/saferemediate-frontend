@@ -12,7 +12,8 @@
  *
  * (S1A-APPLIED-UNKNOWN-01) "Not applied" is said only from an Applied answer that IS this account's and says not_applied_yet.
  * An Applied that could not be read, was refused, answered another account, or reports saving not initialized leaves
- * whether this Finish is applied UNKNOWN: the result is withheld all the same, under that name, never "not applied".
+ * whether this Finish is applied UNKNOWN: the result is withheld all the same, under that name, never "not applied". Likewise
+ * a result read that failed or was refused is RESULT_UNREADABLE / RESULT_REFUSED, never "not served".
  */
 import { appliedSentence, type ParsedApplied } from "@/lib/system-boundary-applied"
 import type { ParsedResult } from "@/lib/system-boundary-result"
@@ -35,6 +36,10 @@ export function pairing(applied: ParsedApplied, result: ParsedResult,
   if (applied.kind === "not_initialized") return unknown("APPLIED_NOT_INITIALIZED")
   if (applied.kind !== "applied") return updating("NOT_APPLIED")
   if (applied.appliedRevision === null || applied.appliedRevision < completedRevision) return updating("APPLIED_BEFORE_THIS_FINISH")
+  // The result side of the same rule: a result read that failed or was refused says nothing about what is served.
+  if (result.kind === "unavailable" || result.kind === "refused") {
+    return unknown(result.kind === "refused" ? "RESULT_REFUSED" : "RESULT_UNREADABLE")
+  }
   if (result.kind !== "served" || result.accountId !== accountId || result.systemKey !== systemKey) return updating("RESULT_NOT_SERVED")
   if (result.generation !== applied.generation) return updating("GENERATION_MISMATCH")
   return { kind: "applied_result", generation: result.generation }
@@ -51,6 +56,8 @@ export function pairingSentence(p: Pairing): string {
         + "account is not known",
       APPLIED_NOT_INITIALIZED: "the applied status says saving is not initialized on this install, so whether this Finish "
         + "is applied in this account is not known",
+      RESULT_UNREADABLE: "the result for this system could not be read in this account",
+      RESULT_REFUSED: "the result read was refused, so what is served for this system in this account is not known",
     }
     return `Unknown -- ${unknown[p.why] ?? p.why}; it is not shown as this Finish's applied result.${asOf}`
   }
