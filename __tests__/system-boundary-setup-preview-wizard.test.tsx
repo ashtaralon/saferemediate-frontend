@@ -535,6 +535,17 @@ describe("S1a R7: the finished setup's result accounts and THIS Finish's applied
     expect(within(screen.getByTestId(`finish-result-${ACCOUNT}`)).getAllByRole("listitem").length).toBeGreaterThan(0)
   })
 
+  it("S1A-R7-CORR-PAIR-01: an Applied answer naming another account puts no claim under this account", async () => {
+    const foreign = appliedAt(41)                                      // an edit: right shape and generation, another account
+    foreign.body = { ...foreign.body, account_id: "999988887777" }
+    mountFinished(FIN, vi.fn(async () => foreign), vi.fn(async () => resultAt(41)))
+    await settle()
+    const applied = screen.getByTestId(`finish-result-applied-${ACCOUNT}`).textContent ?? ""
+    expect(applied).toContain("APPLIED_IDENTITY_MISMATCH")
+    expect(applied).not.toMatch(/applied in membership generation|includes this save/)
+    expect(screen.getByTestId(`finish-result-pairing-${ACCOUNT}`).textContent).not.toContain("This Finish's applied result")
+  })
+
   it("S1A-R7-PAIR-02: a served result naming another System shows none of its rows; it is refused by name", async () => {
     const foreign = resultAt(41)                                        // an edit: right account and generation, another System
     foreign.body = { ...foreign.body, system_key: `${SYSTEM_ID}x` }

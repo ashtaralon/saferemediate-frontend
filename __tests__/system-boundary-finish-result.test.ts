@@ -111,17 +111,33 @@ describe("SW-S1A-20261013-11 corrections", () => {
   it("S1A-R7-PAIR-01: with Applied 41 and an older result, no sentence says the membership shown includes this save", () => {
     const older = { ...structuredClone(RESULT.body), generation: 40 }   // an edit: the result read before the publication
     const p = pairing(applied(), result(older), at(1))
-    const line = appliedLine(applied(), 1, p)
+    const line = appliedLine(applied(), 1, p, ACCOUNT)
     expect(line).not.toContain("membership shown")
     expect(line).toContain("this save is applied in membership generation 41")
     expect(line).toContain("of another generation")
     expect(pairingSentence(p)).toContain("as of generation 40")
-    expect(appliedLine(applied(), 1, pairing(applied(), result(), at(1)))).toContain("the membership shown")   // paired: the claim stands
+    expect(appliedLine(applied(), 1, pairing(applied(), result(), at(1)), ACCOUNT)).toContain("the membership shown")   // paired: the claim stands
   })
 
   it("S1A-R7-PAIR-02: a result naming another System is not ours; the same System at an older generation is", () => {
     expect(resultIsOurs(result(), ACCOUNT, SYSTEM)).toBe(true)
     expect(resultIsOurs(result({ ...structuredClone(RESULT.body), generation: 40 }), ACCOUNT, SYSTEM)).toBe(true)
     expect(resultIsOurs(result({ ...structuredClone(RESULT.body), system_key: `${SYSTEM}x` }), ACCOUNT, SYSTEM)).toBe(false)
+  })
+})
+
+describe("SW-S1A-20261013-12 correction", () => {
+  it("S1A-R7-CORR-PAIR-01: an Applied answer naming another account is not used -- not its revision, not its generation", () => {
+    for (const body of [{ ...structuredClone(APPLIED.body), account_id: "999988887777" },                 // edits: right shape,
+                        { ...json("system-boundary-captures", "applied_not_applied_yet").body, account_id: "999988887777" }]) {  // wrong account
+      const foreign = parseAppliedResponse(200, body)
+      const p = pairing(foreign, result(), at(1))
+      expect(p).toMatchObject({ kind: "updating", why: "NOT_APPLIED" })
+      const line = appliedLine(foreign, 1, p, ACCOUNT)
+      expect(line).toContain("APPLIED_IDENTITY_MISMATCH")
+      expect(line).not.toMatch(/generation 41|applied in|Saved\./)
+    }
+    const older = { ...structuredClone(RESULT.body), generation: 40 }   // the matching account keeps its separate-generation words
+    expect(appliedLine(applied(), 1, pairing(applied(), result(older), at(1)), ACCOUNT)).toContain("this save is applied in membership generation 41")
   })
 })

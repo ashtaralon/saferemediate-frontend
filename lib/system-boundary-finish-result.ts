@@ -51,7 +51,12 @@ export function resultIsOurs(result: ParsedResult, accountId: string, systemKey:
 
 /** (S1A-R7-PAIR-01) Applied in words, beside a result: "includes this save" about the membership SHOWN only when the pairing
  *  proves the result shown IS that membership; otherwise Applied's own generation, said apart from the result. */
-export function appliedLine(applied: ParsedApplied, completedRevision: number, p: Pairing): string {
+export function appliedLine(applied: ParsedApplied, completedRevision: number, p: Pairing, accountId: string): string {
+  // (S1A-R7-CORR-PAIR-01) An Applied answer naming another account says nothing about this one: none of its revision or
+  // generation is used. Answers that name no account (unavailable, refused) carry neither.
+  if ("accountId" in applied && applied.accountId !== accountId) {
+    return "The applied status answered another account (APPLIED_IDENTITY_MISMATCH); nothing of it is used here."
+  }
   if (p.kind === "applied_result" || applied.kind !== "applied") return appliedSentence(applied, completedRevision)
   const generation = `membership generation ${applied.generation ?? "?"} (published ${applied.publishedAt ?? "?"})`
   return (applied.appliedRevision !== null && applied.appliedRevision >= completedRevision

@@ -61,7 +61,7 @@ export function FinishResult({ systemKey, completedRevision, accountIds, readApp
         return (
           <div key={id} className="space-y-1 text-sm" data-testid={`finish-result-${id}`}>
             <p data-testid={`finish-result-applied-${id}`}>
-              <span className="font-mono text-xs">{id}</span>: {appliedLine(answer.applied, completedRevision, paired)}
+              <span className="font-mono text-xs">{id}</span>: {appliedLine(answer.applied, completedRevision, paired, id)}
             </p>
             <p className={paired.kind === "applied_result" ? "text-emerald-800" : "text-amber-800"}
               data-testid={`finish-result-pairing-${id}`}>{pairingSentence(paired)}</p>
