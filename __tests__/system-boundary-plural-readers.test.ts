@@ -14,9 +14,11 @@ import { describe, expect, it } from "vitest"
 import {
   assess, assessmentWithheldSentence, deploymentLine, DRAFT_DEPLOYMENT_VERSION, remainderLines,
 } from "@/lib/system-boundary-assessment"
-import { pairDeployments } from "@/lib/system-boundary-deployment-context"
+import { decorationSentence, deploymentContext, pairDeployments } from "@/lib/system-boundary-deployment-context"
 import { finishExplanation, finishExplanationWithheldSentence, type Pairing } from "@/lib/system-boundary-finish-result"
-import { parseResultResponse, RESULT_CONTRACT, RESULT_CONTRACT_V2, type ResultServed } from "@/lib/system-boundary-result"
+import {
+  parseResultResponse, RESPONSE_MALFORMED, RESULT_CONTRACT, RESULT_CONTRACT_V2, type ResultServed,
+} from "@/lib/system-boundary-result"
 import {
   intentDeploymentKeys, isPluralIntent, isStatus, isView, pinnedDeployments, readAnswer, SETUP_CONTRACT_UNKNOWN,
   type SetupView,
@@ -64,6 +66,19 @@ describe("the setup view and status at level 5", () => {
       const status = read(dir, "plural_status")
       expect(readAnswer({ status: status.status, json: status.body }, isStatus).kind).toBe("OK")
     }
+  })
+
+  it("pairs by canonical key order, not the intent's declared order (A3; SW-S1A-20261013-48 non-input-order control)", () => {
+    // an edit: the finished intent declares staging BEFORE prod; the receipt still lists canonical order, so prod stays
+    // paired with the first pinned Deployment -- an input-order pairing would swap them
+    const body = structuredClone(read(PREVIEWS, "plural_read_finished").body)
+    body.intent.declaration.deployments.reverse()
+    expect(intentDeploymentKeys(body.intent)).toEqual(["staging", "prod"])
+    const answer = readAnswer({ status: 200, json: body }, isView)
+    if (answer.kind !== "OK") throw new Error(JSON.stringify(answer))
+    const association = answer.value.receipt!.association.deployments
+    expect(pinnedDeployments(answer.value)).toEqual([
+      { deploymentKey: "prod", ...association[0] }, { deploymentKey: "staging", ...association[1] }])
   })
 
   it("refuses every plural shape from an answer tagged level 4 -- the intent, a Deployment-scoped disposition, a v2 scope", () => {
@@ -359,5 +374,64 @@ describe("the served result v2 and THIS Finish's per-Deployment explanation", ()
     expect(finishExplanation(applied, v1, pinned)).toEqual({ kind: "withheld", why: "RESULT_WITHOUT_CONTEXT" })
     expect(finishExplanationWithheldSentence("CONTEXT_NOT_THIS_RECEIPT")).toContain("Every member is still listed.")
     expect(finishExplanationWithheldSentence("PUBLICATION_WITHOUT_CONTEXT")).toContain("(PUBLICATION_WITHOUT_CONTEXT)")
+  })
+})
+
+describe("S1B-FE-CONTEXT-01: a resolution is one of the four exactly -- never a name an object inherits", () => {
+  // Each answer below is a real capture with ONE member's context resolution changed (said here). Before the fix,
+  // "toString" / "constructor" were read as valid and "__proto__" threw a TypeError from all three boundaries.
+  const INHERITED = ["toString", "constructor", "__proto__", "hasOwnProperty", "valueOf"]
+  const served = read(RESULTS, "served_context")
+  const accountId = String(served._provenance.request.params.account_id)
+  const resultWith = (resolution: string) => {
+    const body = structuredClone(served.body)
+    body.members[0].deployment_context.resolution = resolution
+    return parseResultResponse(200, body, accountId)
+  }
+  const previewWith = (resolution: string) => {
+    const body = structuredClone(read(PREVIEWS, "plural_preview").body)
+    body.accounts[0].display.members[0].deployment_context.resolution = resolution
+    return parsePreview(200, body)
+  }
+
+  it("the helper reads SINGLE, and is null -- never a throw -- for an ordinary unknown name and every inherited one", () => {
+    const context = (resolution: string) => ({ ...structuredClone(served.body.members[0].deployment_context), resolution })
+    expect(deploymentContext(context("SINGLE"))?.resolution).toBe("SINGLE")
+    for (const name of ["NOT_VALID", ...INHERITED]) expect(deploymentContext(context(name))).toBeNull()
+  })
+
+  it("the result reader: served with SINGLE; not read (malformed, not served, no throw) with any inherited name", () => {
+    expect(resultWith("SINGLE")).toMatchObject({ kind: "served", deploymentContext: { state: "SERVED", members: 3 } })
+    for (const name of ["NOT_VALID", ...INHERITED]) {
+      expect(resultWith(name)).toEqual({ kind: "unavailable", status: 200, reasonCode: RESPONSE_MALFORMED })
+    }
+  })
+
+  it("the preview reader: OK with SINGLE; malformed (no throw) with any inherited name", () => {
+    expect(previewWith("SINGLE")).toMatchObject({ kind: "OK", value: { contract: PREVIEW_CONTRACT_V2 } })
+    for (const name of ["NOT_VALID", ...INHERITED]) expect(previewWith(name)).toEqual(malformed())
+  })
+
+  it("a withheld reason is put in words only when the table OWNS it; an inherited name is shown as itself", () => {
+    for (const reason of INHERITED) {
+      const said = `Which Deployment each member belongs to is not shown: it could not be established (${reason}). Every member is still listed.`
+      expect(decorationSentence({ state: "UNAVAILABLE", reason })).toBe(said)
+      expect(finishExplanationWithheldSentence(reason)).toBe(said)
+      expect(assessmentWithheldSentence(reason)).toBe(`Per-Deployment members are not shown: the Deployment context is withheld (${reason}).`)
+    }
+    expect(decorationSentence({ state: "UNAVAILABLE", reason: "PUBLICATION_WITHOUT_CONTEXT" }))
+      .toContain("this membership was published before Deployments were explained")
+    expect(finishExplanationWithheldSentence("CONTEXT_NOT_THIS_RECEIPT")).toContain("other than this Finish recorded")
+    expect(assessmentWithheldSentence("ACCOUNT_NOT_ASSESSED")).toContain("this account was not assessed")
+  })
+
+  it("whole-decoration withholding is unchanged: an inherited-name REASON still lists every member and explains none", () => {
+    // an edit: the real withheld answer's reason
+    const body = structuredClone(read(RESULTS, "served_context_withheld").body)
+    body.deployment_context_state.reason = "toString"
+    const parsed = parseResultResponse(200, body, accountId)
+    expect(parsed).toMatchObject({ kind: "served", deploymentContext: { state: "UNAVAILABLE", reason: "toString" } })
+    expect((parsed as ResultServed).lists.members).toHaveLength(3)
+    expect(finishExplanation({ kind: "applied_result", generation: 41 }, parsed, null)).toEqual({ kind: "withheld", why: "toString" })
   })
 })

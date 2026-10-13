@@ -137,6 +137,6 @@ export function finishExplanationWithheldSentence(why: string): string {
     CONTEXT_NOT_THIS_RECEIPT: "the served membership names a Deployment, or a version of one, other than this Finish recorded "
       + "(a later save may have changed it)",
   }
-  if (!(why in words)) return decorationSentence({ state: "UNAVAILABLE", reason: why })
+  if (!Object.prototype.hasOwnProperty.call(words, why)) return decorationSentence({ state: "UNAVAILABLE", reason: why })
   return `Which Deployment each member belongs to is not shown: ${words[why]} (${why}). Every member is still listed.`
 }

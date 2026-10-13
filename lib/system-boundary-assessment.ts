@@ -10,11 +10,15 @@
  * Deployment's". Shared members are counted under each Deployment that names them AND said to be shared; the account's member
  * count is the backend's unique count, never a sum of per-Deployment numbers.
  *
- * The draft's Deployment keys pair with the preview's ``draft_targets.deployment_ids`` position for position: both are in
- * canonical ``deployment_key`` order (agreed A3, as the backend builds the draft: unified/system_boundary_plan.draft_records
- * walks the declaration's Deployments sorted by key). Every draft Deployment is NEW (agreed A1), so the context it is named by
- * is at version 1 (the draft writes each at version 1); a context naming any other key or version is not this draft's and
- * withholds the account's explanation.
+ * The draft's Deployment keys pair with the preview's ``draft_targets.deployment_ids`` position for position. CONTRACT
+ * (confirmed SW-S1A-20261013-48): preview v2 lists ``draft_targets.deployment_ids`` in canonical ASCII ``deployment_key``
+ * order -- as agreed A3 lists the receipt association -- whatever order the intent declares them in (the backend sorts the
+ * entries, unified/system_boundary_plan.py:678, and appends each id in that order, :1599); no key travels beside the id.
+ * Every draft Deployment is NEW (agreed A1), so the context it is named by is at version 1 (the draft writes each at version
+ * 1, :1592); a context naming any other key or version is not this draft's and withholds the account's explanation.
+ *
+ * Per-Deployment numbers cover the members the account's summary LISTS; a capped list's omitted members are a counted
+ * remainder, never attributed -- and loading further pages of the list does not add to these cards.
  */
 import {
   explain, pairDeployments, type Explanation, type PairedDeployment,
@@ -84,7 +88,8 @@ export function assessmentWithheldSentence(why: string): string {
     DRAFT_DEPLOYMENTS_NOT_PAIRED: "the preview's Deployments do not match this setup's",
     CONTEXT_NOT_THIS_DRAFT: "the preview names a Deployment that is not one of this setup's",
   }
-  return `Per-Deployment members are not shown: ${words[why] ?? "the Deployment context is withheld"} (${why}).`
+  const said = Object.prototype.hasOwnProperty.call(words, why) ? words[why] : "the Deployment context is withheld"
+  return `Per-Deployment members are not shown: ${said} (${why}).`
 }
 
 /** One Deployment's line: its own members, and the members it shares -- with another Deployment (MULTIPLE) or with the

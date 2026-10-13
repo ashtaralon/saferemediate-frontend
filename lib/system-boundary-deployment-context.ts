@@ -49,10 +49,11 @@ const CARDINALITY: Record<Resolution, (n: number) => boolean> = {
 }
 
 /** One member's context exactly as the backend writes it, or null: exact keys, a certifying resolution with its exact
- *  cardinality, canonical keys with positive versions, unique and sorted. */
+ *  cardinality, canonical keys with positive versions, unique and sorted. (S1B-FE-CONTEXT-01) The resolution is one of
+ *  RESOLUTIONS exactly -- never a name an object inherits ("toString", "constructor", "__proto__") -- before any lookup. */
 export function deploymentContext(value: unknown): DeploymentContext | null {
-  if (!isRecord(value) || !exactly(value, ["resolution", "deployments"]) || typeof value.resolution !== "string"
-      || !(value.resolution in CARDINALITY) || !Array.isArray(value.deployments)) return null
+  if (!isRecord(value) || !exactly(value, ["resolution", "deployments"])
+      || !(RESOLUTIONS as readonly unknown[]).includes(value.resolution) || !Array.isArray(value.deployments)) return null
   const resolution = value.resolution as Resolution
   if (!CARDINALITY[resolution](value.deployments.length)) return null
   const refs: DeploymentRef[] = []
@@ -92,9 +93,11 @@ export function decoratedMembersAreWhole(state: Decoration, members: readonly Re
  *  the backend's canonical sort agree. */
 export const DEPLOYMENT_KEY_NAME = /^[A-Za-z0-9._-]{1,64}$/
 
-/** The setup's Deployments paired with what the backend pinned for them (agreed A3: the association lists every Deployment in
- *  CANONICAL ``deployment_key`` order, and deployment keys are ASCII): the intent's keys sorted, position for position. Null
- *  when the counts differ, a key is not one the backend admits or a ref is not a Deployment key -- never a guessed pairing. */
+/** The setup's Deployments paired with what the backend lists for them: the intent's keys sorted, position for position.
+ *  Both lists the backend gives are in CANONICAL ``deployment_key`` order, whatever order the intent declares -- a receipt's
+ *  association (agreed A3) and a preview v2's ``draft_targets.deployment_ids`` (confirmed SW-S1A-20261013-48) -- and keys
+ *  are ASCII, so this sort is the backend's. Null when the counts differ, a key is not one the backend admits or a ref is
+ *  not a Deployment key -- never a guessed pairing. */
 export function pairDeployments(deploymentKeys: readonly string[], pinned: readonly DeploymentRef[]): PairedDeployment[] | null {
   const keys = [...deploymentKeys].sort()
   if (keys.length === 0 || keys.length !== pinned.length || new Set(keys).size !== keys.length
@@ -173,6 +176,7 @@ export function decorationSentence(state: Decoration): string {
     AUTHORED_REVISION_UNKNOWN: "this membership does not record which declarations it was computed from",
     CONTEXT_BUDGET_EXHAUSTED: "too many Deployments to explain in one read",
   }
-  return `Which Deployment each member belongs to is not shown: ${words[state.reason] ?? "it could not be established"} `
-    + `(${state.reason}). Every member is still listed.`
+  // the backend's reason is a string of the wire: only a reason this table OWNS is put in words, never an inherited name
+  const said = Object.prototype.hasOwnProperty.call(words, state.reason) ? words[state.reason] : "it could not be established"
+  return `Which Deployment each member belongs to is not shown: ${said} (${state.reason}). Every member is still listed.`
 }
