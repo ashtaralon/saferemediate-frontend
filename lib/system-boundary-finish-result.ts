@@ -14,9 +14,17 @@
  * An Applied that could not be read, was refused, answered another account, or reports saving not initialized leaves
  * whether this Finish is applied UNKNOWN: the result is withheld all the same, under that name, never "not applied". Likewise
  * a result read that failed or was refused is RESULT_UNREADABLE / RESULT_REFUSED, never "not served".
+ *
+ * (S1b, N4a) Which Deployment each member of that applied result belongs to (``finishExplanation``) is shown only on top of
+ * the same rule, and only when the result was read at level 2 with a SERVED decoration whose every context names a Deployment
+ * of THIS receipt at the version THIS receipt pinned. Anything else is withheld whole, by name -- never a partial or guessed
+ * attribution, and never instead of the unknown / updating wording above.
  */
 import { appliedSentence, type ParsedApplied } from "@/lib/system-boundary-applied"
-import type { ParsedResult } from "@/lib/system-boundary-result"
+import {
+  decorationSentence, explain, type Explanation, type PairedDeployment,
+} from "@/lib/system-boundary-deployment-context"
+import { RESULT_CONTRACT_V2, type ParsedResult } from "@/lib/system-boundary-result"
 
 export type Pairing =
   | { kind: "applied_result"; generation: number }
@@ -94,4 +102,41 @@ export function appliedLine(applied: ParsedApplied, completedRevision: number, p
     : `Applied status, on its own: ${generation} was built before this save`)
     + (p.why === "GENERATION_MISMATCH" ? " -- the result read beside it is of another generation"
       : " -- no served result of this system is read beside it") + ", so nothing is called this Finish's applied result."
+}
+
+/** (S1b) THIS Finish's applied result explained per Deployment, or why it is not. */
+export type FinishExplanation =
+  | { kind: "explained"; explanation: Explanation }
+  | { kind: "withheld"; why: string }
+
+/** (S1b, N4a) The applied result's members per Deployment of THIS Finish -- only when ALL hold:
+ *  1. ``p`` is ``applied_result`` (this account, this System, Applied of this Finish, the same generation);
+ *  2. the result was read at level 2 and its decoration is SERVED;
+ *  3. the setup's Deployments pair exactly with its RECEIPT's (``pinned``: lib/system-boundary-setup ``pinnedDeployments``);
+ *  4. every listed member's context names only those Deployments, each at the version the receipt pinned (a later version
+ *     of one -- a later save -- is not this Finish's, and withholds the whole explanation).
+ *  Otherwise withheld by name. Members a capped list leaves out are counted apart, never attributed. */
+export function finishExplanation(p: Pairing, result: ParsedResult, pinned: readonly PairedDeployment[] | null): FinishExplanation {
+  if (p.kind !== "applied_result" || result.kind !== "served") return { kind: "withheld", why: "NOT_THIS_FINISH_RESULT" }
+  if (result.contract !== RESULT_CONTRACT_V2 || result.deploymentContext === null) return { kind: "withheld", why: "RESULT_WITHOUT_CONTEXT" }
+  if (result.deploymentContext.state !== "SERVED") return { kind: "withheld", why: result.deploymentContext.reason }
+  if (pinned === null) return { kind: "withheld", why: "RECEIPT_DEPLOYMENTS_NOT_PAIRED" }
+  const explanation = explain(result.deploymentContext, result.lists.members, result.omitted.members ?? 0, pinned)
+  if (explanation === null) return { kind: "withheld", why: "RESULT_WITHOUT_CONTEXT" }
+  if (explanation.foreign.length > 0) return { kind: "withheld", why: "CONTEXT_NOT_THIS_RECEIPT" }
+  return { kind: "explained", explanation }
+}
+
+/** A withheld explanation in words; the code stays visible. The decoration's own reasons read as lib/system-boundary-deployment-
+ *  context says them. */
+export function finishExplanationWithheldSentence(why: string): string {
+  const words: Record<string, string> = {
+    NOT_THIS_FINISH_RESULT: "the result shown is not this Finish's applied result",
+    RESULT_WITHOUT_CONTEXT: "this installation's result read does not say which Deployment each member belongs to",
+    RECEIPT_DEPLOYMENTS_NOT_PAIRED: "this setup's Deployments do not match the ones its Finish recorded",
+    CONTEXT_NOT_THIS_RECEIPT: "the served membership names a Deployment, or a version of one, other than this Finish recorded "
+      + "(a later save may have changed it)",
+  }
+  if (!(why in words)) return decorationSentence({ state: "UNAVAILABLE", reason: why })
+  return `Which Deployment each member belongs to is not shown: ${words[why]} (${why}). Every member is still listed.`
 }

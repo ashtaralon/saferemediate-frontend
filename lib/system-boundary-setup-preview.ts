@@ -3,6 +3,13 @@
  * ``system_boundary_setup_preview/v1`` answer (GET /api/system-boundary/setup/{id}/preview?state_version=N, through the authoring
  * proxy; producer captures in __tests__/fixtures/system-boundary-setup-preview-captures/).
  *
+ * (S1b, setup level 5) A PLURAL draft previews as ``system_boundary_setup_preview/v2`` -- v1 plus every draft Deployment
+ * (``draft_targets.deployment_ids``) and, per account, the Deployment context publication v2 serves
+ * (``deployment_context_state``; each member's ``deployment_context``), read exactly by lib/system-boundary-deployment-context.ts
+ * and naming ONLY this draft's Deployments. The preview's OUTER state alone authorizes a Finish (``previewAuthorizesFinish``):
+ * a held account may still carry a context computed before it was held, and that nested SERVED decoration is a DIAGNOSTIC,
+ * never permission (producer captures in __tests__/fixtures/system-boundary-setup-preview-captures-v5/).
+ *
  * A preview is what finishing the SAVED revision at that state version would make the system -- computed by the same planner
  * publication runs, over the inventory and census the save would admit, and written nowhere. It is never applied membership
  * and has no generation: its identity is ``preview_digest`` (= the content hash of {basis_digest, result_digest}, checked here).
@@ -13,9 +20,12 @@
 import { AUTHORING_BASE } from "@/lib/system-boundary-authoring"
 import { contentHash } from "@/lib/content-hash"
 import { rows, type ResultList, type ResultRow } from "@/lib/system-boundary-result"
-import { PREVIEW_DIGEST, SETUP_CONTRACT, SETUP_CONTRACT_UNKNOWN } from "@/lib/system-boundary-setup"
+import { PREVIEW_DIGEST, SETUP_CONTRACT_LEVEL, SETUP_CONTRACT_UNKNOWN, setupLevelOf } from "@/lib/system-boundary-setup"
+import { decoratedMembersAreWhole, decoration, deploymentContext, type Decoration } from "@/lib/system-boundary-deployment-context"
 
 export const PREVIEW_CONTRACT = "system_boundary_setup_preview/v1"
+/** (S1b) A plural draft's preview; read only from a setup-level-5 answer. */
+export const PREVIEW_CONTRACT_V2 = "system_boundary_setup_preview/v2"
 export const PREVIEW_CONTRACT_UNKNOWN = "PREVIEW_CONTRACT_UNKNOWN"
 export const PREVIEW_STATES = ["COMPUTED", "HELD"] as const
 export type PreviewState = (typeof PREVIEW_STATES)[number]
@@ -46,6 +56,8 @@ export interface PreviewAccount {
   coverage: Record<string, unknown> | null
   counts: Omit<PreviewCounts, "unlisted"> | null
   display: PreviewDisplay | null
+  /** (S1b, v2) The account's Deployment decoration: null when it carries none (v1, or an account held before its rows). */
+  deploymentContext: Decoration | null
 }
 
 export interface PreviewPage {
@@ -62,7 +74,11 @@ export interface Preview {
   resultDigest: string
   setup: { setupId: string; intentRevision: number; stateVersion: number }
   systemId: string
-  deploymentId: string
+  /** The single draft's Deployment (v1); null for a plural draft, whose Deployments are ``deploymentIds``. */
+  deploymentId: string | null
+  /** (S1b) The contract read, and every draft Deployment's id (v1: the one). */
+  contract: string
+  deploymentIds: string[]
   rules: Record<string, unknown>
   counts: PreviewCounts
   accounts: PreviewAccount[]
@@ -80,6 +96,7 @@ const isInt = (value: unknown): value is number => Number.isSafeInteger(value)
 const isCount = (value: unknown): value is number => isInt(value) && value >= 0
 const isText = (value: unknown): value is string => typeof value === "string" && value.length > 0
 const ACCOUNT_ID = /^[0-9]{12}$/
+const DEPLOYMENT_ID = /^authored_deployment:[0-9a-f]{64}$/
 
 function counts(value: unknown, keys: readonly string[]): Record<string, number> | null {
   if (!isRecord(value) || Object.keys(value).length !== keys.length || !keys.every((k) => isCount(value[k]))) return null
@@ -101,7 +118,21 @@ function display(value: unknown, accountCounts: Record<string, number>): Preview
   return { systemName: value.system_name as string | null, lists, omitted: value.omitted as Partial<Record<ResultList, number>> }
 }
 
-function account(value: unknown): PreviewAccount | null {
+/** (S1b) The same JSON value, canonically -- false (never a throw) for a value canonical JSON cannot state. */
+function sameJson(a: unknown, b: unknown): boolean {
+  try {
+    return contentHash(a) === contentHash(b)
+  } catch {
+    return false
+  }
+}
+
+/** (S1b) Whether every context in ``members`` names only ``ours`` (this draft's Deployment keys). */
+const onlyOurs = (members: readonly Record<string, unknown>[], ours: ReadonlySet<string>): boolean =>
+  members.every((m) => !("deployment_context" in m)
+    || (deploymentContext(m.deployment_context)?.deployments.every((ref) => ours.has(ref.key)) ?? false))
+
+function account(value: unknown, v2: boolean, ours: ReadonlySet<string>): PreviewAccount | null {
   if (!isRecord(value) || typeof value.account_id !== "string" || !ACCOUNT_ID.test(value.account_id)
       || !isText(value.state) || !(value.reason === null || value.reason === undefined || typeof value.reason === "string")
       || !isRecord(value.inventory)) return null
@@ -116,17 +147,37 @@ function account(value: unknown): PreviewAccount | null {
     : display(value.display, accountCounts)
   if (shown === undefined) return null
   if (value.state === "COMPUTED" && (accountCounts === null || shown === null || !isRecord(value.coverage))) return null
+  // (S1b) The decoration: none at v1; at v2 every COMPUTED account carries one, and a HELD account carries one only when it
+  // was held after its rows were assembled (a diagnostic). Whole, naming only this draft's Deployments, and -- when the
+  // account lists the System -- the very decoration its display carries.
+  let decorated: Decoration | null = null
+  const members = shown ? shown.lists.members : []
+  const displayed = isRecord(value.display) ? value.display : null
+  if (!v2 || !("deployment_context_state" in value)) {
+    if ((v2 && value.state === "COMPUTED") || "deployment_context_state" in value || members.some((m) => "deployment_context" in m)
+        || (displayed !== null && "deployment_context_state" in displayed)) return null
+  } else {
+    decorated = decoration(value.deployment_context_state)
+    if (decorated === null || !onlyOurs(members, ours)) return null
+    if (shown !== null && accountCounts !== null) {
+      if (displayed === null || !("deployment_context_state" in displayed)
+          || !sameJson(displayed.deployment_context_state, value.deployment_context_state)
+          || !decoratedMembersAreWhole(decorated, members, accountCounts.members, shown.omitted.members ?? 0)) return null
+    } else if (decorated.state === "SERVED" && decorated.members !== 0) {
+      return null                                       // no row of the System here: nothing listed to carry a context
+    }
+  }
   return {
     accountId: value.account_id, state: value.state, reason: (value.reason as string | null | undefined) ?? null,
     inventory: { generation: (inventory.generation as number | undefined) ?? null,
                  projectedThrough: (inventory.projected_through as string | undefined) ?? null },
     coverage: isRecord(value.coverage) ? value.coverage : null,
-    counts: accountCounts as PreviewAccount["counts"], display: shown,
+    counts: accountCounts as PreviewAccount["counts"], display: shown, deploymentContext: decorated,
   }
 }
 
-function page(value: unknown, previewDigest: string): PreviewPage | null {
-  if (!isRecord(value) || value.contract !== PREVIEW_CONTRACT || value.preview_digest !== previewDigest
+function page(value: unknown, previewDigest: string, contract: string): PreviewPage | null {
+  if (!isRecord(value) || value.contract !== contract || value.preview_digest !== previewDigest
       || typeof value.account_id !== "string" || !ACCOUNT_ID.test(value.account_id)
       || !(PREVIEW_LISTS as readonly unknown[]).includes(value.bucket) || !(value.next === null || isText(value.next))) return null
   const entries = rows(value.entries)
@@ -146,8 +197,11 @@ export function parsePreview(status: number | null, json: unknown): PreviewRead 
     return { kind: "REFUSED", status, code, detail: rest }
   }
   if (!isRecord(json)) return { kind: "UNAVAILABLE", status, code: "MALFORMED_RESPONSE" }
-  if (json.setup_contract !== SETUP_CONTRACT) return { kind: "UNAVAILABLE", status, code: SETUP_CONTRACT_UNKNOWN }
-  if (json.contract !== PREVIEW_CONTRACT) return { kind: "UNAVAILABLE", status, code: PREVIEW_CONTRACT_UNKNOWN }
+  const level = setupLevelOf({ contract: json.setup_contract })
+  if (level === null) return { kind: "UNAVAILABLE", status, code: SETUP_CONTRACT_UNKNOWN }
+  // v1 under either setup level (a single draft); v2 only from a setup-level-5 answer (a plural draft)
+  const v2 = json.contract === PREVIEW_CONTRACT_V2 && level === SETUP_CONTRACT_LEVEL
+  if (json.contract !== PREVIEW_CONTRACT && !v2) return { kind: "UNAVAILABLE", status, code: PREVIEW_CONTRACT_UNKNOWN }
   const malformed: PreviewRead = { kind: "UNAVAILABLE", status, code: "MALFORMED_RESPONSE" }
   const digests = [json.preview_digest, json.basis_digest, json.result_digest]
   if (!digests.every((d) => typeof d === "string" && PREVIEW_DIGEST.test(d))) return malformed
@@ -157,25 +211,49 @@ export function parsePreview(status: number | null, json: unknown): PreviewRead 
   const setup = json.setup
   const targets = json.draft_targets
   if (!isRecord(setup) || !isText(setup.setup_id) || !isCount(setup.intent_revision) || !isCount(setup.state_version)
-      || !isRecord(targets) || !isText(targets.system_id) || !isText(targets.deployment_id) || !isRecord(json.rules)) return malformed
+      || !isRecord(targets) || !isText(targets.system_id) || !isRecord(json.rules)) return malformed
+  // v1 names its one Deployment; v2 every draft Deployment (distinct authored ids), and nothing else
+  const ids = v2 ? targets.deployment_ids : [targets.deployment_id]
+  if (!(v2 ? Object.keys(targets).length === 2 && "deployment_ids" in targets : isText(targets.deployment_id))
+      || !Array.isArray(ids) || ids.length === 0 || !ids.every((id) => typeof id === "string" && DEPLOYMENT_ID.test(id))
+      || new Set(ids).size !== ids.length) return malformed
+  const deploymentIds = ids as string[]
+  const ours = new Set(deploymentIds.map((id) => `DEPLOYMENT#${id}`))
   const total = counts(json.counts, ["members", "dependencies", "held", "not_members", "stale_members", "unlisted"])
   if (total === null || !Array.isArray(json.accounts)) return malformed
-  const accounts = json.accounts.map(account)
+  const accounts = json.accounts.map((a) => account(a, v2, ours))
   if (accounts.some((a) => a === null)) return malformed
   const read = accounts as PreviewAccount[]
   if (new Set(read.map((a) => a.accountId)).size !== read.length) return malformed
   // COMPUTED: every account computed (the backend's own rule); a held account makes the whole preview HELD.
   if ((json.state === "COMPUTED") !== read.every((a) => a.state === "COMPUTED")) return malformed
-  const shown = json.page === undefined ? null : page(json.page, previewDigest)
+  const contract = json.contract as string
+  const shown = json.page === undefined ? null : page(json.page, previewDigest, contract)
   if (json.page !== undefined && shown === null) return malformed
   // (S1A-UI-PREVIEW-02) a page of an account this preview does not have is no page of it
   if (shown !== null && !read.some((a) => a.accountId === shown.accountId)) return malformed
+  // (S1b) a page's entries carry contexts exactly as its account's decoration says: every member, or none
+  if (shown !== null) {
+    const of = read.find((a) => a.accountId === shown.accountId)?.deploymentContext ?? null
+    const contexts = shown.bucket === "members" && of?.state === "SERVED"
+    if (!onlyOurs(shown.entries, ours)
+        || !shown.entries.every((e) => (contexts ? deploymentContext(e.deployment_context) !== null : !("deployment_context" in e)))) {
+      return malformed
+    }
+  }
   return { kind: "OK", value: {
     state: json.state as PreviewState, previewDigest, basisDigest, resultDigest,
     setup: { setupId: setup.setup_id, intentRevision: setup.intent_revision, stateVersion: setup.state_version },
-    systemId: targets.system_id, deploymentId: targets.deployment_id, rules: json.rules,
+    systemId: targets.system_id, deploymentId: v2 ? null : (targets.deployment_id as string), contract, deploymentIds,
+    rules: json.rules,
     counts: total as unknown as PreviewCounts, accounts: read, page: shown,
   } }
+}
+
+/** (S1b) The OUTER state is what authorizes a Finish: a COMPUTED preview. A HELD preview authorizes none, whatever an account's
+ *  nested decoration says (a context computed before the account was held is a diagnostic). */
+export function previewAuthorizesFinish(preview: Preview): boolean {
+  return preview.state === "COMPUTED"
 }
 
 /** The preview path: ONE saved state version, optionally one page of one list of one account. */

@@ -1,0 +1,1116 @@
+{
+  "_provenance": {
+    "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/accounts/111122223333/census",
+      "params": {
+        "depth": "collected"
+      },
+      "body": null
+    }
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "body": {
+    "contract": "account_census_read/v1",
+    "account_id": "111122223333",
+    "state": "populated",
+    "reason_code": null,
+    "account_authority": {
+      "registration_id": "0123456789abcdef0123456789abcdef",
+      "install_account": false
+    },
+    "publication": {
+      "attempt": "fe871fc8a8604bef9eb9f6f5582e36ce",
+      "generation": 1,
+      "source_identity": "v1:a24a5dd6addfdd02bc307f092dfd208e44a309908afe4cd2f87c23275103e36a",
+      "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+      "published_at_epoch": 1791928833,
+      "confirmed_at_epoch": 1791928833,
+      "marker": {
+        "dispatched_at": "2026-10-13T21:00:33.744220+00:00",
+        "schedule": "rate(1 day)",
+        "regions": [
+          "eu-west-1"
+        ],
+        "global_region": "eu-west-1"
+      },
+      "inventory": {
+        "status": "served",
+        "reason": "",
+        "generation": 1,
+        "source_identity": "v1:be3d1d804b8425eba9b33819c7ae9e899457b1ea688a836130d1361f168a55bd"
+      }
+    },
+    "coverage": {
+      "account_state": "COMPLETE",
+      "gaps": [],
+      "not_recorded": [],
+      "not_observable": true,
+      "not_observable_regions": [
+        "eu-west-1"
+      ],
+      "scopes": [
+        {
+          "region": "eu-west-1",
+          "source": "cloudformation",
+          "state": "COMPLETE",
+          "manifest_coverage": "COMPLETE",
+          "action": "cloudformation:ListStackResources",
+          "detail_code": null,
+          "error_category": null,
+          "count": 3,
+          "deleted_count": 0,
+          "stacks_listed": 1,
+          "stacks_in_progress": 0,
+          "stacks_deleted": 0,
+          "pagination_complete": true,
+          "collected_at": "2026-10-13T22:00:33.744220+00:00",
+          "view_filter": null,
+          "includes_global": false,
+          "recording": null,
+          "per_type": [],
+          "stacks_unasked": 0
+        }
+      ]
+    },
+    "totals": {
+      "rows_total": 30,
+      "present": 30,
+      "deleted": 0,
+      "by_type": {
+        "account:regions": 1,
+        "ec2:instance": 1,
+        "ec2:internet-gateway": 1,
+        "ec2:nat-gateway": 1,
+        "ec2:network-acl": 1,
+        "ec2:network-interface": 1,
+        "ec2:route-table": 1,
+        "ec2:security-group": 1,
+        "ec2:subnet": 1,
+        "ec2:vpc": 1,
+        "ec2:vpc-endpoint": 1,
+        "ec2:vpc-endpoint-authorization": 1,
+        "eks:cluster": 1,
+        "elasticloadbalancing:listener": 1,
+        "elasticloadbalancing:load-balancer": 1,
+        "elasticloadbalancing:target-group": 1,
+        "events:event-bus-authorization": 1,
+        "iam:policy": 1,
+        "iam:role": 1,
+        "kms:key-authorization": 1,
+        "lambda:function": 1,
+        "lambda:function-authorization": 1,
+        "organizations:account-policy-context": 1,
+        "rds:db-cluster": 1,
+        "rds:db-instance": 1,
+        "s3:bucket": 1,
+        "s3:bucket-authorization": 1,
+        "secretsmanager:secret-authorization": 1,
+        "sns:topic-authorization": 1,
+        "sqs:queue-authorization": 1
+      },
+      "by_depth": {
+        "collected": 30,
+        "listed_only": 0,
+        "inventory_pending": 0
+      },
+      "by_source": {
+        "config": 0,
+        "tagging": 0,
+        "cloudformation": 3,
+        "resource_explorer": 0,
+        "certified": 30
+      },
+      "by_region": {
+        "eu-west-1": 24,
+        "global": 6
+      }
+    },
+    "outcome": {
+      "outcome": "CURRENT",
+      "detail": "published",
+      "attempt": "fe871fc8a8604bef9eb9f6f5582e36ce",
+      "recorded_at_epoch": 1791928833,
+      "registration_id": "0123456789abcdef0123456789abcdef",
+      "registration_recorded": true
+    },
+    "rows": [
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/account/regions/111122223333",
+        "resource_type": "account:regions",
+        "scope_kind": "global",
+        "region": "global",
+        "native_id": "111122223333",
+        "arn": null,
+        "name": "111122223333",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:35fa6e31dec62b3d00592454f6902252885579d9bd6432f56f6eb566f47787a6",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "details": {},
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        },
+        "row_key": "aws://aws/111122223333/eu-west-1/account/regions/111122223333",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/instance/i-1",
+        "resource_type": "ec2:instance",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "i-1",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:instance/i-1",
+        "name": "i-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:334a8c79fa570931c7ba3d6a0033135a6e72894fd597af8b7932ea0b2ef47f4b",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "provided",
+          "value": "i-1",
+          "source": "instance_id"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {
+          "iam_instance_profile": "arn:aws:iam::111122223333:instance-profile/app-role"
+        },
+        "eligibility": {
+          "selectable": true,
+          "reason": "SUPPORTED"
+        },
+        "row_key": "aws://aws/111122223333/eu-west-1/ec2/instance/i-1",
+        "depth": "collected",
+        "sources": [
+          "cloudformation"
+        ],
+        "cfn": {
+          "stack_id": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+          "logical_id": "Web",
+          "stack_status": "UPDATE_COMPLETE",
+          "last_updated": "2026-10-06T12:00:00+00:00",
+          "read_outcome": "COMPLETE"
+        },
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/internet-gateway/igw-1",
+        "resource_type": "ec2:internet-gateway",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "igw-1",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:internet-gateway/igw-1",
+        "name": "igw-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:9926bf9f9e039c4b84bb3d450cf4f01c550b332710be495939570b65b57e187d",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "provided",
+          "value": "igw-1",
+          "source": "internet_gateway_id"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {},
+        "eligibility": {
+          "selectable": true,
+          "reason": "SUPPORTED"
+        },
+        "row_key": "aws://aws/111122223333/eu-west-1/ec2/internet-gateway/igw-1",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/nat-gateway/nat-1",
+        "resource_type": "ec2:nat-gateway",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "nat-1",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:natgateway/nat-1",
+        "name": "nat-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:59e098d78bc981bbfb7cd8c5de4092f3beb1a8c7b96062005d006faa170be74d",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "provided",
+          "value": "nat-1",
+          "source": "nat_gateway_id"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {},
+        "eligibility": {
+          "selectable": true,
+          "reason": "SUPPORTED"
+        },
+        "row_key": "aws://aws/111122223333/eu-west-1/ec2/nat-gateway/nat-1",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/network-acl/acl-1",
+        "resource_type": "ec2:network-acl",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "acl-1",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:network-acl/acl-1",
+        "name": "acl-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:f59f706753db321fabfa9a49705532519948d7737a6ba271c6de09ce8aa100d7",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "provided",
+          "value": "acl-1",
+          "source": "network_acl_id"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {},
+        "eligibility": {
+          "selectable": true,
+          "reason": "SUPPORTED"
+        },
+        "row_key": "aws://aws/111122223333/eu-west-1/ec2/network-acl/acl-1",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/network-interface/eni-1",
+        "resource_type": "ec2:network-interface",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "eni-1",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:network-interface/eni-1",
+        "name": "eni-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:e56c6f1e04fe3fec055696c9b47248721728a163a732591cc2f3f3c5e1249b17",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "provided",
+          "value": "eni-1",
+          "source": "network_interface_id"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {},
+        "eligibility": {
+          "selectable": true,
+          "reason": "SUPPORTED"
+        },
+        "row_key": "aws://aws/111122223333/eu-west-1/ec2/network-interface/eni-1",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/route-table/rtb-1",
+        "resource_type": "ec2:route-table",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "rtb-1",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:route-table/rtb-1",
+        "name": "rtb-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:b3bf6c4ae285a65d480c3663eb870aabd1edea224ab65405edbd6e5e173bf41e",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "provided",
+          "value": "rtb-1",
+          "source": "route_table_id"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {},
+        "eligibility": {
+          "selectable": true,
+          "reason": "SUPPORTED"
+        },
+        "row_key": "aws://aws/111122223333/eu-west-1/ec2/route-table/rtb-1",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/security-group/sg-1",
+        "resource_type": "ec2:security-group",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "sg-1",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:security-group/sg-1",
+        "name": "sg-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:9bf6a031438498b302289fbf824ddb8d655d3d344b4ddddb88ee9ffbea8a8c53",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "provided",
+          "value": "sg-1",
+          "source": "group_id"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {},
+        "eligibility": {
+          "selectable": true,
+          "reason": "SUPPORTED"
+        },
+        "row_key": "aws://aws/111122223333/eu-west-1/ec2/security-group/sg-1",
+        "depth": "collected",
+        "sources": [
+          "cloudformation"
+        ],
+        "cfn": {
+          "stack_id": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+          "logical_id": "WebSg",
+          "stack_status": "UPDATE_COMPLETE",
+          "last_updated": "2026-10-06T12:00:00+00:00",
+          "read_outcome": "COMPLETE"
+        },
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/subnet/subnet-1",
+        "resource_type": "ec2:subnet",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "subnet-1",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:subnet/subnet-1",
+        "name": "subnet-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:45d50b6dd252bb929de5869946a33851801a449260eccc2cc851f61a32dad064",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "provided",
+          "value": "subnet-1",
+          "source": "subnet_id"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {},
+        "eligibility": {
+          "selectable": true,
+          "reason": "SUPPORTED"
+        },
+        "row_key": "aws://aws/111122223333/eu-west-1/ec2/subnet/subnet-1",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/vpc/vpc-1",
+        "resource_type": "ec2:vpc",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "vpc-1",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:vpc/vpc-1",
+        "name": "vpc-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:439d1421a1080ac1fa10dade4d365620a9393d7fc5a33f20d879735c407db01a",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "provided",
+          "value": "vpc-1",
+          "source": "vpc_id"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {},
+        "eligibility": {
+          "selectable": true,
+          "reason": "SUPPORTED"
+        },
+        "row_key": "aws://aws/111122223333/eu-west-1/ec2/vpc/vpc-1",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/vpc-endpoint/vpce-1",
+        "resource_type": "ec2:vpc-endpoint",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "vpce-1",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:vpc-endpoint/vpce-1",
+        "name": "vpce-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:e825c7e2bb710fbf428470d03298ac2cf9263eb1fa6d56ec0c4e192f9f0bd36e",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "provided",
+          "value": "vpce-1",
+          "source": "vpc_endpoint_id"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {},
+        "eligibility": {
+          "selectable": true,
+          "reason": "SUPPORTED"
+        },
+        "row_key": "aws://aws/111122223333/eu-west-1/ec2/vpc-endpoint/vpce-1",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/vpc-endpoint-authorization/vpce-1",
+        "resource_type": "ec2:vpc-endpoint-authorization",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "vpce-1",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:vpc-endpoint/vpce-1",
+        "name": "vpce-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:e64f2bfd98a15ad5793d958fff9b9507cbeb12be9171fda5fa66974b4d8663a6",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "details": {},
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        },
+        "row_key": "aws://aws/111122223333/eu-west-1/ec2/vpc-endpoint-authorization/vpce-1",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/eks/cluster/eks-1",
+        "resource_type": "eks:cluster",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "eks-1",
+        "arn": "arn:aws:eks:eu-west-1:111122223333:cluster/eks-1",
+        "name": "eks-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:6dd4763623fd7f4eeacbc867816a6bfe87eaa1091987d5395d5fe77676269873",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "details": {},
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        },
+        "row_key": "aws://aws/111122223333/eu-west-1/eks/cluster/eks-1",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/elasticloadbalancing/listener/app/lb-1/aaaa/cccc",
+        "resource_type": "elasticloadbalancing:listener",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "app/lb-1/aaaa/cccc",
+        "arn": "arn:aws:elasticloadbalancing:eu-west-1:111122223333:listener/app/lb-1/aaaa/cccc",
+        "name": "app/lb-1/aaaa/cccc",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:1a81bb5df8d2a93bd9eb49e57352b0e1d39badac9cf9e9ebf33c7ecfcfe213d2",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "provided",
+          "value": "arn:aws:elasticloadbalancing:eu-west-1:111122223333:listener/app/lb-1/aaaa/cccc",
+          "source": "arn"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "details": {},
+        "eligibility": {
+          "selectable": true,
+          "reason": "SUPPORTED"
+        },
+        "row_key": "aws://aws/111122223333/eu-west-1/elasticloadbalancing/listener/app/lb-1/aaaa/cccc",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/elasticloadbalancing/load-balancer/app/lb-1/aaaa",
+        "resource_type": "elasticloadbalancing:load-balancer",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "app/lb-1/aaaa",
+        "arn": "arn:aws:elasticloadbalancing:eu-west-1:111122223333:loadbalancer/app/lb-1/aaaa",
+        "name": "app/lb-1/aaaa",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:35ecbd66944884d6bcebf9ea801bcaedfa7a891594fd88a3db2ef07984b36db4",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "provided",
+          "value": "arn:aws:elasticloadbalancing:eu-west-1:111122223333:loadbalancer/app/lb-1/aaaa",
+          "source": "arn"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "details": {},
+        "eligibility": {
+          "selectable": true,
+          "reason": "SUPPORTED"
+        },
+        "row_key": "aws://aws/111122223333/eu-west-1/elasticloadbalancing/load-balancer/app/lb-1/aaaa",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/elasticloadbalancing/target-group/tg-1/bbbb",
+        "resource_type": "elasticloadbalancing:target-group",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "tg-1/bbbb",
+        "arn": "arn:aws:elasticloadbalancing:eu-west-1:111122223333:targetgroup/tg-1/bbbb",
+        "name": "tg-1/bbbb",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:f27954b4c1ce874c6fd611890f6226b07703a218df357791eef0e3cd217a8c74",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "provided",
+          "value": "arn:aws:elasticloadbalancing:eu-west-1:111122223333:targetgroup/tg-1/bbbb",
+          "source": "arn"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "details": {},
+        "eligibility": {
+          "selectable": true,
+          "reason": "SUPPORTED"
+        },
+        "row_key": "aws://aws/111122223333/eu-west-1/elasticloadbalancing/target-group/tg-1/bbbb",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/events/event-bus-authorization/bus-1",
+        "resource_type": "events:event-bus-authorization",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "bus-1",
+        "arn": null,
+        "name": "bus-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:b1d7ed2c3c468bb6b51d13b82d260e720ed75551010a0e9412a661cc255218e9",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "details": {},
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        },
+        "row_key": "aws://aws/111122223333/eu-west-1/events/event-bus-authorization/bus-1",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/global/iam/policy/policy-1",
+        "resource_type": "iam:policy",
+        "scope_kind": "global",
+        "region": "global",
+        "native_id": "policy-1",
+        "arn": null,
+        "name": "policy-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:7179a9a0de0c43ce45508af3e988cd52b10a7544e7df59958d8cf1de11c061d9",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "details": {},
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        },
+        "row_key": "aws://aws/111122223333/global/iam/policy/policy-1",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/global/iam/role/app-role",
+        "resource_type": "iam:role",
+        "scope_kind": "global",
+        "region": "global",
+        "native_id": "app-role",
+        "arn": "arn:aws:iam::111122223333:role/app-role",
+        "name": "app-role",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:d3d3099146665608ff5992a444e34432dce3ec0500ec7ec6ab47892095db5f7c",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "provided",
+          "value": "AROAAPPROLE000000001",
+          "source": "role_id"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {},
+        "eligibility": {
+          "selectable": true,
+          "reason": "SUPPORTED"
+        },
+        "row_key": "aws://aws/111122223333/global/iam/role/app-role",
+        "depth": "collected",
+        "sources": [
+          "cloudformation"
+        ],
+        "cfn": {
+          "stack_id": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+          "logical_id": "WebRole",
+          "stack_status": "UPDATE_COMPLETE",
+          "last_updated": "2026-10-06T12:00:00+00:00",
+          "read_outcome": "COMPLETE"
+        },
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/kms/key-authorization/key-1",
+        "resource_type": "kms:key-authorization",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "key-1",
+        "arn": null,
+        "name": "key-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:56efea77edea3a5544c9f4c168f5e4b1afa8d31c5849d1e620db2d3cd2f39bcf",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "details": {},
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        },
+        "row_key": "aws://aws/111122223333/eu-west-1/kms/key-authorization/key-1",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/lambda/function/fn-1",
+        "resource_type": "lambda:function",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "fn-1",
+        "arn": "arn:aws:lambda:eu-west-1:111122223333:function:fn-1",
+        "name": "fn-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:0c5241b09913fbe817eb1fc356788dade31269da4ca64606858f736d92e1d547",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {
+          "is_vpc_attached": true,
+          "vpc_id": "vpc-1"
+        },
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        },
+        "row_key": "aws://aws/111122223333/eu-west-1/lambda/function/fn-1",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/lambda/function-authorization/fn-1",
+        "resource_type": "lambda:function-authorization",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "fn-1",
+        "arn": null,
+        "name": "fn-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:0296a772182e32a9278f8d5a02e7b9ff7a062a8817afcc42dea8b7139763c37e",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "details": {},
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        },
+        "row_key": "aws://aws/111122223333/eu-west-1/lambda/function-authorization/fn-1",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/global/organizations/account-policy-context/111122223333",
+        "resource_type": "organizations:account-policy-context",
+        "scope_kind": "global",
+        "region": "global",
+        "native_id": "111122223333",
+        "arn": null,
+        "name": "111122223333",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:88f62dd57297ddf3715306815e0e65dfbfc0bc930b166ddb5e815adaaa11aec7",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "details": {},
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        },
+        "row_key": "aws://aws/111122223333/global/organizations/account-policy-context/111122223333",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/rds/db-cluster/cluster-1",
+        "resource_type": "rds:db-cluster",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "cluster-1",
+        "arn": "arn:aws:rds:eu-west-1:111122223333:cluster:cluster-1",
+        "name": "cluster-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:12c5d4c955aa4d5529c51e578555a4e5ce94bcfbc47fac7a664a724491257fb0",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {},
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        },
+        "row_key": "aws://aws/111122223333/eu-west-1/rds/db-cluster/cluster-1",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/rds/db-instance/db-1",
+        "resource_type": "rds:db-instance",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "db-1",
+        "arn": "arn:aws:rds:eu-west-1:111122223333:db:db-1",
+        "name": "db-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:0bc5752511c0aa185ec0309bada9e6a4064a6c539ab90d40f4a9c6c21205bdaa",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {},
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        },
+        "row_key": "aws://aws/111122223333/eu-west-1/rds/db-instance/db-1",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/global/s3/bucket/bucket-1",
+        "resource_type": "s3:bucket",
+        "scope_kind": "global",
+        "region": "global",
+        "native_id": "bucket-1",
+        "arn": null,
+        "name": "bucket-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:3cedb9d592a208a865808d3b6e6c26cf84282d90445469fd4a601d54d68b16c2",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {},
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        },
+        "row_key": "aws://aws/111122223333/global/s3/bucket/bucket-1",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/global/s3/bucket-authorization/bucket-1",
+        "resource_type": "s3:bucket-authorization",
+        "scope_kind": "global",
+        "region": "global",
+        "native_id": "bucket-1",
+        "arn": null,
+        "name": "bucket-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:33b630c0c66946920701e310d1cebcdbbae8f67ecf2d9847946df6db8e7a6953",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "details": {},
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        },
+        "row_key": "aws://aws/111122223333/global/s3/bucket-authorization/bucket-1",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/secretsmanager/secret-authorization/secret-1",
+        "resource_type": "secretsmanager:secret-authorization",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "secret-1",
+        "arn": null,
+        "name": "secret-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:ae06ef5cbbad7668675e7e205051bb85e942eb88cf0355c799c9e9af40e17262",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "details": {},
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        },
+        "row_key": "aws://aws/111122223333/eu-west-1/secretsmanager/secret-authorization/secret-1",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/sns/topic-authorization/topic-1",
+        "resource_type": "sns:topic-authorization",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "topic-1",
+        "arn": null,
+        "name": "topic-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:194405b953f1fd7cbf11cbd113130be58ceadbf9476b9459962f94e52cd191ee",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "details": {},
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        },
+        "row_key": "aws://aws/111122223333/eu-west-1/sns/topic-authorization/topic-1",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/sqs/queue-authorization/queue-1",
+        "resource_type": "sqs:queue-authorization",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "queue-1",
+        "arn": null,
+        "name": "queue-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:03f18df8d226da5e8599215b2760e097469cdd326e796102c220d89cdbf1a836",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "details": {},
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        },
+        "row_key": "aws://aws/111122223333/eu-west-1/sqs/queue-authorization/queue-1",
+        "depth": "collected",
+        "sources": [],
+        "cfn": null,
+        "deleted": false
+      }
+    ],
+    "next_cursor": null,
+    "has_more": false
+  }
+}

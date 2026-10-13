@@ -13,6 +13,7 @@
  */
 import { AUTHORING_BASE } from "@/lib/system-boundary-authoring"
 import { contentHash } from "@/lib/content-hash"
+import { pairDeployments, type PairedDeployment } from "@/lib/system-boundary-deployment-context"
 
 /** The ``system_boundary_setup`` release contract this client speaks and reads (lib/release-contract.json requires and
  *  accepts it; backend unified/system_boundary_setup.SETUP_CONTRACT_LEVEL). Level 2 (onboarding G3-A): every success answer
@@ -23,8 +24,19 @@ import { contentHash } from "@/lib/content-hash"
  *  (``requirement_profile``); a v2-tagged answer is now another level, refused like a v1 one. Level 4 (S1a): the draft preview
  *  (lib/system-boundary-setup-preview.ts) and a Finish that names the preview the person reviewed (``preview_digest``), whose
  *  receipt pins it (``receipt.preview``); a v3-tagged answer is now another level. */
-export const SETUP_CONTRACT_LEVEL = 4
+export const SETUP_CONTRACT_REQUIRED = 4
+/** (S1b) Level 5: the PLURAL setup -- an intent whose declaration carries ``deployments``, dispositions scoped to a Deployment
+ *  (``scope.deployment``), a receipt pinning every Deployment and ``result_scope`` v2. This client reads level 4 AND level 5
+ *  answers (lib/release-contract.json requires 4, accepts 5); a plural shape in a level-4 answer is no answer at all. */
+export const SETUP_CONTRACT_LEVEL = 5
 export const SETUP_CONTRACT = `system_boundary_setup/v${SETUP_CONTRACT_LEVEL}`
+const SETUP_LEVELS: ReadonlyMap<unknown, number> = new Map([
+  [`system_boundary_setup/v${SETUP_CONTRACT_REQUIRED}`, SETUP_CONTRACT_REQUIRED], [SETUP_CONTRACT, SETUP_CONTRACT_LEVEL],
+])
+/** The setup level an answer is tagged with, when it is one this client reads; else null. */
+export function setupLevelOf(json: unknown): number | null {
+  return isRecord(json) ? (SETUP_LEVELS.get(json.contract) ?? null) : null
+}
 export const SETUP_CONTRACT_UNKNOWN = "SETUP_CONTRACT_UNKNOWN"
 
 /** Rev 7 section 6.2 -- the eight steps, in order (Inventory is context, not a step). Same spelling as the backend. */
@@ -59,7 +71,8 @@ export type RefKind = (typeof REF_KINDS)[number]
 /** What the person authors for one subject: NEVER a status, a fact or a consequence. */
 export interface AuthoredDisposition {
   subject: string
-  scope: { account_id: string; region?: string }
+  /** (S1b, level 5) ``deployment``: the ``deployment_key`` a code / iac disposition of a plural intent belongs to. */
+  scope: { account_id: string; region?: string; deployment?: string }
   choice: Choice
   reason_code: string
   reason_text?: string
@@ -69,7 +82,7 @@ export interface AuthoredDisposition {
 /** The server's reading of one disposition, under the CURRENT person and registration. */
 export interface DerivedDisposition {
   subject: string
-  scope: { account_id: string; region?: string }
+  scope: { account_id: string; region?: string; deployment?: string }
   choice: Choice
   resolution: { state: "resolved" | "assessed" | "held" | "unavailable" | "none"; reason?: string | null; registration_id?: string;
                 proof?: Record<string, unknown> }
@@ -150,6 +163,10 @@ export interface PreviewPin {
 export type ResultScope =
   | { v: 1; state: "SERVED"; accounts: string[]; from: { key: string; version: number } }
   | { v: 1; state: "UNAVAILABLE"; reason: string; from?: { key: string; version: number } }
+  /** (S1b, level 5) Version 2, for a PLURAL receipt: every pinned Deployment, in the association's order; withheld WHOLE when
+   *  any one cannot be read, naming the first that failed. */
+  | { v: 2; state: "SERVED"; accounts: string[]; from: { key: string; version: number }[] }
+  | { v: 2; state: "UNAVAILABLE"; reason: string; from: { key: string; version: number }[]; failed?: { key: string; version: number } }
 
 export interface SetupView extends SetupSummary {
   intent: SetupIntent
@@ -348,6 +365,7 @@ const isSource = (value: unknown): boolean =>
 /** (S1a R7) A result scope read exactly: SERVED names 12-digit accounts (sorted, distinct) and the pinned Deployment; else
  *  UNAVAILABLE with its reason. Present on every level-4 view and status (null before a receipt). */
 export function isResultScope(value: unknown): value is ResultScope {
+  if (isRecord(value) && value.v === 2) return isResultScopeV2(value)
   if (!isRecord(value) || value.v !== 1) return false
   if (value.state === "SERVED") {
     const accounts = value.accounts
@@ -359,6 +377,29 @@ export function isResultScope(value: unknown): value is ResultScope {
     && (exactly(value, ["v", "state", "reason"]) || (exactly(value, ["v", "state", "reason", "from"]) && isSource(value.from)))
 }
 
+const isAccounts = (accounts: unknown): accounts is string[] =>
+  Array.isArray(accounts) && accounts.length > 0 && accounts.every((a) => typeof a === "string" && /^[0-9]{12}$/.test(a))
+  && accounts.every((a, i) => i === 0 || (accounts[i - 1] as string) < a)
+
+/** (S1b) Version 2 read exactly: SERVED names sorted, distinct accounts and EVERY pinned Deployment (a non-empty list of
+ *  distinct sources); UNAVAILABLE names its reason, the same list and, when one failed, which (one of them). */
+function isResultScopeV2(value: Record<string, unknown>): boolean {
+  const from = value.from
+  if (!Array.isArray(from) || !from.every(isSource) || new Set(from.map((s) => (s as { key: string }).key)).size !== from.length) {
+    return false
+  }
+  if (value.state === "SERVED") return exactly(value, ["v", "state", "accounts", "from"]) && from.length > 0 && isAccounts(value.accounts)
+  if (value.state !== "UNAVAILABLE" || typeof value.reason !== "string" || value.reason.length === 0) return false
+  if (exactly(value, ["v", "state", "reason", "from"])) return true
+  const failed = value.failed as { key?: unknown; version?: unknown } | undefined
+  return exactly(value, ["v", "state", "reason", "from", "failed"]) && isSource(failed)
+    && from.some((s) => (s as { key: string; version: number }).key === failed?.key
+                        && (s as { key: string; version: number }).version === failed?.version)
+}
+
+const sameSources = (a: readonly { key: string; version: number }[], b: readonly { key: unknown; version: unknown }[]): boolean =>
+  a.length === b.length && a.every((s, i) => s.key === b[i].key && s.version === b[i].version)
+
 /** (S1A-R7-CONTRACT-01) A result scope BOUND to its setup: none without a receipt; with one, its source (when named) is EXACTLY
  *  the receipt's sole pinned Deployment, and a SERVED scope's accounts are the setup's own (``accounts_seen``) -- never a
  *  shape-valid scope of another record or account. UNAVAILABLE without a source (e.g. not exactly one Deployment) stays
@@ -367,6 +408,10 @@ function boundScope(scope: unknown, receipt: unknown, seen: unknown): boolean {
   if (receipt === null) return scope === null
   if (!isResultScope(scope) || !isRecord(receipt) || !isAssociation(receipt.association)) return false
   const deployments = receipt.association.deployments
+  if (scope.v === 2) {          // (S1b) EXACTLY the receipt's pinned Deployments, in its order; SERVED: the setup's own accounts
+    return sameSources(scope.from, deployments)
+      && (scope.state !== "SERVED" || (Array.isArray(seen) && scope.accounts.every((a) => seen.includes(a))))
+  }
   const from = scope.from
   if (from !== undefined && !(deployments.length === 1 && from.key === deployments[0].key && from.version === deployments[0].version)) {
     return false
@@ -374,10 +419,20 @@ function boundScope(scope: unknown, receipt: unknown, seen: unknown): boolean {
   return scope.state !== "SERVED" || (Array.isArray(seen) && scope.accounts.every((a) => seen.includes(a)))
 }
 
+/** (S1b) Whether an answer carries any PLURAL shape -- a ``deployments`` intent, a Deployment-scoped disposition, a version-2
+ *  result scope: only a level-5 answer may. */
+function hasPluralShape(intent: Record<string, unknown>, derived: unknown[], scope: unknown): boolean {
+  const authored = Array.isArray(intent.dispositions) ? intent.dispositions : []
+  return isPluralIntent(intent) || [...authored, ...derived].some((d) => isRecord(d) && isRecord(d.scope) && "deployment" in d.scope)
+    || (isRecord(scope) && scope.v === 2)
+}
+
 export function isView(value: unknown): value is SetupView {
   if (!isSummary(value)) return false
   const view = value as unknown as Record<string, unknown>
   const intent = view.intent
+  if (isRecord(intent) && Array.isArray(view.dispositions_derived) && setupLevelOf(value) !== SETUP_CONTRACT_LEVEL
+      && hasPluralShape(intent, view.dispositions_derived, view.result_scope)) return false
   return isRecord(intent) && Array.isArray(intent.dispositions) && typeof intent.resume_step === "string"
     && (SETUP_STEPS as readonly string[]).includes(intent.resume_step)
     && Array.isArray(view.dispositions_derived) && view.dispositions_derived.every(isDerived)
@@ -470,6 +525,10 @@ export function isOperation(value: unknown): value is OwnerRequest {
 }
 
 export function isStatus(value: unknown): value is SetupStatus {
+  if (isRecord(value) && setupLevelOf(value) !== SETUP_CONTRACT_LEVEL && ((isRecord(value.result_scope) && value.result_scope.v === 2)
+      || (Array.isArray(value.dispositions) && value.dispositions.some((d) => isRecord(d) && isRecord(d.scope) && "deployment" in d.scope)))) {
+    return false                                              // (S1b) a plural shape is read only from a level-5 answer
+  }
   return isRecord(value) && isRecord(value.setup) && typeof value.setup.setup_id === "string"
     && (value.saved === null || (isRecord(value.saved) && isInt(value.saved.completed_revision)))
     && (value.association === null || (isRecord(value.association) && typeof value.association.state === "string"))
@@ -485,6 +544,7 @@ function boundStatusScope(scope: unknown, association: unknown): boolean {
   if (association === null) return scope === null
   if (!isResultScope(scope) || !isRecord(association) || !Array.isArray(association.heads)) return false
   const heads = association.heads.filter((h) => isRecord(h) && h.role === "deployment") as { key?: unknown; pinned_version?: unknown }[]
+  if (scope.v === 2) return sameSources(scope.from, heads.map((h) => ({ key: h.key, version: h.pinned_version })))  // (S1b) every head
   return scope.from === undefined
     || (heads.length === 1 && heads[0].key === scope.from.key && heads[0].pinned_version === scope.from.version)
 }
@@ -515,8 +575,8 @@ function refusal(json: unknown): { code: string; detail: Record<string, unknown>
   return { code, detail }
 }
 
-/** A 200/201 answer that is not tagged exactly with this frontend's setup contract: not one it reads. */
-const foreign = (json: unknown): boolean => !isRecord(json) || json.contract !== SETUP_CONTRACT
+/** A 200/201 answer that is not tagged with a setup contract this frontend reads (level 4 or 5): not one it reads. */
+const foreign = (json: unknown): boolean => setupLevelOf(json) === null
 
 /** One read's answer, parsed by ``valid``; a malformed 200 is UNAVAILABLE, never a guessed value. */
 export function readAnswer<T>(raw: Raw, valid: (json: unknown) => json is T): SetupRead<T> {
@@ -608,6 +668,27 @@ export async function readSetupStatus(setupId: string): Promise<SetupRead<SetupS
 export async function listSetups(cursor: string | null = null): Promise<SetupRead<{ setups: SetupSummary[]; next_cursor: string | null }>> {
   const suffix = cursor ? `?${new URLSearchParams({ cursor }).toString()}` : ""
   return readAnswer(await call(`setup/list${suffix}`, { headers: { Accept: "application/json" } }), isPage)
+}
+
+/** (S1b) Whether an intent is PLURAL: its declaration carries ``deployments`` (the explicit stored shape, never the level). */
+export function isPluralIntent(intent: unknown): boolean {
+  return isRecord(intent) && isRecord(intent.declaration) && Array.isArray(intent.declaration.deployments)
+}
+
+/** (S1b) The ``deployment_key`` of every Deployment an intent declares: a plural intent's, or a single one's. */
+export function intentDeploymentKeys(intent: unknown): string[] {
+  if (!isRecord(intent) || !isRecord(intent.declaration)) return []
+  const declaration = intent.declaration
+  const entries = Array.isArray(declaration.deployments) ? declaration.deployments
+    : isRecord(declaration.deployment) ? [declaration.deployment] : []
+  return entries.map((d) => (isRecord(d) ? d.deployment_key : undefined)).filter((k): k is string => typeof k === "string" && k !== "")
+}
+
+/** (S1b) A finished setup's Deployments: each ``deployment_key`` of its intent paired with what its RECEIPT pinned for it (agreed
+ *  A3: canonical key order), or null when they do not pair exactly -- never a guess. */
+export function pinnedDeployments(view: SetupView): PairedDeployment[] | null {
+  if (view.receipt === null) return null
+  return pairDeployments(intentDeploymentKeys(view.intent), view.receipt.association.deployments)
 }
 
 /** The system id the result view takes, from a finished setup's association (``SYSTEM#<id>``), or null. */

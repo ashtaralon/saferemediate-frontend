@@ -1,6 +1,9 @@
 /**
- * The wizard's RESULT (A7 rev 4 C-D, screen 6): a strict reader of the backend's `system_boundary_result_read/v1` answer
- * (GET /api/system-boundary/result?account_id=&system_key=, through the authoring proxy).
+ * The wizard's RESULT (A7 rev 4 C-D, screen 6): a strict reader of the backend's `system_boundary_result_read` answer at
+ * level 1 or 2 (GET /api/system-boundary/result?account_id=&system_key=, through the authoring proxy). (S1b) Level 2 is level
+ * 1 plus `deployment_context_state` -- a SERVED answer's Deployment decoration, read exactly by
+ * lib/system-boundary-deployment-context.ts (SERVED: a context on every listed member; UNAVAILABLE by name: none) and null for
+ * every other state. A level-1 answer carries none, and is read exactly as before.
  *
  * What the SERVED membership says about one system in one account -- members (each with its proof), dependencies, held and
  * not-a-member rows -- from the publication the active membership cohort names. No percentage, and nothing is computed
@@ -8,8 +11,12 @@
  * Served only where membership v2 serves: elsewhere the answer is `held` MEMBERSHIP_V2_NOT_SERVED. Validation mirrors
  * backend cyntro_data/semantic/system_boundary_result.py. Anything else is "unavailable"; nothing here throws.
  */
+import { decoratedMembersAreWhole, decoration, type Decoration } from "@/lib/system-boundary-deployment-context"
 
+/** The level this frontend REQUIRES (lib/release-contract.json requires 1) -- and the levels it reads (requires up to accepts). */
 export const RESULT_CONTRACT = "system_boundary_result_read/v1"
+export const RESULT_CONTRACT_V2 = "system_boundary_result_read/v2"
+export const RESULT_CONTRACTS: readonly string[] = [RESULT_CONTRACT, RESULT_CONTRACT_V2]
 export const RESULT_STATES = ["served", "held", "not_recorded", "unavailable", "invalid"] as const
 export type ResultState = (typeof RESULT_STATES)[number]
 export const MEMBERSHIP_V2_NOT_SERVED = "MEMBERSHIP_V2_NOT_SERVED"
@@ -51,6 +58,9 @@ export interface ResultServed {
   lists: Record<ResultList, ResultRow[]>
   counts: ResultCounts
   omitted: Partial<Record<ResultList, number>>
+  /** (S1b) The contract the answer was read at, and its Deployment decoration: null at level 1 (none is served). */
+  contract: string
+  deploymentContext: Decoration | null
 }
 
 export interface ResultHeld {
@@ -97,7 +107,7 @@ export function rows(value: unknown): ResultRow[] | null {
  * invalid 500; a refusal any other 4xx detail body. */
 export function parseResultResponse(status: number, body: unknown, accountId: string): ParsedResult {
   if (!isObject(body)) return unavailable(status, RESPONSE_NOT_CONTRACT)
-  if (body.contract !== RESULT_CONTRACT) {
+  if (typeof body.contract !== "string" || !RESULT_CONTRACTS.includes(body.contract)) {
     if (status >= 400 && status < 500) {
       const detail = isObject(body.detail) && typeof body.detail.code === "string" ? body.detail.code : null
       return { kind: "refused", status, reasonCode: detail }
@@ -112,6 +122,10 @@ export function parseResultResponse(status: number, body: unknown, accountId: st
   if (!(body.reason_code === null || typeof body.reason_code === "string")) return unavailable(status, RESPONSE_MALFORMED)
   if (typeof body.system_key !== "string" || body.system_key === "") return unavailable(status, RESPONSE_MALFORMED)
   const reasonCode = body.reason_code as string | null
+  // (S1b) Level 2 carries the decoration field on EVERY answer (null unless served); level 1 carries none.
+  const v2 = body.contract === RESULT_CONTRACT_V2
+  if (v2 !== ("deployment_context_state" in body)) return unavailable(status, RESPONSE_MALFORMED)
+  if (v2 && state !== "served" && body.deployment_context_state !== null) return unavailable(status, RESPONSE_MALFORMED)
   if (state === "unavailable" || state === "invalid") {
     if (status !== (state === "unavailable" ? 503 : 500)) return unavailable(status, RESPONSE_MALFORMED)
     return unavailable(status, reasonCode)
@@ -145,10 +159,21 @@ export function parseResultResponse(status: number, body: unknown, accountId: st
   if (!count(counts.stale_members) || (counts.stale_members as number) > (counts.members as number)) {
     return unavailable(status, RESPONSE_MALFORMED)
   }
+  // (S1b) A level-2 served answer's decoration, whole: never a context on some members, never one at level 1.
+  let deploymentContext: Decoration | null = null
+  if (v2) {
+    deploymentContext = decoration(body.deployment_context_state)
+    if (deploymentContext === null || !decoratedMembersAreWhole(deploymentContext, lists.members, counts.members as number,
+                                                                 (omitted.members ?? 0) as number)) {
+      return unavailable(status, RESPONSE_MALFORMED)
+    }
+  } else if (lists.members.some((m) => "deployment_context" in m)) {
+    return unavailable(status, RESPONSE_MALFORMED)
+  }
   return {
     kind: "served", status, accountId, systemKey: body.system_key, systemName: body.system_name as string | null,
     generation, publishedAt, lists, counts: counts as unknown as ResultCounts,
-    omitted: omitted as Partial<Record<ResultList, number>>,
+    omitted: omitted as Partial<Record<ResultList, number>>, contract: body.contract as string, deploymentContext,
   }
 }
 

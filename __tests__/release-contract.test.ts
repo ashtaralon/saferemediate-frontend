@@ -14,10 +14,12 @@ import { APPLIED_CONTRACT, parseAppliedResponse } from "@/lib/system-boundary-ap
 import {
   CAPABILITY_CONTRACT, PLURAL_SAVE_ENVELOPE_LEVEL, REQUIRED_SAVE_ENVELOPE_LEVEL, SUPPORTED_SAVE_ENVELOPE_LEVELS, parseCapabilityResponse,
 } from "@/lib/system-boundary-capability"
-import { RESULT_CONTRACT, parseResultResponse } from "@/lib/system-boundary-result"
+import { RESULT_CONTRACT, RESULT_CONTRACT_V2, parseResultResponse } from "@/lib/system-boundary-result"
 import { parseInventoryResponse, RESPONSE_MALFORMED } from "@/lib/account-inventory"
 import { SYSTEMS_LIST_ACCEPTS, SYSTEMS_LIST_CONTRACT, systemsListLevel } from "@/lib/scoped-system-catalog"
-import { SETUP_CONTRACT_LEVEL, SETUP_CONTRACT_UNKNOWN, isView, readAnswer, writeAnswer } from "@/lib/system-boundary-setup"
+import {
+  SETUP_CONTRACT_LEVEL, SETUP_CONTRACT_REQUIRED, SETUP_CONTRACT_UNKNOWN, isView, readAnswer, writeAnswer,
+} from "@/lib/system-boundary-setup"
 import {
   ORGANIZATION_DISCOVERY_TEMPLATE_PATH,
   REQUIRED_ACCOUNT_REGISTRATION_CONTRACT,
@@ -33,7 +35,7 @@ describe("the release contract this frontend requires", () => {
                   system_boundary_result_read: 1, system_boundary_save: 2, system_boundary_setup: 4,
                   system_boundary_wizard_capability: 1 },
       accepts: { account_census_read: 1, account_census_stacks_read: 1, account_inventory_rows: 3, declarations_applied: 1,
-                 system_boundary_result_read: 1, system_boundary_save: 3, system_boundary_setup: 4,
+                 system_boundary_result_read: 2, system_boundary_save: 3, system_boundary_setup: 5,
                  system_boundary_wizard_capability: 1, systems_list_read: 2 } })
     expect(REQUIRED_ACCOUNT_REGISTRATION_CONTRACT).toBe(5)
     expect(CENSUS_CONTRACT).toBe("account_census_read/v1")
@@ -47,12 +49,15 @@ describe("the release contract this frontend requires", () => {
     expect(CAPABILITY_CONTRACT).toBe(`system_boundary_wizard_capability/v${declaration.requires.system_boundary_wizard_capability}`)
     // C-D: the wizard's result screen (components/system-boundary/system-result.tsx) reads GET /api/system-boundary/result.
     expect(RESULT_CONTRACT).toBe(`system_boundary_result_read/v${declaration.requires.system_boundary_result_read}`)
+    // (S1b) and reads level 2 too -- the Deployment context beside the members -- when the backend serves it
+    expect(RESULT_CONTRACT_V2).toBe(`system_boundary_result_read/v${declaration.accepts.system_boundary_result_read}`)
   })
 
   it("requires and reads the guided setup at the level its own client speaks (onboarding G2, 2026-10-12)", () => {
     // The eight /api/system-boundary/setup routes (lib/system-boundary-setup.ts). A backend without them answers 404, and one
     // that publishes a later setup level answers in a shape this client does not read: the bundle builder refuses both pairs.
-    expect(declaration.requires.system_boundary_setup).toBe(SETUP_CONTRACT_LEVEL)
+    // (S1b) It still requires level 4 (every single-Deployment flow) and reads level 5 (plural Deployments) when served.
+    expect(declaration.requires.system_boundary_setup).toBe(SETUP_CONTRACT_REQUIRED)
     expect(declaration.accepts.system_boundary_setup).toBe(SETUP_CONTRACT_LEVEL)
   })
 
@@ -171,32 +176,42 @@ describe("what this frontend can read (accepts)", () => {
   // capture's own request named (_provenance.request.query.account_id), since an answer for another account is refused.
   it("reads the result at exactly its declared level: that contract parses, the next one is not read", () => {
     const n = declaration.accepts.system_boundary_result_read
-    expect(RESULT_CONTRACT).toBe(`system_boundary_result_read/v${n}`)
-    const page = capture("system-boundary-captures", "result") as { status: number; body: any; _provenance: any }
-    const accountId = String(page._provenance.request.query.account_id)
+    expect(RESULT_CONTRACT_V2).toBe(`system_boundary_result_read/v${n}`)
+    // (S1b C3f-R) level n is the backend's real v2 answer: it carries ``deployment_context_state`` on every answer
+    const page = capture("system-boundary-result-captures-v2", "served_context") as { status: number; body: any; _provenance: any }
+    const accountId = String(page._provenance.request.params.account_id)
     const at = (level: number) =>
       parseResultResponse(page.status, { ...structuredClone(page.body), contract: `system_boundary_result_read/v${level}` },
         accountId)
-    expect(at(n).kind).not.toBe("unavailable")
+    expect(at(n).kind).toBe("served")
     expect(at(n + 1).kind).toBe("unavailable")
+    // level ``requires`` (1) stays read, from its own real answer -- and a v1 body tagged v2 (no decoration key) is not read
+    const v1 = capture("system-boundary-captures", "result") as { status: number; body: any; _provenance: any }
+    const v1Account = String(v1._provenance.request.query.account_id)
+    expect(parseResultResponse(v1.status, structuredClone(v1.body), v1Account).kind).not.toBe("unavailable")
+    expect(parseResultResponse(v1.status, { ...structuredClone(v1.body), contract: RESULT_CONTRACT_V2 }, v1Account).kind)
+      .toBe("unavailable")
   })
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
   // Onboarding G2: the guided setup. Level 1 is the answer with no contract (the backend's real captures); an answer carrying
   // any setup contract is a later level: a read is UNAVAILABLE and a write is never SAVED on it (resend the same request).
-  it("reads the guided setup at exactly its declared level: the v4-tagged answer parses, untagged or any other tag is not read", () => {
-    expect(declaration.accepts.system_boundary_setup).toBe(4)
-    const page = capture("system-boundary-setup-captures-v4", "read_draft") as { status: number; body: Record<string, unknown> }
-    expect(page.body.contract).toBe("system_boundary_setup/v4")
-    expect(readAnswer({ status: page.status, json: page.body }, isView).kind).toBe("OK")
-    const { contract: _tag, ...untagged } = structuredClone(page.body)
-    for (const other of [untagged, { ...untagged, contract: "system_boundary_setup/v1" }, { ...untagged, contract: "system_boundary_setup/v2" },
-                         { ...untagged, contract: "system_boundary_setup/v3" }, { ...untagged, contract: "system_boundary_setup/v5" }]) {
-      expect(readAnswer({ status: 200, json: other }, isView)).toEqual({ kind: "UNAVAILABLE", status: 200, code: SETUP_CONTRACT_UNKNOWN })
-      expect(writeAnswer({ status: 201, json: other })).toEqual({ kind: "RESEND_SAME", status: 201, code: SETUP_CONTRACT_UNKNOWN,
-                                                                    detail: {} })
+  it("reads the guided setup from its required level to its declared level: v4 and v5 parse, untagged or any other tag is not read", () => {
+    expect([declaration.requires.system_boundary_setup, declaration.accepts.system_boundary_setup]).toEqual([4, 5])
+    for (const [dir, tag] of [["system-boundary-setup-captures-v4", "system_boundary_setup/v4"],
+                              ["system-boundary-setup-captures-v5", "system_boundary_setup/v5"]] as const) {
+      const page = capture(dir, "read_draft") as { status: number; body: Record<string, unknown> }
+      expect(page.body.contract).toBe(tag)
+      expect(readAnswer({ status: page.status, json: page.body }, isView).kind).toBe("OK")
+      const { contract: _tag, ...untagged } = structuredClone(page.body)
+      for (const other of [untagged, { ...untagged, contract: "system_boundary_setup/v1" }, { ...untagged, contract: "system_boundary_setup/v2" },
+                           { ...untagged, contract: "system_boundary_setup/v3" }, { ...untagged, contract: "system_boundary_setup/v6" }]) {
+        expect(readAnswer({ status: 200, json: other }, isView)).toEqual({ kind: "UNAVAILABLE", status: 200, code: SETUP_CONTRACT_UNKNOWN })
+        expect(writeAnswer({ status: 201, json: other })).toEqual({ kind: "RESEND_SAME", status: 201, code: SETUP_CONTRACT_UNKNOWN,
+                                                                      detail: {} })
+      }
+      expect(writeAnswer({ status: 201, json: structuredClone(page.body) }).kind).toBe("SAVED")
     }
-    expect(writeAnswer({ status: 201, json: structuredClone(page.body) }).kind).toBe("SAVED")
   })
 
   // A7 B5: the Systems list. Level 1 is the answer with no contract; level 2 "systems_list_read/v2" (one row per system identity,
