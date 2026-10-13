@@ -9,8 +9,19 @@
  */
 
 export const CAPABILITY_CONTRACT = "system_boundary_wizard_capability/v1"
-/** The save envelope this build writes (backend unified/system_boundary_plan.SAVE_ENVELOPE_LEVEL). */
+/** The save envelope levels this build speaks (backend unified/system_boundary_plan.SAVE_ENVELOPE_LEVEL) -- exactly these: 2 = +
+ * bindings / resource decisions, 3 = + a plural create (`deployments`). lib/release-contract.json requires 2 and accepts 3,
+ * and the release builder and verify refuse a backend publishing outside them (S1b, SW-S1B-20261013-02). */
+export const SUPPORTED_SAVE_ENVELOPE_LEVELS: readonly number[] = [2, 3]
+/** The lowest of them: what this build requires, and the single-Deployment shape every save it sends today speaks. */
 export const REQUIRED_SAVE_ENVELOPE_LEVEL = 2
+/** The level whose backend takes a plural create; only there may this build send `deployments`. */
+export const PLURAL_SAVE_ENVELOPE_LEVEL = 3
+
+/** A level this build speaks; any other (older, newer, unknown) is not. */
+export function isSupportedSaveEnvelopeLevel(level: unknown): level is number {
+  return typeof level === "number" && SUPPORTED_SAVE_ENVELOPE_LEVELS.includes(level)
+}
 /** The completed-snapshot reader contract the declarations view this build reads is served under. */
 export const REQUIRED_READER_CONTRACT = "implicit-snapshot-v2"
 export const WIZARD_DISABLED = "WIZARD_DISABLED"
@@ -67,9 +78,15 @@ export function parseCapabilityResponse(status: number, body: unknown): ParsedCa
   const base = { status, saveEnvelopeLevel: level, readerContract: reader }
   if (!body.enabled) return { kind: "disabled", reasonCode: WIZARD_DISABLED, ...base }
   // On, but not the levels this build writes and reads: the steps stay hidden rather than send what the backend refuses.
-  if (level !== REQUIRED_SAVE_ENVELOPE_LEVEL) return { kind: "disabled", reasonCode: SAVE_LEVEL_MISMATCH, ...base }
+  if (!isSupportedSaveEnvelopeLevel(level)) return { kind: "disabled", reasonCode: SAVE_LEVEL_MISMATCH, ...base }
   if (reader !== REQUIRED_READER_CONTRACT) return { kind: "disabled", reasonCode: READER_CONTRACT_MISMATCH, ...base }
   return { kind: "enabled", reasonCode: null, ...base }
+}
+
+/** Whether this build may send a plural create: the wizard on, at the plural level. Anything else keeps the
+ *  single-Deployment shape -- never `deployments` -- exactly as at level 2. */
+export function pluralCreateOffered(capability: ParsedCapability): boolean {
+  return capability.kind === "enabled" && capability.saveEnvelopeLevel === PLURAL_SAVE_ENVELOPE_LEVEL
 }
 
 export function capabilitySentence(capability: ParsedCapability): string | null {

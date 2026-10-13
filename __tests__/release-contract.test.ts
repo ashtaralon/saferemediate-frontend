@@ -11,7 +11,9 @@ import declaration from "@/lib/release-contract.json"
 import { CENSUS_CONTRACT, censusPath, parseCensusResponse } from "@/lib/account-census"
 import { STACKS_CONTRACT, parseStacksResponse } from "@/lib/system-boundary-stacks"
 import { APPLIED_CONTRACT, parseAppliedResponse } from "@/lib/system-boundary-applied"
-import { CAPABILITY_CONTRACT, REQUIRED_SAVE_ENVELOPE_LEVEL, parseCapabilityResponse } from "@/lib/system-boundary-capability"
+import {
+  CAPABILITY_CONTRACT, PLURAL_SAVE_ENVELOPE_LEVEL, REQUIRED_SAVE_ENVELOPE_LEVEL, SUPPORTED_SAVE_ENVELOPE_LEVELS, parseCapabilityResponse,
+} from "@/lib/system-boundary-capability"
 import { RESULT_CONTRACT, parseResultResponse } from "@/lib/system-boundary-result"
 import { parseInventoryResponse, RESPONSE_MALFORMED } from "@/lib/account-inventory"
 import { SYSTEMS_LIST_ACCEPTS, SYSTEMS_LIST_CONTRACT, systemsListLevel } from "@/lib/scoped-system-catalog"
@@ -31,8 +33,8 @@ describe("the release contract this frontend requires", () => {
                   system_boundary_result_read: 1, system_boundary_save: 2, system_boundary_setup: 4,
                   system_boundary_wizard_capability: 1 },
       accepts: { account_census_read: 1, account_census_stacks_read: 1, account_inventory_rows: 3, declarations_applied: 1,
-                 system_boundary_result_read: 1, system_boundary_setup: 4, system_boundary_wizard_capability: 1,
-                 systems_list_read: 2 } })
+                 system_boundary_result_read: 1, system_boundary_save: 3, system_boundary_setup: 4,
+                 system_boundary_wizard_capability: 1, systems_list_read: 2 } })
     expect(REQUIRED_ACCOUNT_REGISTRATION_CONTRACT).toBe(5)
     expect(CENSUS_CONTRACT).toBe("account_census_read/v1")
   })
@@ -59,6 +61,13 @@ describe("the release contract this frontend requires", () => {
     // A level-1 backend would drop the lists the wizard sends; the bundle builder refuses that pair instead.
     expect(REQUIRED_SAVE_ENVELOPE_LEVEL).toBe(2)
     expect(declaration.requires.system_boundary_save).toBe(REQUIRED_SAVE_ENVELOPE_LEVEL)
+  })
+
+  it("accepts save envelope levels 2 and 3 exactly -- from its requires up to its accepts (S1b, SW-S1B-20261013-02)", () => {
+    // Level 3 = + a plural create (`deployments`). The builder and verify refuse a backend publishing above "accepts", and the
+    // readers take exactly the levels between "requires" and "accepts" -- no older, no newer, no unknown level.
+    expect(declaration.accepts.system_boundary_save).toBe(PLURAL_SAVE_ENVELOPE_LEVEL)
+    expect([...SUPPORTED_SAVE_ENVELOPE_LEVELS]).toEqual([declaration.requires.system_boundary_save, declaration.accepts.system_boundary_save])
   })
 
   it("requires the census read at level 1 because the account inventory page reads GET /api/accounts/{id}/census", () => {

@@ -1,0 +1,74 @@
+{
+  "_provenance": {
+    "frozen_by": "SW-S1B-20261013-02",
+    "ids": "test fixtures (account 111111111111, synthetic stacks); not customer data",
+    "level": 3,
+    "pinned_by": [
+      "tests/test_system_boundary_plural_create.py (backend)",
+      "__tests__/system-boundary-save-pairing.test.ts (frontend copy, same bytes)"
+    ],
+    "what": "the S1b save envelope level-3 compatibility example: one NEW System and two NEW Deployments in one account, one binding each, exactly as a client sends it"
+  },
+  "body": {
+    "bindings": [
+      {
+        "account_id": "111111111111",
+        "deployment_key": "prod",
+        "kind": "exclusive",
+        "region": "eu-west-1",
+        "selection": {
+          "census": {
+            "generation": 3,
+            "source_identity": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+          },
+          "stack_status": "CREATE_COMPLETE"
+        },
+        "stack_id": "arn:aws:cloudformation:eu-west-1:111111111111:stack/payments-api/0f0f0f0f-1111-4222-8333-444455556666"
+      },
+      {
+        "account_id": "111111111111",
+        "deployment_key": "staging",
+        "kind": "exclusive",
+        "region": "us-east-1",
+        "selection": {
+          "census": {
+            "generation": 3,
+            "source_identity": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+          },
+          "stack_status": "CREATE_COMPLETE"
+        },
+        "stack_id": "arn:aws:cloudformation:us-east-1:111111111111:stack/payments-api/0f0f0f0f-1111-4222-8333-444455556666"
+      }
+    ],
+    "deployments": [
+      {
+        "deployment_key": "prod",
+        "environment": "PRODUCTION",
+        "environment_raw": "prd",
+        "mode": "new",
+        "scopes": [
+          {
+            "account_id": "111111111111",
+            "region": "eu-west-1"
+          }
+        ]
+      },
+      {
+        "deployment_key": "staging",
+        "environment": "STAGING",
+        "mode": "new",
+        "scopes": [
+          {
+            "account_id": "111111111111",
+            "region": "us-east-1"
+          }
+        ]
+      }
+    ],
+    "system": {
+      "criticality": "LOW",
+      "display_name": "Payments",
+      "mode": "new"
+    }
+  }
+}

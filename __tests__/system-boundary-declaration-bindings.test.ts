@@ -70,3 +70,22 @@ describe("a declaration with stacks", () => {
     expect(rootsOnly.ok ? [] : rootsOnly.problems).toEqual(["Pick at least one resource as a root."])
   })
 })
+
+describe("S1b (SW-S1B-20261013-02): the save level is read as exactly 2 or 3, and the single shape is unchanged at 3", () => {
+  it("builds the SAME single-Deployment declaration at level 2 and level 3 -- never `deployments`", () => {
+    const two = buildDeclaration(draft({ decisions: [{ decision: decision("uid:1"), label: "web" }] }), view({ save_envelope_level: 2 }))
+    const three = buildDeclaration(draft({ decisions: [{ decision: decision("uid:1"), label: "web" }] }), view({ save_envelope_level: 3 }))
+    expect(two.ok && three.ok).toBe(true)
+    if (!two.ok || !three.ok) return
+    expect(JSON.stringify(three.declaration)).toBe(JSON.stringify(two.declaration))
+    expect(Object.keys(three.declaration)).not.toContain("deployments")
+    expect(three.declaration.deployment).toMatchObject({ mode: "new", deployment_key: "prod" })
+  })
+
+  it("refuses stacks and decisions against any other level, older, newer or unknown", () => {
+    for (const level of [1, 4, 99, undefined]) {
+      const built = buildDeclaration(draft(), view({ save_envelope_level: level }))
+      expect(built.ok ? [] : built.problems, String(level)).toEqual(["This installation does not take stack bindings or per-resource decisions."])
+    }
+  })
+})

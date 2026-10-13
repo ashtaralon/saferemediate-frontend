@@ -94,7 +94,7 @@
       "max_resource_uid": 1024,
       "max_roots": 36,
       "max_write_accounts": 10,
-      "save_envelope_level": 2
+      "save_envelope_level": 3
     },
     "protocol_phase": "ACTIVE",
     "resource_decisions": [],

@@ -19,6 +19,7 @@ import type {
   StackBinding,
 } from "@/lib/system-boundary-authoring"
 import { refusedRoots } from "@/lib/system-boundary-authoring"
+import { isSupportedSaveEnvelopeLevel } from "@/lib/system-boundary-capability"
 import type { PublicationIdentity } from "@/lib/account-inventory"
 
 /** A root picked in the inventory: the root, what the person saw it as, and the full publication identity of the page
@@ -113,7 +114,7 @@ function collapse(text: string): string {
 function wizardProblems(stacks: StackBinding[], decisions: ResourceDecision[], roots: number, limits: AuthoringLimits): string[] {
   const problems: string[] = []
   if (!stacks.length && !decisions.length) return problems
-  if (limits.save_envelope_level !== 2 || limits.max_bindings === undefined || limits.max_resource_decisions === undefined
+  if (!isSupportedSaveEnvelopeLevel(limits.save_envelope_level) || limits.max_bindings === undefined || limits.max_resource_decisions === undefined
     || limits.max_actions === undefined) {
     return ["This installation does not take stack bindings or per-resource decisions."]
   }

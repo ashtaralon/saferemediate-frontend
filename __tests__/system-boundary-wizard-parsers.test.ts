@@ -163,8 +163,12 @@ describe("the capability reader", () => {
 
   it("keeps the steps hidden on another save level or reader contract, and an older backend says nothing", () => {
     const on = { ...off, enabled: true, reason_code: null }
-    expect(parseCapabilityResponse(200, { ...on, save_envelope_level: 3 })).toMatchObject({ kind: "disabled",
-      reasonCode: "SAVE_LEVEL_MISMATCH" })
+    // (S1b) levels 2 and 3 are this build's; any other stays hidden by name
+    for (const level of [1, 4, 99]) {
+      expect(parseCapabilityResponse(200, { ...on, save_envelope_level: level })).toMatchObject({ kind: "disabled",
+        reasonCode: "SAVE_LEVEL_MISMATCH" })
+    }
+    for (const level of [2, 3]) expect(parseCapabilityResponse(200, { ...on, save_envelope_level: level }).kind).toBe("enabled")
     expect(parseCapabilityResponse(200, { ...on, reader_contract: "implicit-snapshot-v1" })).toMatchObject({ kind: "disabled",
       reasonCode: "READER_CONTRACT_MISMATCH" })
     const absent = parseCapabilityResponse(404, { detail: "Not Found" })

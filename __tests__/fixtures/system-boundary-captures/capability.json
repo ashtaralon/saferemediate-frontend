@@ -12,7 +12,7 @@
   "body": {
     "contract": "system_boundary_wizard_capability/v1",
     "enabled": false,
-    "save_envelope_level": 2,
+    "save_envelope_level": 3,
     "reader_contract": "implicit-snapshot-v2",
     "reason_code": "WIZARD_DISABLED"
   }
