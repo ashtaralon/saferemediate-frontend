@@ -70,6 +70,35 @@ interface System {
 const STALE_THRESHOLD_DAYS = 7
 /** B5: a Systems list contract newer than this page reads. Shown as the reason, never read as the v1 shape. */
 const NEWER_SYSTEMS_LIST = "This Systems list comes from a newer backend than this page can read"
+/**
+ * SW-84: on a customer install the backend admits the person behind each Systems read. Its typed refusals -- a 401,
+ * or a 403 whose code names the person -- are shown as themselves, with what to do, and nothing from an earlier answer.
+ */
+const PERSON_REFUSALS: Record<string, string> = {
+  "Your sign-in could not be verified for the Systems list":
+    "Sign in again, then reload this page. Nothing from an earlier session is shown.",
+  "Your sign-in is not authorized to view Systems":
+    "Ask an administrator for Cyntro access. Nothing from an earlier session is shown.",
+  "Your access covers specific accounts, not the whole organization":
+    "Choose one of your accounts in the scope bar to see its systems. Nothing from an earlier session is shown.",
+}
+
+/** The refusal message for a person refusal from the Systems proxy, or null when the answer is not one. */
+async function personRefusal(response: Response): Promise<string | null> {
+  if (response.status !== 401 && response.status !== 403) return null
+  let code: unknown = null
+  try {
+    code = (await response.json())?.detail?.code
+  } catch {
+    return null
+  }
+  if (typeof code !== "string") return null
+  if (response.status === 401) return "Your sign-in could not be verified for the Systems list"
+  if (!code.startsWith("PERSON_")) return null
+  return code === "PERSON_NOT_TENANT_WIDE"
+    ? "Your access covers specific accounts, not the whole organization"
+    : "Your sign-in is not authorized to view Systems"
+}
 
 function daysSinceScan(lastScanAt: string | null): number | null {
   if (!lastScanAt) return null
@@ -336,6 +365,23 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
         }
       } else {
         console.warn(`[systems-view] Systems API returned ${systemsRes.status}`)
+        const refusal = await personRefusal(systemsRes)
+        if (refusal) {
+          // This session's person may not read this list: drop everything shown or kept for an earlier answer --
+          // rows, coverage, the browser's saved copy -- and say why. Other errors keep their behaviour.
+          setLocalSystems([])
+          setSystemsHold(null)
+          setSystemsGaps([])
+          setHiddenByScope(null)
+          setObservation(null)
+          try {
+            localStorage.removeItem(systemsCacheKey)
+          } catch {
+            // storage unavailable: nothing was saved there either
+          }
+          setSystemsError(refusal)
+          return
+        }
         setSystemsError(`Systems data is unavailable (${systemsRes.status})`)
         setObservation((current) => current ?? null)
       }
@@ -358,6 +404,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
     accountScope.groupId,
     accountScope.region,
     fetchGapAnalysisFromFindings,
+    systemsCacheKey,
   ])
 
 
@@ -515,7 +562,10 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
     // different situation from a true empty and must say so — with the count
     // from the real unfiltered probe and a one-click way out.
     const hiddenByFilters = !accountScope.error && !systemsError && hiddenByScope !== null && hiddenByScope > 0
-    const title = accountScope.error || systemsError
+    const refusalGuidance = !accountScope.error && systemsError ? PERSON_REFUSALS[systemsError] : undefined
+    const title = refusalGuidance
+      ? systemsError
+      : accountScope.error || systemsError
       ? "Systems data unavailable"
       : hiddenByFilters
         ? "Systems hidden by scope filters"
@@ -524,7 +574,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
           : systemsHold
             ? "Systems not recorded yet"
             : "No systems in this scope yet"
-    const description = accountScope.error
+    const description = refusalGuidance
+      ? refusalGuidance
+      : accountScope.error
       ? "Cyntro could not verify the organization scope. Existing systems have not been deleted. Retry the scope metadata request."
       : systemsError === NEWER_SYSTEMS_LIST
         // B5: a retry cannot help -- the page must be updated to read the backend's list. Say exactly that.

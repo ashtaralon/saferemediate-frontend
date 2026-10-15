@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { accountAdminIdentityHeaders } from "@/lib/server/account-admin-proxy"
 import { backendError, fromCaughtError, relayBackendError } from "@/lib/server/proxy-error"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
@@ -41,7 +42,22 @@ async function isTypedRefusal(response: Response): Promise<boolean> {
   }
 }
 
+/**
+ * On a customer-resident install the backend admits the PERSON behind each Systems read (api/systems.py), so an
+ * answer is that person's: this proxy forwards the ALB's identity (accountAdminIdentityHeaders, as the account reads
+ * do), never reads or writes the in-memory cache below, and marks every answer -- list, hold, refusal, error -- as
+ * private, no-store. Other modes are unchanged.
+ */
+const PERSONAL = "private, no-store"
+
+function personal(response: NextResponse): NextResponse {
+  response.headers.set("Cache-Control", PERSONAL)
+  if (!response.headers.get("X-Cache")) response.headers.set("X-Cache", "BYPASS-PERSON")
+  return response
+}
+
 export async function GET(req: NextRequest) {
+  const resident = process.env.CYNTRO_DEPLOYMENT_MODE === "CUSTOMER_RESIDENT"
   const scope = new URLSearchParams()
   for (const key of ["customer_id", "account_group", "account_id", "region"]) {
     const value = req.nextUrl.searchParams.get(key)
@@ -50,9 +66,10 @@ export async function GET(req: NextRequest) {
   const scopeQuery = scope.toString()
   const cacheKey = `systems:${scopeQuery || "unscoped"}`
   const now = Date.now()
-  
-  // Check cache
-  const cached = cache.get(cacheKey)
+  const identity = resident ? await accountAdminIdentityHeaders(req) : {}
+
+  // Check cache (never on a resident install: a cached list is another person's answer)
+  const cached = resident ? undefined : cache.get(cacheKey)
   if (cached && (now - cached.timestamp) < CACHE_TTL) {
     const cacheAge = Math.round((now - cached.timestamp) / 1000)
     console.log(`[API Proxy] Systems cache HIT (age: ${cacheAge}s)`)
@@ -74,7 +91,9 @@ export async function GET(req: NextRequest) {
       const response = await fetch(backendUrl, {
         headers: {
           "Content-Type": "application/json",
+          ...identity,
         },
+        ...(resident ? { cache: "no-store" as const } : {}),
         signal: AbortSignal.timeout(90000), // 90 second timeout for cold starts
       })
 
@@ -102,8 +121,10 @@ export async function GET(req: NextRequest) {
 
     if (!response.ok) {
       console.error("[API Proxy] Backend error:", response.status)
-      // Typed refusals (scope, held, unavailable) relayed typed; raw text never echoed.
-      return relayBackendError(response)
+      // Typed refusals (scope, held, unavailable, and on an install the person's 401 / 403) relayed typed; raw text
+      // never echoed.
+      const relayed = await relayBackendError(response)
+      return resident ? personal(relayed) : relayed
     }
 
     const responseText = await response.text()
@@ -112,10 +133,11 @@ export async function GET(req: NextRequest) {
       data = JSON.parse(responseText)
     } catch (parseError) {
       console.error("[API Proxy] Failed to parse JSON:", responseText.substring(0, 200))
-      return backendError({
+      const failed = backendError({
         status: 502,
         message: "Systems backend returned non-JSON response",
       })
+      return resident ? personal(failed) : failed
     }
 
     const coverage = Object.fromEntries(COVERAGE_KEYS.filter((key) => key in data).map((key) => [key, data[key]]))
@@ -124,11 +146,12 @@ export async function GET(req: NextRequest) {
     if (data && typeof data === "object" && "contract" in data) coverage.contract = data.contract
     if (isHold(data)) {
       // A hold is a status report, not a list: systems stays null, nothing is cached.
-      return NextResponse.json(
+      const held = NextResponse.json(
         { success: false, systems: data.systems ?? null, total: data.count ?? null, timestamp: data.timestamp,
           observation: data.observation ?? null, ...coverage },
         { headers: { "Cache-Control": "no-store", "X-Cache": "BYPASS-HOLD" } },
       )
+      return resident ? personal(held) : held
     }
 
     const systems = Array.isArray(data.systems) ? data.systems : []
@@ -167,9 +190,14 @@ export async function GET(req: NextRequest) {
       ...coverage,
     }
 
+    if (resident) {
+      console.log("[API Proxy] Found", systems.length, "systems from backend (person-scoped, not cached)")
+      return personal(NextResponse.json(responseData))
+    }
+
     // Store in cache
     cache.set(cacheKey, { data: responseData, timestamp: now })
-    
+
     // Clean old cache entries
     if (cache.size > 50) {
       const entriesToDelete: string[] = []
@@ -191,6 +219,7 @@ export async function GET(req: NextRequest) {
   } catch (error: unknown) {
     const e = error as Error
     console.error("[API Proxy] Fetch failed:", e?.name, e?.message)
-    return fromCaughtError(error)
+    const failed = fromCaughtError(error)
+    return resident ? personal(failed) : failed
   }
 }
