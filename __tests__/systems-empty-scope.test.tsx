@@ -184,4 +184,48 @@ describe("SystemsView person refusal", () => {
     expect(screen.getAllByText("payments").length).toBeGreaterThan(0)
     expect(screen.queryByText("Your sign-in is not authorized to view Systems")).not.toBeInTheDocument()
   })
+
+  // SW-86: a 503 PERSON_KEYS_* means the installed sign-in keys could not JUDGE the sign-in (changed, expired, invalid,
+  // unavailable). It is a person-verification refusal too: nothing earlier survives, and it is never worded as
+  // "not authorized".
+  it("drops the displayed rows and the saved copy when the sign-in keys no longer match", async () => {
+    const answers = { systems: () => json({ success: true, systems: [{ SystemName: "payments", resourceCount: 3 }] }) }
+    backend(answers)
+    render(<SystemsView />)
+    expect((await screen.findAllByText("payments")).length).toBeGreaterThan(0)
+    expect(window.localStorage.getItem(SAVED)).toContain("payments")
+
+    answers.systems = () => refusal(503, "PERSON_KEYS_NO_MATCH")
+    fireEvent.click(screen.getByRole("button", { name: /Refresh/ }))
+
+    expect(await screen.findByText("Your sign-in could not be checked right now")).toBeInTheDocument()
+    expect(screen.getByText(/could not verify sign-ins against this installation's identity keys/)).toBeInTheDocument()
+    expect(screen.queryByText("Your sign-in is not authorized to view Systems")).not.toBeInTheDocument()
+    expect(screen.queryAllByText("payments")).toHaveLength(0)
+    expect(window.localStorage.getItem(SAVED)).toBeNull()
+  })
+
+  it.each(["PERSON_KEYS_EXPIRED", "PERSON_KEYS_INVALID", "PERSON_KEYS_UNAVAILABLE"])(
+    "a 503 %s on the first read clears a copy an earlier session saved", async (code) => {
+      window.localStorage.setItem(SAVED, JSON.stringify([{ name: "earlier-session-system", resourceCount: 1 }]))
+      backend({ systems: () => refusal(503, code) })
+      render(<SystemsView />)
+      expect(await screen.findByText("Your sign-in could not be checked right now")).toBeInTheDocument()
+      expect(screen.queryByText("earlier-session-system")).not.toBeInTheDocument()
+      expect(window.localStorage.getItem(SAVED)).toBeNull()
+    })
+
+  it("leaves an unrelated typed 503 as it was: the rows already shown stay", async () => {
+    const answers = { systems: () => json({ success: true, systems: [{ SystemName: "payments", resourceCount: 3 }] }) }
+    backend(answers)
+    render(<SystemsView />)
+    expect((await screen.findAllByText("payments")).length).toBeGreaterThan(0)
+
+    answers.systems = () => refusal(503, "SERVING_ROUTE_HELD")
+    fireEvent.click(screen.getByRole("button", { name: /Refresh/ }))
+    await waitFor(() => expect(window.fetch).toHaveBeenCalledTimes(3))
+    expect(screen.getAllByText("payments").length).toBeGreaterThan(0)
+    expect(window.localStorage.getItem(SAVED)).toContain("payments")
+    expect(screen.queryByText("Your sign-in could not be checked right now")).not.toBeInTheDocument()
+  })
 })

@@ -106,6 +106,19 @@ describe("systems proxy person admission (resident)", () => {
     expect(response.headers.get("cache-control")).toBe("private, no-store")
   })
 
+  it("on a resident install a list already in the in-memory cache is never served (the read is bypassed too)", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(list(["kept-from-an-unscoped-read"]))
+      .mockResolvedValueOnce(refusal(403, "PERSON_NOT_AUTHORIZED"))
+    vi.stubGlobal("fetch", fetchMock)
+    expect((await get()).headers.get("x-cache")).toBe("MISS")       // filled outside resident mode
+    vi.stubEnv("CYNTRO_DEPLOYMENT_MODE", "CUSTOMER_RESIDENT")
+    const refused = await get()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(refused.status).toBe(403)
+    expect(JSON.stringify(await refused.json())).not.toContain("kept-from-an-unscoped-read")
+  })
+
   it("outside resident mode is unchanged: no identity forwarded, the in-memory list serves the next read", async () => {
     const fetchMock = vi.fn().mockResolvedValue(list(["payments"]))
     vi.stubGlobal("fetch", fetchMock)

@@ -72,7 +72,8 @@ const STALE_THRESHOLD_DAYS = 7
 const NEWER_SYSTEMS_LIST = "This Systems list comes from a newer backend than this page can read"
 /**
  * SW-84: on a customer install the backend admits the person behind each Systems read. Its typed refusals -- a 401,
- * or a 403 whose code names the person -- are shown as themselves, with what to do, and nothing from an earlier answer.
+ * a 403 whose code names the person, or a 503 PERSON_KEYS_* (the installed sign-in keys could not judge the sign-in) --
+ * are shown as themselves, with what to do, and nothing from an earlier answer.
  */
 const PERSON_REFUSALS: Record<string, string> = {
   "Your sign-in could not be verified for the Systems list":
@@ -81,11 +82,15 @@ const PERSON_REFUSALS: Record<string, string> = {
     "Ask an administrator for Cyntro access. Nothing from an earlier session is shown.",
   "Your access covers specific accounts, not the whole organization":
     "Choose one of your accounts in the scope bar to see its systems. Nothing from an earlier session is shown.",
+  // SW-86: the sign-in was not judged at all -- neither accepted nor refused. Never worded as "not authorized".
+  "Your sign-in could not be checked right now":
+    "Cyntro could not verify sign-ins against this installation's identity keys, so nothing is shown. Retry later; if "
+    + "it persists, an administrator must renew the installation's sign-in keys.",
 }
 
 /** The refusal message for a person refusal from the Systems proxy, or null when the answer is not one. */
 async function personRefusal(response: Response): Promise<string | null> {
-  if (response.status !== 401 && response.status !== 403) return null
+  if (response.status !== 401 && response.status !== 403 && response.status !== 503) return null
   let code: unknown = null
   try {
     code = (await response.json())?.detail?.code
@@ -93,6 +98,8 @@ async function personRefusal(response: Response): Promise<string | null> {
     return null
   }
   if (typeof code !== "string") return null
+  // A 503 is a person refusal only when its code is PERSON_KEYS_*; every other 503 keeps its behaviour.
+  if (response.status === 503) return code.startsWith("PERSON_KEYS_") ? "Your sign-in could not be checked right now" : null
   if (response.status === 401) return "Your sign-in could not be verified for the Systems list"
   if (!code.startsWith("PERSON_")) return null
   return code === "PERSON_NOT_TENANT_WIDE"
