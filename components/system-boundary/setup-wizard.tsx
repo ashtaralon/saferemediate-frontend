@@ -232,8 +232,31 @@ function intentKey(intent: Pick<SetupIntent, "declaration" | "dispositions">): s
   return canonical({ declaration: intent.declaration ?? {}, dispositions })
 }
 
-/** Words for a write that did not save: what to do next, never a guess at what the backend did. */
-function explain(answer: Exclude<SetupWrite, { kind: "SAVED" }>): string {
+/** (SW-96) A Finish refused because a Deployment covers no account or Region. The backend refuses a Deployment whose saved
+ *  ``scopes`` are empty (FIELD_INVALID on ``deployment.scopes`` / ``deployments[i].scopes``, unified/system_boundary_plan
+ *  ``_parse_new_deployment``), and a Deployment's scopes are the cells of ITS roots, bindings and decisions
+ *  (lib/system-boundary-setup-intent.ts). Only where the saved revision this Finish was sent for shows exactly that -- the
+ *  named Deployment's saved scopes are empty -- is it said as what to do, the same root guidance Review lists; the backend's
+ *  step, reason and field stay as the reference. Anything else: null, and the step's own sentence is said. */
+function emptyBoundarySentence(detail: Record<string, unknown>, saved: Local | null): string | null {
+  if (!saved || detail.reason !== "FIELD_INVALID" || typeof detail.field !== "string") return null
+  const reference = `(${STEP_TITLES.deployments}: FIELD_INVALID, ${detail.field})`
+  if (detail.field === "deployment.scopes" && saved.deployments === null && saved.scopes.length === 0) {
+    return "Finish was refused: this setup has no resources yet, so it covers no account or Region. Pick at least one resource "
+      + `as a root on ${STEP_TITLES.resource_boundaries}, save, and finish again. ${reference}`
+  }
+  const plural = /^deployments\[(\d+)\]\.scopes$/.exec(detail.field)
+  const entry = plural && saved.deployments ? saved.deployments[Number(plural[1])] : undefined
+  if (entry && entry.scopes.length === 0) {
+    return `Finish was refused: Deployment ${entry.deploymentKey || "(no key)"} has no resources yet, so it covers no account or `
+      + `Region. Pick at least one resource as a root for it on ${STEP_TITLES.resource_boundaries}, save, and finish again. ${reference}`
+  }
+  return null
+}
+
+/** Words for a write that did not save: what to do next, never a guess at what the backend did. ``saved``: the saved revision
+ *  a refused Finish was sent for (exactly that version), so an incomplete one can be said in that revision's terms. */
+function explain(answer: Exclude<SetupWrite, { kind: "SAVED" }>, saved: Local | null = null): string {
   if (answer.kind === "RESEND_SAME" && isUnrecordedRefusal(answer.detail)) {
     // (S1A-UI-LIFECYCLE-01) refused, but the refusal was NOT recorded: the save is still open on the server, never "a draft again"
     const setup = answer.detail.setup as { status?: unknown; not_recorded_because?: unknown }
@@ -252,6 +275,8 @@ function explain(answer: Exclude<SetupWrite, { kind: "SAVED" }>): string {
     return `${preview}${held} (${answer.code})`
   }
   if (answer.code === "SETUP_INCOMPLETE") {
+    const empty = emptyBoundarySentence(answer.detail, saved)
+    if (empty) return empty
     const at = typeof answer.detail.step === "string" ? STEP_TITLES[answer.detail.step as SetupStep] ?? answer.detail.step : "a step"
     return `${at} is not complete (${String(answer.detail.reason ?? answer.code)}${answer.detail.field ? `: ${String(answer.detail.field)}` : ""}).`
   }
@@ -278,6 +303,10 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
   const context = `${actor ?? ""}|${accountId}|${setupId}`
   const currentContext = useRef(context)
   currentContext.current = context
+  // (SW-96) The setup on screen when an answer arrives: a refused Finish is explained from the saved revision it was sent for,
+  // and only while that is exactly the version on screen.
+  const shownSetup = useRef<SetupView | null>(null)
+  shownSetup.current = setup
   useEffect(() => {
     setPending(pendingForSetup(store.read(), actor, accountId, setupId))
   }, [actor, accountId, setupId, store])
@@ -385,7 +414,10 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
       setStep(op.kind === "finish" ? "progress_and_results" : (op.kind === "update" ? op.steps.resume_step : step))
       return
     }
-    setProblem(explain(answer))
+    const sentFor = shownSetup.current
+    const loaded = op.kind === "finish" && sentFor !== null && sentFor.setup_id === op.setupId && sentFor.state_version === op.base
+      ? loadIntent(sentFor.intent) : null
+    setProblem(explain(answer, loaded?.kind === "ok" ? loaded.local : null))
     // What finishing would make the system moved (or could not be computed): the person reviews it again -- never finished on
     // a preview they did not see. A refusal that returned the setup to DRAFT moves its version, and so its preview, anyway.
     if (answer.code.startsWith("PREVIEW_")) setPreviewNonce((n) => n + 1)

@@ -179,28 +179,46 @@ describe("opened to declare a system (Systems > Add System)", () => {
     })
   }
 
-  it("opens the stack wizard once on load where saving is active and the capability read enables it", async () => {
+  // (SW-96, installed 0.10.15 Chrome QA) Add System used to open the legacy stack wizard on load. It now leads to the guided
+  // eight-step setup: nothing opens or is sent by the flag (afterEach fails any request), and the explicit actions are unchanged.
+  it("leads to the guided setup, not the legacy stack wizard, where saving is active and the stack wizard is enabled", async () => {
+    mountFlow(ok(VIEW0), { capability: enabled })
+    await settle()
+    expect(screen.queryByTestId("stack-binding-wizard")).toBeNull()
+    expect(screen.queryByTestId("setup-wizard")).toBeNull()                           // a setup is a write: never started by a URL
+    expect(document.activeElement).toBe(screen.getByTestId("setup-start"))
+    expect(screen.getByTestId("setup-start").textContent).toBe("Set up a system")
+    expect(screen.getByTestId("guided-setups").textContent).toContain("A guided setup in eight steps; you can stop and resume it.")
+    expect(screen.getByTestId("declare-flow-guide").textContent).toBe(
+      "To add a system, choose Set up a system above. You can also bind its CloudFormation stacks, or pick its root resources in "
+      + "the inventory below and choose Declare a system.")
+  })
+
+  it("keeps the explicit Bind CloudFormation stacks action: it still opens the stack wizard", async () => {
     serveStacks()
     mountFlow(ok(VIEW0), { capability: enabled })
     await settle()
+    fireEvent.click(screen.getByRole("button", { name: "Bind CloudFormation stacks" }))
+    await settle()
     expect(screen.getByTestId("stack-binding-wizard")).toBeTruthy()
-    expect(screen.getByTestId("declare-flow-guide").textContent).toBe(
-      "To add a system, bind its CloudFormation stacks, or pick its root resources in the inventory below and choose Declare a system.")
   })
 
-  it("control: without the flag the same page opens nothing", async () => {
+  it("control: without the flag the same page opens nothing and moves no focus", async () => {
     mountFlow(ok(VIEW0), { capability: enabled, openDeclareFlow: false })
     await settle()
     expect(screen.queryByTestId("stack-binding-wizard")).toBeNull()
     expect(screen.queryByTestId("declare-flow-guide")).toBeNull()
+    expect(document.activeElement).not.toBe(screen.getByTestId("setup-start"))
   })
 
-  it("with the wizard off, opens nothing and says how a system is declared, beside the capability's own reason", async () => {
+  it("with the stack wizard off, leads to the guided setup and says how else a system is declared, beside the capability's reason", async () => {
     mountFlow(ok(VIEW0))
     await settle()
     expect(screen.queryByTestId("stack-binding-wizard")).toBeNull()
+    expect(document.activeElement).toBe(screen.getByTestId("setup-start"))
     expect(screen.getByTestId("declare-flow-guide").textContent).toBe(
-      "To add a system, pick its root resources in the inventory below, then choose Declare a system.")
+      "To add a system, choose Set up a system above. You can also pick its root resources in the inventory below, then choose "
+      + "Declare a system.")
     expect(screen.getByTestId("wizard-capability").textContent).toBe(
       "Binding stacks and per-resource decisions are not turned on for this install.")
   })

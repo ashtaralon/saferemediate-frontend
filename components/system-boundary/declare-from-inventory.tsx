@@ -19,12 +19,15 @@
  * also offers "Bind CloudFormation stacks" (stack-binding-wizard.tsx); otherwise it says why, and nothing else changes.
  *
  * D2/D4/D17: Systems' "Add System" opens this page with the declare flow asked for (lib/system-boundary-entry.ts,
- * ``?declare=1`` -> ``openDeclareFlow``). Only where this component's own checks pass is anything opened: where saving is
- * active and the capability read enables the stack wizard, that wizard opens once on load; where saving is active, the
- * toolbar says how a system is declared from picks. Otherwise the same reason as without the flag is said -- and where the
- * declarations could not be read at all (browse only, otherwise silent), the flag gets that reason in words.
+ * ``?declare=1`` -> ``openDeclareFlow``). Only where this component's own checks pass is anything offered: where saving is
+ * active, the flag leads to the guided eight-step setup ("Set up a system", guided-setups.tsx), which takes the focus, and
+ * the toolbar says that binding stacks and declaring from picks remain there as explicit actions. (SW-96) The flag opens
+ * no wizard by itself: it used to open the stack wizard on load, so Add System landed on the legacy "Bind CloudFormation
+ * stacks" instead of the guided setup. Starting a setup is a write, so it waits for the person's click. Otherwise the same
+ * reason as without the flag is said -- and where the declarations could not be read at all (browse only, otherwise
+ * silent), the flag gets that reason in words.
  */
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useState, type ReactNode } from "react"
 import { DeclarationForm } from "@/components/system-boundary/declaration-form"
 import { DeclaredSystems } from "@/components/system-boundary/declared-systems"
 import { GuidedSetups, type GuidedSetupsProps } from "@/components/system-boundary/guided-setups"
@@ -149,14 +152,6 @@ function Declarer({ accountId, renderInventory, readDeclarations = readView, rea
   }, [accountId])
 
   const active = view.kind === "OK" && view.value.protocol_phase === "ACTIVE" && view.value.completed_revision !== null
-  // Asked for on load: the stack wizard opens ONCE, and only when saving is active and the capability read enables it.
-  // Closing it afterwards is final for this visit.
-  const autoOpened = useRef(false)
-  useEffect(() => {
-    if (!openDeclareFlow || autoOpened.current || !active || capability === null) return
-    autoOpened.current = true
-    if (capability.kind === "enabled") setBinding(true)
-  }, [openDeclareFlow, active, capability])
   const earlier = shown === null ? [] : [...picks.keys()].filter((key) => !samePublication(picks.get(key)!.publication, shown))
   const selection: InventorySelection | undefined = active
     ? { selected: new Map([...picks].map(([key, pick]) => [key, pick.publication])), onToggle, onPublication: setShown }
@@ -197,8 +192,8 @@ function Declarer({ accountId, renderInventory, readDeclarations = readView, rea
           {openDeclareFlow ? (
             <p className="text-xs text-slate-600" data-testid="declare-flow-guide">
               {capability?.kind === "enabled"
-                ? "To add a system, bind its CloudFormation stacks, or pick its root resources in the inventory below and choose Declare a system."
-                : "To add a system, pick its root resources in the inventory below, then choose Declare a system."}
+                ? "To add a system, choose Set up a system above. You can also bind its CloudFormation stacks, or pick its root resources in the inventory below and choose Declare a system."
+                : "To add a system, choose Set up a system above. You can also pick its root resources in the inventory below, then choose Declare a system."}
             </p>
           ) : null}
           {capability !== null && capability.kind !== "enabled" && capabilitySentence(capability) ? (

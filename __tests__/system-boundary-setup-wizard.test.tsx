@@ -147,6 +147,66 @@ describe("the setup wizard", () => {
     expect(screen.getByRole("alert").textContent).toContain("System details is not complete (CRITICALITY_REQUIRED")
   })
 
+  // (SW-96, installed 0.10.15 Chrome QA) A Finish whose saved Deployment covers no account or Region. The refusal is the REAL
+  // backend's answer at the installed backend 4443bd16 (unified.system_boundary_setup.finish over the save tests' moto table,
+  // offline; recorded in the SW-96 evidence): single shape ``deployment.scopes``, plural ``deployments[1].scopes``. The saved
+  // revisions are the captured drafts as a person would save them with no root yet (the wizard writes scopes from the cells).
+  const emptyScopes = (field: string) => ({ code: "SETUP_INCOMPLETE", step: "deployments", reason: "FIELD_INVALID", field })
+  const refuseFinish = (field: string) => vi.fn(async (): Promise<SetupWrite> => ({ kind: "REFUSED", status: 409,
+                                                                                    code: "SETUP_INCOMPLETE", detail: emptyScopes(field) }))
+  function savedWithoutRoots(): SetupView {
+    const draft = structuredClone(DRAFT)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const declaration = draft.intent.declaration as Record<string, any>
+    declaration.roots = []
+    declaration.deployment = { ...declaration.deployment, scopes: [] }
+    return draft
+  }
+
+  it("an empty-boundary Finish refusal says to pick a root -- the guidance Review lists -- with the backend's field kept", async () => {
+    const c = client({ readSetup: vi.fn(async () => ({ kind: "OK" as const, value: savedWithoutRoots() })),
+                       finishSetup: refuseFinish("deployment.scopes") })
+    mount(c)
+    await settle()
+    expect(screen.getByTestId("setup-review").textContent).toContain("Pick at least one resource as a root.")
+    fireEvent.click(screen.getByTestId("setup-finish"))
+    await settle()
+    expect(c.finishSetup).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Finish was refused: this setup has no resources yet, so it covers no account or Region. Pick at least one resource as a "
+      + "root on Resource boundaries, save, and finish again. (Deployments: FIELD_INVALID, deployment.scopes)")
+    expect(screen.getByTestId("setup-state").textContent).toContain("Setup draft · revision 3")         // nothing finished
+  })
+
+  it("control: the same refusal over a saved revision that HAS scopes keeps the step's own sentence -- no guess", async () => {
+    const c = client({ finishSetup: refuseFinish("deployment.scopes") })
+    mount(c)
+    await settle()
+    fireEvent.click(screen.getByTestId("setup-finish"))
+    await settle()
+    expect(screen.getByRole("alert").textContent).toBe("Deployments is not complete (FIELD_INVALID: deployment.scopes).")
+  })
+
+  it("a plural Finish refused for one empty Deployment names that Deployment", async () => {
+    const plural: SetupView = json("__tests__/fixtures/system-boundary-setup-captures-v5/plural_read_draft.json").body
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const declaration = plural.intent.declaration as Record<string, any>
+    declaration.roots = declaration.roots.filter((r: { deployment_key: string }) => r.deployment_key !== "staging")
+    declaration.deployments[1] = { ...declaration.deployments[1], scopes: [] }
+    const c = client({ readSetup: vi.fn(async () => ({ kind: "OK" as const, value: structuredClone(plural) })),
+                       finishSetup: refuseFinish("deployments[1].scopes") })
+    render(<SetupWizard setupId={plural.setup_id} accountId="111111111111" view={VIEW} picks={[]} onClose={() => undefined}
+      client={c} pendingStore={freshStore()} actor={null} stacks={{ state: "unavailable", reason: "The account census is not published yet." }}
+      readApplied={async () => ({ status: 503, body: { state: "unavailable" } })} readResult={async () => ({ status: 503, body: {} })} />)
+    await settle()
+    fireEvent.click(screen.getByTestId("setup-finish"))
+    await settle()
+    expect(c.finishSetup).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Finish was refused: Deployment staging has no resources yet, so it covers no account or Region. Pick at least one resource "
+      + "as a root for it on Resource boundaries, save, and finish again. (Deployments: FIELD_INVALID, deployments[1].scopes)")
+  })
+
   it("Finish lands on Progress and results with the saved revision and the association read now", async () => {
     const c = client()
     mount(c)

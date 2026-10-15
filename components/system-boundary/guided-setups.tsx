@@ -48,7 +48,8 @@ export interface GuidedSetupsProps {
   picks: PickedRoot[]
   /** The verified person's subject (/authoring-grants/self); null: not known, so no setup is offered as "yours". */
   actor: string | null
-  /** Open the start/resume panel on load (Systems > Add System). */
+  /** Opened from Systems > Add System: the panel says what the guided setup is and "Set up a system" takes the focus, once.
+   *  Nothing is started or read for it: starting a setup is a write, and it waits for the person's click. */
   open?: boolean
   listSetups?: () => Promise<SetupRead<{ setups: SetupSummary[]; next_cursor: string | null }>>
   createSetup?: (requestId: string) => Promise<SetupWrite>
@@ -89,6 +90,15 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
   // account or store -- moves it on too: a list answer, success or failure, is shown only while it answers the LATEST
   // request. A late answer to an earlier request, or to one asked for someone else, changes nothing on this screen.
   const listGeneration = useRef(0)
+  // (SW-96) Systems > Add System lands on the guided setup's own start, not on another wizard: the focus moves there ONCE per
+  // visit (closing a setup later does not take it again).
+  const startButton = useRef<HTMLButtonElement>(null)
+  const focused = useRef(false)
+  useEffect(() => {
+    if (!open || focused.current) return
+    focused.current = true
+    startButton.current?.focus()
+  }, [open])
   useEffect(() => {
     listGeneration.current += 1
     const ops = store.read()
@@ -169,7 +179,7 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
   return (
     <div className="space-y-1 text-sm" data-testid="guided-setups">
       <div className="flex items-center gap-2">
-        <Button type="button" size="sm" disabled={starting} onClick={() => void start()} data-testid="setup-start">
+        <Button ref={startButton} type="button" size="sm" disabled={starting} onClick={() => void start()} data-testid="setup-start">
           {unconfirmed ? "Retry the unconfirmed start" : "Set up a system"}
         </Button>
         <Button type="button" size="sm" variant="ghost" onClick={() => void refresh()} data-testid="setup-mine">

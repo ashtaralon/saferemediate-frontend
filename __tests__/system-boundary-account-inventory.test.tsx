@@ -173,14 +173,16 @@ describe("the account page's Inventory tab, with declaring", () => {
   })
 
   it("opened from Systems > Add System (?declare=1), the page's declare flow says how a system is declared here", async () => {
-    // D2/D4/D17: the URL flag reaches the picker through the REAL page. The wizard is off on this install (the capability
-    // capture), so nothing is opened; the toolbar says how to declare, beside the capability's own reason.
+    // D2/D4/D17: the URL flag reaches the picker through the REAL page. The stack wizard is off on this install (the
+    // capability capture), so nothing is opened; (SW-96) the toolbar leads to the guided setup, which takes the focus.
     search = new URLSearchParams("tab=inventory&declare=1")
     serve({ inventory: PAGE1.body, declarations: fixture("system-boundary", "view_initial").body })
     await openInventory()
     await waitFor(() => expect(screen.getByTestId("declare-flow-guide").textContent).toBe(
-      "To add a system, pick its root resources in the inventory below, then choose Declare a system."))
+      "To add a system, choose Set up a system above. You can also pick its root resources in the inventory below, then choose "
+      + "Declare a system."))
     expect(screen.queryByTestId("stack-binding-wizard")).toBeNull()
+    expect(document.activeElement).toBe(screen.getByTestId("setup-start"))
   })
 
   it("control: the same page without the flag shows no declare-flow guide", async () => {
