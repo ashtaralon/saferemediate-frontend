@@ -54,8 +54,12 @@ describe("crown-jewel rail panel", () => {
   it("renders the explicit state chip from TARGET_STATE_CONFIG", () => {
     expect(src).toContain("TARGET_STATE_CONFIG[state]")
     // AP182: the chip also takes the target's recorded-cause description (its own state's when none is recorded).
-    expect(src).toContain("<TargetStateChip state={targetState} description={coverageDescription} />")
+    // AP184: it shows the displayed state (a recorded cause turns "no modeled route" into coverage incomplete) and keeps
+    // the served state as the row's identity.
+    expect(src).toContain(
+      "<TargetStateChip state={shownState} rawState={targetState} description={coverageDescription} />")
     expect(src).toContain("title={description ?? cfg.description}")
+    expect(src).toContain("data-target-state={rawState ?? state}")
   })
 
   it("never defaults a missing severity to LOW", () => {
@@ -64,8 +68,9 @@ describe("crown-jewel rail panel", () => {
   })
 
   it("names zero states instead of showing an unexplained dash", () => {
-    expect(src).toContain('targetState === "no_modeled_route" ? "NO PATH"')
-    expect(src).toContain('targetState === "coverage_incomplete" ? "PENDING"')
+    // AP184: the zero label reads the SHOWN state (displayedTargetState), so a recorded cause is never "NO PATH".
+    expect(src).toContain('shownState === "no_modeled_route" ? "NO PATH"')
+    expect(src).toContain('shownState === "coverage_incomplete" ? "PENDING"')
     expect(src).toContain("{hasSeverity ? score : zeroLabel}")
   })
 })

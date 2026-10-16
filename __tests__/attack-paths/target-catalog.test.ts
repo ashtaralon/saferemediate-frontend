@@ -268,6 +268,25 @@ describe("AP182 · the catalog's recorded causes reach the rail and the totals",
     })
   })
 
+  it("AP184-2 CONSTRUCTED receipt code + malformed count: withheld and unreadable, never held, never summed", () => {
+    for (const count of ["bad", null, 0]) {
+      const value = catalog({ targets: [
+        entry({ target_id: "a", path_count: 1, coverage_withheld_reason: "target_coverage_withheld_unreadable",
+                held_path_count: count as never }),
+        entry({ target_id: "b", path_count: 1, coverage_withheld_reason: "lifecycle_held", held_path_count: 2 }),
+      ] })
+      expect(targetCatalogTotals(value), String(count)).toEqual({
+        pathCount: 2, reachableTargetCount: 2,
+        lifecycleHeld: true, heldPathCount: 2,          // target b's own count only: a adds no held path
+        withheldTargetCount: 1, unreadableTargetCount: 1,
+      })
+    }
+    // a valid count beside the receipt code is held and summed
+    expect(targetCatalogTotals(catalog({ targets: [
+      entry({ target_id: "a", path_count: 1, coverage_withheld_reason: "target_coverage_withheld_unreadable", held_path_count: 3 }),
+    ] }))).toMatchObject({ lifecycleHeld: true, heldPathCount: 3, withheldTargetCount: 1, unreadableTargetCount: 0 })
+  })
+
   it("a captured section keeps its cache rule: READY with targets", () => {
     expect(isTargetCatalogCacheable(captured)).toBe(true)
   })

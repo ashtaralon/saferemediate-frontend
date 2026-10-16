@@ -15,11 +15,15 @@ import {
   LIFECYCLE_HELD_EXPLANATION,
   LIFECYCLE_HELD_REASON,
   deriveAllLifecycleCoverage,
+  displayedTargetState,
   heldCountOrNull,
   heldPathsPhrase,
   targetCoverageCause,
   targetCoverageDescription,
   targetCoverageNote,
+  targetEvidenceUnreadable,
+  targetHasHeldPaths,
+  targetHeldCount,
   targetZeroCoverageSubtitle,
   unverifiedReasonText,
 } from "@/lib/attack-paths/lifecycle-coverage"
@@ -68,7 +72,40 @@ describe("targetCoverageCause over the captured catalog section", () => {
     expect(targetCoverageCause(null, 4)).toEqual({ kind: "lifecycle", held: 4 })
     expect(targetCoverageCause("some_receipt_code", 2)).toEqual({ kind: "withheld", code: "some_receipt_code", held: 2 })
     expect(targetCoverageCause(LIFECYCLE_HELD_REASON, "2")).toEqual({ kind: "lifecycle", held: "unreported" })
-    expect(targetCoverageCause("some_receipt_code", "x")).toEqual({ kind: "withheld", code: "some_receipt_code", held: "unreported" })
+  })
+
+  it("AP184-2 CONSTRUCTED: a receipt code establishes withholding; only a well-formed count beside it establishes held", () => {
+    const RECEIPT = "target_coverage_withheld_unreadable"
+    // receipt + malformed / null / zero count: withheld, the held evidence unreadable, NO held path
+    for (const count of ["bad", null, 0, -2, 1.5, "3"]) {
+      const cause = targetCoverageCause(RECEIPT, count)
+      expect(cause, String(count)).toEqual({ kind: "withheld", code: RECEIPT, held: "unreadable" })
+      expect([targetHasHeldPaths(cause), targetHeldCount(cause), targetEvidenceUnreadable(cause)], String(count))
+        .toEqual([false, null, true])
+    }
+    // receipt + a well-formed count: withheld AND held, counted
+    const counted = targetCoverageCause(RECEIPT, 2)
+    expect(counted).toEqual({ kind: "withheld", code: RECEIPT, held: 2 })
+    expect([targetHasHeldPaths(counted), targetHeldCount(counted), targetEvidenceUnreadable(counted)]).toEqual([true, 2, false])
+    // receipt, no count served: withheld only
+    const plain = targetCoverageCause(RECEIPT, undefined)
+    expect([plain, targetHasHeldPaths(plain), targetEvidenceUnreadable(plain)]).toEqual(
+      [{ kind: "withheld", code: RECEIPT, held: "none" }, false, false])
+    // lifecycle_held with the count missing: held (the reason establishes it), the count not reported
+    const uncounted = targetCoverageCause(LIFECYCLE_HELD_REASON, undefined)
+    expect([uncounted, targetHasHeldPaths(uncounted), targetHeldCount(uncounted)]).toEqual(
+      [{ kind: "lifecycle", held: "unreported" }, true, null])
+  })
+
+  it("AP184-1: a recorded cause on a 'no modeled route' target is SHOWN as coverage incomplete; nothing else moves", () => {
+    for (const cause of [{ kind: "unreadable" as const }, { kind: "lifecycle" as const, held: 1 },
+      { kind: "withheld" as const, code: "c", held: "none" as const }]) {
+      expect(displayedTargetState("no_modeled_route", cause)).toBe("coverage_incomplete")
+    }
+    expect(displayedTargetState("no_modeled_route", { kind: "none" })).toBe("no_modeled_route")
+    for (const state of ["observed", "configured_only", "coverage_incomplete", "projection_not_ready"]) {
+      expect(displayedTargetState(state, { kind: "unreadable" })).toBe(state)
+    }
   })
 
   it("AP183-R2 CONSTRUCTED present-but-malformed evidence is UNREADABLE, never nothing recorded", () => {
@@ -108,9 +145,11 @@ describe("target wording ties to the recorded cause and nothing else", () => {
     )
     // ... and when the same target also has held paths, both are said.
     expect(targetCoverageNote({ ...withheld, held: 2 })).toBe("coverage withheld · +2 held, not counted")
-    expect(targetCoverageNote({ ...withheld, held: "unreported" })).toBe("coverage withheld · more paths held, not counted")
-    expect(targetCoverageDescription({ ...withheld, held: "unreported" })).toContain(
-      "Further paths are held (count not reported)")
+    // AP184: a malformed count beside the code is unreadable held evidence: never "more paths held"
+    expect(targetCoverageNote({ ...withheld, held: "unreadable" })).toBe("coverage withheld · held-path evidence unreadable")
+    const unreadableHeld = targetCoverageDescription({ ...withheld, held: "unreadable" })!
+    expect(unreadableHeld).toContain("A held-path count was served beside it but could not be read, so no held path is counted.")
+    expect(unreadableHeld).not.toMatch(/paths? held|Further paths/)
   })
 
   it("AP183-R2 unreadable evidence: unknown and incomplete, no count, and never 'all held'", () => {

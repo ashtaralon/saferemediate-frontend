@@ -171,6 +171,15 @@ describe("AttackPathsV2 whole page — lifecycle-held targets", () => {
     }
   })
 
+  it("AP184-2 CONSTRUCTED: a receipt code beside a malformed count adds no held path to the header", async () => {
+    // aurora-a carries the receipt code; give it a malformed count. The held total stays bucket-1 2 + empty-bucket 1.
+    serve({ ...SECTION, targets: SECTION.targets.map((t) => (t.name === "aurora-a" ? { ...t, held_path_count: "bad" } : t)) })
+    await renderPage()
+    expect(await screen.findByTestId("catalog-held-not-counted")).toHaveTextContent("· 3 paths held, not counted")
+    expect(screen.getByTestId("catalog-coverage-withheld")).toHaveTextContent("· coverage withheld for 3 targets")
+    expect(screen.getByTestId("catalog-coverage-unreadable")).toHaveTextContent("· coverage evidence unreadable for 1 target")
+  })
+
   it("CONSTRUCTED control: a no_modeled_route target with nothing recorded keeps its established copy", async () => {
     setUrl({ system: SYSTEM, jewel: idOf("db-us-only", "RDSInstance") })
     serve({

@@ -5,6 +5,7 @@ import { Shield, Globe, ChevronLeft, ChevronRight, PauseCircle } from "lucide-re
 import { iapHoldTitle, type IapHold } from "@/lib/attack-paths/path-evidence-view"
 import {
   NO_TARGET_COVERAGE_CAUSE,
+  displayedTargetState,
   targetCoverageDescription,
   targetCoverageNote,
 } from "@/lib/attack-paths/lifecycle-coverage"
@@ -38,7 +39,9 @@ interface CrownJewelListPanelProps {
 
 /** Explicit target state chip (AP3-104). Exact backend strings; a state the
  *  config does not know is not rendered rather than guessed. */
-function TargetStateChip({ state, description }: { state: TargetState; description?: string | null }) {
+function TargetStateChip({
+  state, rawState, description,
+}: { state: TargetState; rawState?: TargetState; description?: string | null }) {
   const cfg = TARGET_STATE_CONFIG[state]
   if (!cfg) return null
   return (
@@ -47,7 +50,9 @@ function TargetStateChip({ state, description }: { state: TargetState; descripti
       style={{ color: cfg.color, backgroundColor: cfg.bgColor, borderColor: cfg.color }}
       // AP182: a recorded cause (lifecycle-held, a withheld receipt code) explains this target; otherwise the state's.
       title={description ?? cfg.description}
-      data-target-state={state}
+      // AP184: the served state stays the row's identity; the shown one is named apart only when they differ.
+      data-target-state={rawState ?? state}
+      {...(rawState !== undefined && rawState !== state ? { "data-displayed-state": state } : {})}
     >
       {cfg.label}
     </span>
@@ -187,16 +192,19 @@ export function CrownJewelListPanel({
             sev === "HIGH" ? "#f97316" :
             sev === "MEDIUM" ? "#eab308" : "#22c55e"
           const targetState = jewel.target_state
-          const zeroLabel =
-            targetState === "no_modeled_route" ? "NO PATH" :
-            targetState === "coverage_incomplete" ? "PENDING" :
-            targetState === "projection_not_ready" ? "WAIT" : "—"
           // AP182/AP183: the target's own recorded cause, judged by the adapter from the catalog's raw fields.
           const coverageCause = jewel.coverage_cause ?? NO_TARGET_COVERAGE_CAUSE
           const coverageDescription = targetCoverageDescription(coverageCause)
           const coverageNote = targetCoverageNote(coverageCause)
-          const zeroDescription = targetState
-            ? coverageDescription ?? TARGET_STATE_CONFIG[targetState]?.description
+          // AP184: a recorded cause on a "no modeled route" target is shown as coverage incomplete, as the page and the
+          // path list show it; the served state stays the row's identity (the chip's data-target-state).
+          const shownState = targetState ? displayedTargetState(targetState, coverageCause) : undefined
+          const zeroLabel =
+            shownState === "no_modeled_route" ? "NO PATH" :
+            shownState === "coverage_incomplete" ? "PENDING" :
+            shownState === "projection_not_ready" ? "WAIT" : "—"
+          const zeroDescription = shownState
+            ? coverageDescription ?? TARGET_STATE_CONFIG[shownState]?.description
             : "No path severity is available for this target."
           const svc = getServiceMeta(jewel.type)
 
@@ -237,8 +245,8 @@ export function CrownJewelListPanel({
                     >
                       {svc.short}
                     </span>
-                    {targetState ? (
-                      <TargetStateChip state={targetState} description={coverageDescription} />
+                    {shownState ? (
+                      <TargetStateChip state={shownState} rawState={targetState} description={coverageDescription} />
                     ) : notComputed ? (
                       <span
                         className="text-[10px] text-muted-foreground"

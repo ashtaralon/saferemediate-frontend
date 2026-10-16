@@ -109,6 +109,43 @@ describe("the rail names each target's own lifecycle / withheld cause", () => {
     expect(within(row("db-us-only")).queryByTestId("target-coverage-note")).toBeNull()
   })
 
+  it("AP184-1 CONSTRUCTED: a 'no modeled route' row with unreadable evidence never claims NO PATH / no modeled route", () => {
+    // db-us-only turned into a no_modeled_route row carrying a malformed count; db-x1 the same state, nothing recorded
+    renderRail({
+      ...SECTION,
+      targets: SECTION.targets.map((t) =>
+        t.name === "db-us-only" ? { ...t, state: "no_modeled_route", held_path_count: "bad" as never }
+          : t.name === "db-x1" ? { ...t, state: "no_modeled_route" } : t),
+    } as TargetCatalog)
+    const unreadable = row("db-us-only")
+    expect(within(unreadable).queryByText("NO PATH")).toBeNull()                 // the false claim, rejected
+    expect(within(unreadable).queryByText("no modeled route")).toBeNull()
+    expect(within(unreadable).getByText("PENDING").getAttribute("aria-label")).toMatch(/could not be read/)
+    const chip = within(unreadable).getByText("coverage incomplete")
+    expect(chip).toHaveAttribute("data-target-state", "no_modeled_route")       // identity: the served state
+    expect(chip).toHaveAttribute("data-displayed-state", "coverage_incomplete")
+    expect(within(unreadable).getByTestId("target-coverage-note")).toHaveTextContent("coverage evidence unreadable")
+    // control: the same served state with nothing recorded keeps the established display exactly
+    const legacy = row("db-x1")
+    expect(within(legacy).getByText("NO PATH")).toBeInTheDocument()
+    const legacyChip = within(legacy).getByText("no modeled route")
+    expect(legacyChip).toHaveAttribute("data-target-state", "no_modeled_route")
+    expect(legacyChip).not.toHaveAttribute("data-displayed-state")
+    expect(legacyChip).toHaveAttribute("title", TARGET_STATE_CONFIG.no_modeled_route.description)
+    expect(within(legacy).queryByTestId("target-coverage-note")).toBeNull()
+  })
+
+  it("AP184-2 CONSTRUCTED: a receipt code beside a malformed count is withheld with unreadable held evidence, never held", () => {
+    renderRail({
+      ...SECTION,
+      targets: SECTION.targets.map((t) => (t.name === "aurora-a" ? { ...t, held_path_count: 0 } : t)),
+    } as TargetCatalog)
+    const note = within(row("aurora-a")).getByTestId("target-coverage-note")
+    expect(note).toHaveTextContent("coverage withheld · held-path evidence unreadable")
+    expect(note.textContent).not.toMatch(/paths held|\+\d+ held/)
+    expect(note).toHaveAttribute("data-coverage-cause", "withheld")
+  })
+
   it("the per-state counts line is the catalog's own, unchanged", () => {
     renderRail(SECTION)
     expect(screen.getByTestId("target-zero-states")).toHaveTextContent("8 coverage incomplete")

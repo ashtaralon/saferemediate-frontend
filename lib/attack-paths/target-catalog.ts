@@ -14,7 +14,12 @@
  */
 
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
-import { targetCoverageCause, targetHasHeldPaths, targetHeldCount } from "@/lib/attack-paths/lifecycle-coverage"
+import {
+  targetCoverageCause,
+  targetEvidenceUnreadable,
+  targetHasHeldPaths,
+  targetHeldCount,
+} from "@/lib/attack-paths/lifecycle-coverage"
 import { TARGET_STATE_CONFIG, type TargetState } from "@/lib/types"
 
 export type TargetSeverityLabel = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
@@ -171,7 +176,8 @@ export interface TargetCatalogTotals {
   /** Targets whose coverage the active generation withheld for a recorded non-lifecycle reason (a stage-receipt code):
    *  another reason the counts are not totals. */
   withheldTargetCount: number
-  /** (AP183) Targets whose coverage evidence was served unreadable: their part of the counts is unknown. */
+  /** (AP183/AP184) Targets with coverage evidence served unreadable (wholly, or a held count beside a receipt code):
+   *  their part of the counts is unknown. */
   unreadableTargetCount: number
 }
 
@@ -194,8 +200,8 @@ export function targetCatalogTotals(
     if (paths > 0) totals.reachableTargetCount += 1
     const cause = targetCoverageCause(target.coverage_withheld_reason, target.held_path_count)
     if (cause.kind === "withheld") totals.withheldTargetCount += 1
-    if (cause.kind === "unreadable") totals.unreadableTargetCount += 1
-    // Held: lifecycle-held, or held beside a receipt code (its count well formed or not reported).
+    if (targetEvidenceUnreadable(cause)) totals.unreadableTargetCount += 1
+    // Held: lifecycle-held, or a well-formed count beside a receipt code (AP184: never a malformed one).
     if (targetHasHeldPaths(cause)) {
       heldTargets += 1
       const count = targetHeldCount(cause)
