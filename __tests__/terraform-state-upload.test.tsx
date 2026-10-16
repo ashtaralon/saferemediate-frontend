@@ -39,7 +39,9 @@ afterEach(() => {
 })
 
 async function mount(onBound = vi.fn()) {
-  render(<TerraformStateUpload accountId={ACCOUNT} editable onBound={onBound} requestId={() => RID} />)
+  let n = 0                                                    // a fresh request id per upload, as crypto.randomUUID gives
+  const ids = () => (n++ === 0 ? RID : `00000000-0000-4000-8000-0000000f0${String(n).padStart(3, "0")}`)
+  render(<TerraformStateUpload accountId={ACCOUNT} editable onBound={onBound} requestId={ids} />)
   await act(async () => {})
   return onBound
 }
@@ -196,12 +198,62 @@ describe("outcomes: never resent on its own", () => {
     await confirmAndUpload()
     expect(screen.getByRole("alert").textContent).toContain("(AUTHORING_BACKEND_UNAVAILABLE)")
     expect(fetch).toHaveBeenCalledTimes(1)                                          // not resent on its own
-    typeLabel("changed-after-the-fact")                                            // the resend is the SAME body regardless
+    const sentLabel = () => JSON.parse((fetch.mock.calls[0][1] as RequestInit).body as string).workspace_identity
+    // (SW114 R2) the label shown is the one SENT, and the field cannot drift from it while the outcome is unknown
+    expect(screen.getByTestId("terraform-label-shown").textContent).toBe(`Workspace label sent with it: "${sentLabel()}".`)
+    typeLabel("changed-after-the-fact")
+    expect((screen.getByLabelText("Workspace label") as HTMLInputElement).value).toBe(sentLabel())
+    expect(screen.getByTestId("terraform-label-shown").textContent).toBe(`Workspace label sent with it: "${sentLabel()}".`)
     fireEvent.click(screen.getByRole("button", { name: "Send the same upload again" }))
     await act(async () => {})
     expect(fetch).toHaveBeenCalledTimes(2)
     const [first, second] = fetch.mock.calls.map((c) => (c[1] as RequestInit).body)
     expect(second).toBe(first)
     expect(onBound).toHaveBeenCalledWith(expect.objectContaining({ replayed: true }))
+  })
+
+  it("SW114 R2: a label changed after the confirmation needs it again; the label shown is the one sent", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(answer("create"))
+    await mount()
+    typeLabel()
+    await choose(stateFile("aws_import.tfstate"))
+    fireEvent.click(screen.getByLabelText("I confirm this upload"))
+    typeLabel("s3://platform-tfstate/other.tfstate#default")
+    expect((screen.getByLabelText("I confirm this upload") as HTMLInputElement).checked).toBe(false)
+    expect((screen.getByRole("button", { name: "Upload" }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByTestId("terraform-label-shown").textContent)
+      .toBe('Workspace label to send with it: "s3://platform-tfstate/other.tfstate#default".')
+    await confirmAndUpload()
+    expect(JSON.parse((fetch.mock.calls[0][1] as RequestInit).body as string).workspace_identity)
+      .toBe("s3://platform-tfstate/other.tfstate#default")
+  })
+
+  it("SW114 R1: an answer arriving after the screen closed calls nothing", async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => { await gate; return answer("create") })
+    const onBound = await mount()
+    typeLabel()
+    await choose(stateFile("aws_import.tfstate"))
+    await confirmAndUpload()
+    cleanup()
+    release()
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
+    expect(onBound).not.toHaveBeenCalled()
+  })
+
+  it("SW114 R1: after choosing another file while uploading, that upload's late answer calls nothing", async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => { await gate; return answer("create") })
+    const onBound = await mount()
+    typeLabel()
+    await choose(stateFile("aws_import.tfstate"))
+    await confirmAndUpload()                                                       // in flight
+    fireEvent.click(screen.getByRole("button", { name: "Choose another file" }))   // the person stops waiting
+    release()
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
+    expect(onBound).not.toHaveBeenCalled()
+    expect(screen.getByLabelText("Terraform state file")).toBeTruthy()
   })
 })

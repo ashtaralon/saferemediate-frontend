@@ -12,7 +12,7 @@
  * screen cannot read offers the SAME upload again (its request id makes the server answer a replay), only when clicked.
  * Refusals are named by code; nothing of the file is shown back except the counts.
  */
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { createTerraformBinding, RETAINED_FIELDS, type BindingAnswer, type BindingCreated } from "@/lib/terraform-binding"
 import {
@@ -96,8 +96,8 @@ type Phase =
   | { at: "choose"; problem: string | null }
   | { at: "reading" }
   | { at: "confirm"; reduction: Reduction }
-  | { at: "sending"; reduction: Reduction }
-  | { at: "unknown"; reduction: Reduction; body: string; code: string }
+  | { at: "sending"; reduction: Reduction; body: string; label: string }
+  | { at: "unknown"; reduction: Reduction; body: string; label: string; code: string }
   | { at: "refused"; sentence: string }
   | { at: "sign_in" }
 
@@ -114,6 +114,14 @@ export function TerraformStateUpload({ accountId, editable, onBound, create = cr
   const [phase, setPhase] = useState<Phase>({ at: "choose", problem: null })
   const [confirmed, setConfirmed] = useState(false)
   const input = useRef<HTMLInputElement>(null)
+  // (SW114 R1) An answer is acted on only by the instance that sent it, for its LATEST upload: one that arrives after this
+  // screen closed (the row changed or was removed, the step or the wizard left) or after "start over" changes nothing.
+  const generation = useRef(0)
+  const alive = useRef(true)
+  useEffect(() => {
+    alive.current = true
+    return () => { alive.current = false }
+  }, [])
 
   const choose = async (file: File | undefined) => {
     setConfirmed(false)
@@ -127,25 +135,37 @@ export function TerraformStateUpload({ accountId, editable, onBound, create = cr
     }
   }
   const again = () => {
+    generation.current += 1                                     // an upload still in flight no longer speaks for this screen
     setConfirmed(false)
     setPhase({ at: "choose", problem: null })
     if (input.current) input.current.value = ""
   }
-  const send = async (reduction: Reduction, kept?: string) => {
-    let body = kept
-    if (body === undefined) {
+  /** Send ``reduction`` -- or, resending, EXACTLY the ``kept`` body and the label it carries (SW114 R2: what is shown is what
+   *  was sent, never the field as edited since). */
+  const send = async (reduction: Reduction, kept?: { body: string; label: string }) => {
+    let pending = kept
+    if (pending === undefined) {
       try {
-        body = buildEnvelope({ requestId: requestId(), accountId, workspaceIdentity: label, reduction }).body
+        pending = { body: buildEnvelope({ requestId: requestId(), accountId, workspaceIdentity: label, reduction }).body, label }
       } catch (e) {
         return setPhase({ at: "choose", problem: localSentence(e instanceof ReductionRefused ? e.code : "NOT_READABLE") })
       }
     }
-    setPhase({ at: "sending", reduction })
-    const answer = await create(body)
+    const mine = ++generation.current
+    setPhase({ at: "sending", reduction, ...pending })
+    const answer = await create(pending.body)
+    if (!alive.current || mine !== generation.current) return   // detached or superseded: this answer changes nothing here
     if (answer.kind === "OK") return onBound(answer.value)
     if (answer.kind === "SIGN_IN_AGAIN") return setPhase({ at: "sign_in" })
     if (answer.kind === "REFUSED") return setPhase({ at: "refused", sentence: refusedSentence(answer.code, answer.reason) })
-    setPhase({ at: "unknown", reduction, body, code: answer.code })
+    setPhase({ at: "unknown", reduction, ...pending, code: answer.code })
+  }
+  /** (SW114 R2) The label as typed, before anything is sent: a change after the confirmation needs it again. Once sent (in
+   *  flight, or its outcome unknown) what is SHOWN is the sent one (``frozen``), whatever the field held since. */
+  const frozen = phase.at === "sending" || phase.at === "unknown"
+  const edit = (value: string) => {
+    setLabel(value)
+    setConfirmed(false)
   }
 
   const labelIssue = labelProblem(label)
@@ -164,8 +184,8 @@ export function TerraformStateUpload({ accountId, editable, onBound, create = cr
       </div>
       <label className="block">
         <span>Workspace label</span>
-        <input className="ml-2 rounded border px-2 py-1" value={label} disabled={!editable || phase.at === "sending"}
-          onChange={(e) => setLabel(e.target.value)} aria-label="Workspace label" placeholder="s3://bucket/key#workspace" />
+        <input className="ml-2 rounded border px-2 py-1" value={frozen ? phase.label : label} disabled={!editable || frozen}
+          onChange={(e) => edit(e.target.value)} aria-label="Workspace label" placeholder="s3://bucket/key#workspace" />
       </label>
       {label && labelIssue ? <p className="text-amber-800">{labelIssue}</p> : null}
       {phase.at === "choose" || phase.at === "reading" ? (
@@ -180,14 +200,16 @@ export function TerraformStateUpload({ accountId, editable, onBound, create = cr
       {phase.at === "confirm" || phase.at === "sending" || phase.at === "unknown" ? (
         <div data-testid="terraform-confirm" className="space-y-1">
           <p>{countSentence(phase.reduction)}</p>
-          <p>Workspace label sent with it: {label ? `"${label}"` : "none yet"}.</p>
+          <p data-testid="terraform-label-shown">
+            {frozen ? `Workspace label sent with it: "${phase.label}".` : `Workspace label to send with it: ${label ? `"${label}"` : "none yet"}.`}
+          </p>
           {phase.at === "unknown" ? (
             <>
               <p role="alert" className="text-amber-800">
                 Whether the upload was stored is not known ({phase.code}). Sending the same upload again is safe: it can only ever
                 be stored once.
               </p>
-              <Button type="button" size="sm" disabled={!editable} onClick={() => void send(phase.reduction, phase.body)}>
+              <Button type="button" size="sm" disabled={!editable} onClick={() => void send(phase.reduction, { body: phase.body, label: phase.label })}>
                 Send the same upload again
               </Button>
               <Button type="button" size="sm" variant="outline" onClick={again}>Start over</Button>
@@ -203,7 +225,9 @@ export function TerraformStateUpload({ accountId, editable, onBound, create = cr
                 onClick={() => void send(phase.reduction)}>
                 {phase.at === "sending" ? "Uploading…" : "Upload"}
               </Button>
-              <Button type="button" size="sm" variant="outline" disabled={phase.at === "sending"} onClick={again}>Choose another file</Button>
+              {/* (SW114 R1) also while uploading: the person may stop waiting -- that upload's late answer then changes nothing
+                  here (a binding it may have stored stays unused until revoked) */}
+              <Button type="button" size="sm" variant="outline" onClick={again}>Choose another file</Button>
             </>
           )}
         </div>

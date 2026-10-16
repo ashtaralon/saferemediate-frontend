@@ -151,6 +151,159 @@ describe("the iac row can use an uploaded Terraform state", () => {
   })
 })
 
+/** (SW114 R1) The binding route answers only when ``answer()`` is called: the person keeps working meanwhile. */
+function deferredBackend() {
+  let release!: () => void
+  const gate = new Promise<void>((r) => { release = r })
+  const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    if (String(input).includes("/terraform-bindings")) {
+      await gate
+      return new Response(JSON.stringify(CREATED.body), { status: CREATED.status, headers: { "content-type": CREATED.content_type } })
+    }
+    return new Response(JSON.stringify({ detail: { code: "AUTHORING_BACKEND_UNAVAILABLE" } }),
+                        { status: 502, headers: { "content-type": "application/json" } })
+  })
+  const answer = async () => {
+    release()
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
+    await act(async () => {})
+  }
+  return { spy, answer }
+}
+const CODE_ROW = `Application code (GitHub), ${ACCOUNT} / all Regions`
+async function saveSent(updates: SetupIntent[]) {
+  fireEvent.click(screen.getByRole("button", { name: "Save and continue" }))
+  await act(async () => {})
+  return updates
+}
+
+describe("SW114 R1: an upload's late answer applies to ITS row as the row is now, or to nothing", () => {
+  it("an unchanged row takes the late answer", async () => {
+    const { answer } = deferredBackend()
+    const { c, updates } = client()
+    await open(c)
+    step("3. Code and infrastructure")
+    useTerraform()
+    await upload()
+    expect(iac().queryByTestId("setup-terraform-bound")).toBeNull()                 // still in flight
+    await answer()
+    expect(iac().getByTestId("setup-terraform-bound").textContent).toContain(CREATED.body.binding_id)
+    expect((await saveSent(updates))[0].dispositions.find((d) => d.subject === "iac")?.ref)
+      .toEqual({ kind: "terraform_state", key: CREATED.body.binding_id })
+  })
+
+  it("an EARLIER row removed meanwhile: the binding lands on the iac row, the removal stands", async () => {
+    const { answer } = deferredBackend()
+    const { c, updates } = client()
+    await open(c)
+    step("3. Code and infrastructure")
+    useTerraform()
+    await upload()
+    fireEvent.change(screen.getByLabelText(CODE_ROW), { target: { value: "" } })     // the row before it: every index shifts
+    await answer()
+    const sent = (await saveSent(updates))[0].dispositions
+    expect(sent.find((d) => d.subject === "code")).toBeUndefined()
+    expect(sent.find((d) => d.subject === "iac")).toEqual({ subject: "iac", scope: IAC.scope, choice: "use_existing",
+      reason_code: "USE_EXISTING", ref: { kind: "terraform_state", key: CREATED.body.binding_id } })
+    expect(sent.map((d) => d.subject).sort()).toEqual(["history:cloudtrail", "iac"])
+  })
+
+  it("an earlier row CHANGED meanwhile: that change stands, the binding lands on the iac row", async () => {
+    const { answer } = deferredBackend()
+    const { c, updates } = client()
+    await open(c)
+    step("3. Code and infrastructure")
+    useTerraform()
+    await upload()
+    fireEvent.change(screen.getByLabelText(CODE_ROW), { target: { value: "connect_later" } })
+    await answer()
+    const sent = (await saveSent(updates))[0].dispositions
+    expect(sent.find((d) => d.subject === "code")?.choice).toBe("connect_later")
+    expect(sent.find((d) => d.subject === "iac")?.ref).toEqual({ kind: "terraform_state", key: CREATED.body.binding_id })
+  })
+
+  it("the row's choice changed meanwhile: the late answer changes nothing", async () => {
+    const { answer } = deferredBackend()
+    const { c, updates } = client()
+    await open(c)
+    step("3. Code and infrastructure")
+    useTerraform()
+    await upload()
+    fireEvent.change(iac().getByLabelText(ROW), { target: { value: "not_used" } })
+    await answer()
+    const row = (await saveSent(updates))[0].dispositions.find((d) => d.subject === "iac")!
+    expect([row.choice, row.ref]).toEqual(["not_used", undefined])
+  })
+
+  it("changed away and back to a Terraform state meanwhile: the OLD upload's answer is not this row's", async () => {
+    const { answer } = deferredBackend()
+    const { c, updates } = client()
+    await open(c)
+    step("3. Code and infrastructure")
+    useTerraform()
+    await upload()
+    fireEvent.change(iac().getByLabelText(ROW), { target: { value: "not_used" } })
+    useTerraform()                                                                   // the same choice again: a new upload
+    await answer()
+    expect(iac().queryByTestId("setup-terraform-bound")).toBeNull()
+    expect(await saveSent(updates)).toHaveLength(0)                                 // still unuploaded: Save is held
+  })
+
+  it("the step left meanwhile: the answer is not applied, the row waits for an upload", async () => {
+    const { answer } = deferredBackend()
+    const { c, updates } = client()
+    await open(c)
+    step("3. Code and infrastructure")
+    useTerraform()
+    await upload()
+    step("6. Historical data")
+    await answer()
+    step("3. Code and infrastructure")
+    expect(iac().queryByTestId("setup-terraform-bound")).toBeNull()
+    expect(await saveSent(updates)).toHaveLength(0)
+  })
+
+  it("ANOTHER setup opened in the same wizard meanwhile: the answer is not that setup's", async () => {
+    // Two setups whose iac rows share an identity: the draft capture, and a copy with another setup id whose iac row already
+    // waits for a Terraform state (an edit). The wizard instance survives the switch (Your setups renders it unkeyed).
+    const other = structuredClone(DRAFT)
+    other.setup_id = "5e7a0000-0000-4000-8000-0000000000b2"
+    const at = other.intent.dispositions.findIndex((d) => d.subject === "iac")
+    other.intent.dispositions[at] = { ...other.intent.dispositions[at], choice: "use_existing", reason_code: "USE_EXISTING",
+                                      ref: { kind: "terraform_state", key: "" } }
+    const { answer } = deferredBackend()
+    const { c, updates } = client()
+    c.readSetup = vi.fn(async (id: string) => ({ kind: "OK" as const, value: structuredClone(id === other.setup_id ? other : DRAFT) }))
+    const props = { accountId: ACCOUNT, view: VIEW, picks: [], onClose: () => undefined, client: c, actor: "https://idp#alice",
+                    pendingStore: setupPendingStore(null, new Map<string, PendingSetupOp>()),
+                    stacks: { state: "unavailable" as const, reason: "The account census is not published yet." },
+                    readApplied: async () => ({ status: 503, body: {} }), readResult: async () => ({ status: 503, body: {} }) }
+    const { rerender } = render(<SetupWizard setupId={DRAFT.setup_id} {...props} />)
+    await act(async () => {})
+    step("3. Code and infrastructure")
+    useTerraform()
+    await upload()
+    rerender(<SetupWizard setupId={other.setup_id} {...props} />)
+    await act(async () => {})
+    await answer()
+    expect(screen.queryByTestId("setup-terraform-bound")).toBeNull()               // the other setup's row is not bound
+    expect(updates).toHaveLength(0)
+  })
+
+  it("the wizard closed meanwhile: the answer writes nothing", async () => {
+    const { answer, spy } = deferredBackend()
+    const { c, updates } = client()
+    await open(c)
+    step("3. Code and infrastructure")
+    useTerraform()
+    await upload()
+    cleanup()
+    await answer()
+    expect(spy.mock.calls.filter((call) => String(call[0]).includes("/terraform-bindings"))).toHaveLength(1)
+    expect(updates).toHaveLength(0)
+  })
+})
+
 describe("the server's reading of the binding, in words beside its code", () => {
   it.each([
     ["assessed", "SNAPSHOT_UPLOADED", "Assessed only, not connected (SNAPSHOT_UPLOADED: an uploaded Terraform state"],

@@ -603,6 +603,16 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
                                             ref: { kind: "terraform_state", key } }
     return refused(index, proposed) ?? placeRow(index, proposed)
   }
+  /** (SW114 R1) An upload's binding, applied when it RETURNS -- to the row of stable identity ``identity`` in THIS setup as it
+   *  is NOW: the current state, never the render the upload began in. A row removed, moved to another choice, or of another
+   *  setup by then is left as it is; nothing else changes (newer rows and stack bindings stand). */
+  const bindTerraform = (identity: string, forSetup: string) => (bindingId: string) => setLocal((current) => {
+    if (!current || shownSetup.current?.setup_id !== forSetup) return current
+    const at = current.dispositions.findIndex((d) => rowKey(d) === identity)
+    if (at < 0 || !isTerraform(current.dispositions[at])) return current
+    const row: AuthoredDisposition = { ...current.dispositions[at], ref: { kind: "terraform_state", key: bindingId } }
+    return { ...current, dispositions: current.dispositions.map((d, i) => (i === at ? row : d)) }
+  })
   /** (S2 intake I2c) A NEW iac row for this account at ``region`` that will use an uploaded Terraform state. */
   const addTerraform = (subject: string, region: string, deployment?: string): string | null => {
     if (region && !REGION.test(region)) return `"${region}" is not a Region name.`
@@ -753,7 +763,8 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
                     onChoose={chooseAt} onAdd={(region, choice) => addRow(subject, region, choice, key)}
                     stackOptions={meta.refKind === "stack_binding" && stacks?.state === "served" ? stacks.stacks : null}
                     onStack={stackAt}
-                    terraform={subject === "iac" ? { accountId, onUse: terraformAt, onAdd: (region) => addTerraform(subject, region, key) } : undefined} />
+                    terraform={subject === "iac" ? { accountId, onUse: terraformAt, onAdd: (region) => addTerraform(subject, region, key),
+                                                     onBound: (identity) => bindTerraform(identity, setup.setup_id) } : undefined} />
                 ))}
               </div>
             ))}
@@ -855,7 +866,13 @@ function Subject({ subject, label, deployment, choices, editable, rows, regional
   stackOptions: StackOption[] | null
   onStack: (index: number, key: string) => string | null
   /** (S2 intake I2c) iac only: rows of THIS account may use an uploaded Terraform state. */
-  terraform?: { accountId: string; onUse: (index: number, key: string) => string | null; onAdd: (region: string) => string | null }
+  terraform?: {
+    accountId: string
+    onUse: (index: number, key: string) => string | null
+    onAdd: (region: string) => string | null
+    /** The completion for the row of ``identity``: applied to that row as it is when the upload returns (SW114 R1). */
+    onBound: (identity: string) => (bindingId: string) => void
+  }
 }) {
   const [region, setRegion] = useState("")
   const [problem, setProblem] = useState<string | null>(null)
@@ -894,7 +911,7 @@ function Subject({ subject, label, deployment, choices, editable, rows, regional
           {isTerraform(d) && terraform ? (
             <TerraformRow bindingId={d.ref!.key} accountId={d.scope.account_id}
               editable={editable && d.scope.account_id === terraform.accountId}
-              onBound={(bindingId) => setProblem(terraform.onUse(index, bindingId))} />
+              onBound={terraform.onBound(rowKey(d))} />
           ) : null}
           {d.choice === "use_existing" && subject === "iac" && stacks && !isTerraform(d) ? (
             <select className="mt-1 block rounded border px-2 py-1" value={d.ref?.key ?? ""} disabled={!editable}
