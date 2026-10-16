@@ -1,0 +1,406 @@
+{
+  "account_id": "111122223333",
+  "authoritative": true,
+  "computed_at": "2026-10-16T00:00:00+00:00",
+  "counts": {
+    "configured_only": 0,
+    "coverage_incomplete": 8,
+    "no_modeled_route": 0,
+    "observed": 2,
+    "projection_not_ready": 0
+  },
+  "coverage_state": "READY",
+  "customer_id": "cust",
+  "detail_coherence": {
+    "completeness": "unknown",
+    "counts": "unknown",
+    "identity": "validated"
+  },
+  "endpoint": "target-catalog",
+  "excluded": {
+    "not_member": 2,
+    "out_of_region": 2
+  },
+  "families": [
+    {
+      "admitted_count": 3,
+      "family": "S3Bucket",
+      "reason": null,
+      "source_scope": "s3:bucket",
+      "status": "covered"
+    },
+    {
+      "admitted_count": null,
+      "family": "DynamoDBTable",
+      "reason": "NO_INVENTORY_SOURCE:dynamodb:table",
+      "source_scope": null,
+      "status": "unavailable"
+    },
+    {
+      "admitted_count": 3,
+      "family": "RDSCluster",
+      "reason": null,
+      "source_scope": "rds:db-cluster",
+      "status": "covered"
+    },
+    {
+      "admitted_count": 6,
+      "family": "RDSInstance",
+      "reason": null,
+      "source_scope": "rds:db-instance",
+      "status": "covered"
+    },
+    {
+      "admitted_count": null,
+      "family": "KMSKey",
+      "reason": "SOURCE_NOT_ADMITTED:kms:key-authorization",
+      "source_scope": null,
+      "status": "unavailable"
+    }
+  ],
+  "family_coverage": "partial",
+  "generation": 7,
+  "inventory": {
+    "bound_sources": 32,
+    "entity_count": 43,
+    "generation": 1,
+    "receipt_hash": "v1:18c5e8b3bf319629db1f52a953396ca86b41f67dc2dfd206a45ac7a8e29fbd68",
+    "source_vector_hash": "v1:b81fb16c5f2e2981d344f395bd6817a8d9dc4ab568727eb591af2e00ad636949",
+    "staging_run_id": "activate-1"
+  },
+  "membership_pin": {
+    "generation": 4,
+    "inventory_generation": 1,
+    "receipt_hash": "v1:f5668ca508451290b7fd59e9a9e4882b1d7b03aeac227397fbce21f025c90a34",
+    "system_key": "sys-test-only"
+  },
+  "not_ready_reason": null,
+  "path_source_gaps": [],
+  "serve_state": "READY",
+  "source_vector_complete": true,
+  "staging_run_id": "test-only-ap-run-7",
+  "system_name": "Orders",
+  "targets": [
+    {
+      "account_id": "111122223333",
+      "arn": "arn:aws:s3:::bucket-1",
+      "coverage_withheld_reason": "lifecycle_held",
+      "crown_jewel_source": null,
+      "data_classification": null,
+      "data_classification_source": "unknown",
+      "held_path_count": 2,
+      "inventory_present": true,
+      "is_internet_exposed": null,
+      "kind": "S3Bucket",
+      "manifest_path_count": 3,
+      "max_severity": 80,
+      "max_severity_label": "CRITICAL",
+      "member_arns": [
+        "arn:aws:s3:::bucket-1"
+      ],
+      "member_uids": [
+        "aws://aws/111122223333/global/s3/bucket/bucket-1"
+      ],
+      "name": "bucket-1",
+      "native_id": "bucket-1",
+      "observed_path_count": 1,
+      "parent_status": "none",
+      "path_count": 1,
+      "region": "global",
+      "resource_state": "ACTIVE",
+      "resource_uid": "aws://aws/111122223333/global/s3/bucket/bucket-1",
+      "standing_access_count": 0,
+      "state": "observed",
+      "target_id": "aws://aws/111122223333/global/s3/bucket/bucket-1"
+    },
+    {
+      "account_id": "111122223333",
+      "arn": "arn:aws:rds:eu-west-1:111122223333:cluster:aurora-a",
+      "coverage_withheld_reason": "database_eni_binding_not_in_normalized_inventory",
+      "crown_jewel_source": null,
+      "data_classification": null,
+      "data_classification_source": "unknown",
+      "inventory_present": true,
+      "is_internet_exposed": null,
+      "kind": "RDSCluster",
+      "manifest_path_count": null,
+      "max_severity": 70,
+      "max_severity_label": "HIGH",
+      "member_arns": [
+        "arn:aws:rds:eu-west-1:111122223333:cluster:aurora-a",
+        "arn:aws:rds:eu-west-1:111122223333:db:db-a1",
+        "arn:aws:rds:eu-west-1:111122223333:db:db-a2"
+      ],
+      "member_uids": [
+        "aws://aws/111122223333/eu-west-1/rds/db-cluster/aurora-a",
+        "aws://aws/111122223333/eu-west-1/rds/db-instance/db-a1",
+        "aws://aws/111122223333/eu-west-1/rds/db-instance/db-a2"
+      ],
+      "name": "aurora-a",
+      "native_id": "aurora-a",
+      "observed_path_count": 1,
+      "parent_status": "none",
+      "path_count": 1,
+      "region": "eu-west-1",
+      "resource_state": "ACTIVE",
+      "resource_uid": "aws://aws/111122223333/eu-west-1/rds/db-cluster/aurora-a",
+      "standing_access_count": 0,
+      "state": "observed",
+      "target_id": "aws://aws/111122223333/eu-west-1/rds/db-cluster/aurora-a"
+    },
+    {
+      "account_id": "111122223333",
+      "arn": "arn:aws:rds:eu-west-1:111122223333:cluster:cluster-1",
+      "coverage_withheld_reason": "database_eni_binding_not_in_normalized_inventory",
+      "crown_jewel_source": null,
+      "data_classification": null,
+      "data_classification_source": "unknown",
+      "inventory_present": true,
+      "is_internet_exposed": null,
+      "kind": "RDSCluster",
+      "manifest_path_count": null,
+      "max_severity": 0,
+      "max_severity_label": null,
+      "member_arns": [
+        "arn:aws:rds:eu-west-1:111122223333:cluster:cluster-1"
+      ],
+      "member_uids": [
+        "aws://aws/111122223333/eu-west-1/rds/db-cluster/cluster-1"
+      ],
+      "name": "cluster-1",
+      "native_id": "cluster-1",
+      "observed_path_count": 0,
+      "parent_status": "none",
+      "path_count": 0,
+      "region": "eu-west-1",
+      "resource_state": "ACTIVE",
+      "resource_uid": "aws://aws/111122223333/eu-west-1/rds/db-cluster/cluster-1",
+      "standing_access_count": 0,
+      "state": "coverage_incomplete",
+      "target_id": "aws://aws/111122223333/eu-west-1/rds/db-cluster/cluster-1"
+    },
+    {
+      "account_id": "111122223333",
+      "arn": "arn:aws:rds:eu-west-1:111122223333:cluster:orders",
+      "coverage_withheld_reason": "database_eni_binding_not_in_normalized_inventory",
+      "crown_jewel_source": null,
+      "data_classification": null,
+      "data_classification_source": "unknown",
+      "inventory_present": true,
+      "is_internet_exposed": null,
+      "kind": "RDSCluster",
+      "manifest_path_count": null,
+      "max_severity": 0,
+      "max_severity_label": null,
+      "member_arns": [
+        "arn:aws:rds:eu-west-1:111122223333:cluster:orders"
+      ],
+      "member_uids": [
+        "aws://aws/111122223333/eu-west-1/rds/db-cluster/orders"
+      ],
+      "name": "orders",
+      "native_id": "orders",
+      "observed_path_count": 0,
+      "parent_status": "none",
+      "path_count": 0,
+      "region": "eu-west-1",
+      "resource_state": "ACTIVE",
+      "resource_uid": "aws://aws/111122223333/eu-west-1/rds/db-cluster/orders",
+      "standing_access_count": 0,
+      "state": "coverage_incomplete",
+      "target_id": "aws://aws/111122223333/eu-west-1/rds/db-cluster/orders"
+    },
+    {
+      "account_id": "111122223333",
+      "arn": "arn:aws:rds:eu-west-1:111122223333:db:db-1",
+      "crown_jewel_source": null,
+      "data_classification": null,
+      "data_classification_source": "unknown",
+      "inventory_present": true,
+      "is_internet_exposed": null,
+      "kind": "RDSInstance",
+      "manifest_path_count": null,
+      "max_severity": 0,
+      "max_severity_label": null,
+      "member_arns": [
+        "arn:aws:rds:eu-west-1:111122223333:db:db-1"
+      ],
+      "member_uids": [
+        "aws://aws/111122223333/eu-west-1/rds/db-instance/db-1"
+      ],
+      "name": "db-1",
+      "native_id": "db-1",
+      "observed_path_count": 0,
+      "parent_status": "none",
+      "path_count": 0,
+      "region": "eu-west-1",
+      "resource_state": "ACTIVE",
+      "resource_uid": "aws://aws/111122223333/eu-west-1/rds/db-instance/db-1",
+      "standing_access_count": 0,
+      "state": "coverage_incomplete",
+      "target_id": "aws://aws/111122223333/eu-west-1/rds/db-instance/db-1"
+    },
+    {
+      "account_id": "111122223333",
+      "arn": "arn:aws:rds:eu-west-1:111122223333:db:db-stray",
+      "crown_jewel_source": null,
+      "data_classification": null,
+      "data_classification_source": "unknown",
+      "inventory_present": true,
+      "is_internet_exposed": null,
+      "kind": "RDSInstance",
+      "manifest_path_count": null,
+      "max_severity": 0,
+      "max_severity_label": null,
+      "member_arns": [
+        "arn:aws:rds:eu-west-1:111122223333:db:db-stray"
+      ],
+      "member_uids": [
+        "aws://aws/111122223333/eu-west-1/rds/db-instance/db-stray"
+      ],
+      "name": "db-stray",
+      "native_id": "db-stray",
+      "observed_path_count": 0,
+      "parent_status": "parent_unconfirmed",
+      "path_count": 0,
+      "region": "eu-west-1",
+      "resource_state": "ACTIVE",
+      "resource_uid": "aws://aws/111122223333/eu-west-1/rds/db-instance/db-stray",
+      "standing_access_count": 0,
+      "state": "coverage_incomplete",
+      "target_id": "aws://aws/111122223333/eu-west-1/rds/db-instance/db-stray"
+    },
+    {
+      "account_id": "111122223333",
+      "arn": "arn:aws:rds:eu-west-1:111122223333:db:db-us-only",
+      "crown_jewel_source": null,
+      "data_classification": null,
+      "data_classification_source": "unknown",
+      "inventory_present": true,
+      "is_internet_exposed": null,
+      "kind": "RDSInstance",
+      "manifest_path_count": null,
+      "max_severity": 0,
+      "max_severity_label": null,
+      "member_arns": [
+        "arn:aws:rds:eu-west-1:111122223333:db:db-us-only"
+      ],
+      "member_uids": [
+        "aws://aws/111122223333/eu-west-1/rds/db-instance/db-us-only"
+      ],
+      "name": "db-us-only",
+      "native_id": "db-us-only",
+      "observed_path_count": 0,
+      "parent_status": "parent_absent_in_region",
+      "path_count": 0,
+      "region": "eu-west-1",
+      "resource_state": "ACTIVE",
+      "resource_uid": "aws://aws/111122223333/eu-west-1/rds/db-instance/db-us-only",
+      "standing_access_count": 0,
+      "state": "coverage_incomplete",
+      "target_id": "aws://aws/111122223333/eu-west-1/rds/db-instance/db-us-only"
+    },
+    {
+      "account_id": "111122223333",
+      "arn": "arn:aws:rds:eu-west-1:111122223333:db:db-x1",
+      "crown_jewel_source": null,
+      "data_classification": null,
+      "data_classification_source": "unknown",
+      "inventory_present": true,
+      "is_internet_exposed": null,
+      "kind": "RDSInstance",
+      "manifest_path_count": null,
+      "max_severity": 0,
+      "max_severity_label": null,
+      "member_arns": [
+        "arn:aws:rds:eu-west-1:111122223333:db:db-x1"
+      ],
+      "member_uids": [
+        "aws://aws/111122223333/eu-west-1/rds/db-instance/db-x1"
+      ],
+      "name": "db-x1",
+      "native_id": "db-x1",
+      "observed_path_count": 0,
+      "parent_status": "parent_not_admitted",
+      "path_count": 0,
+      "region": "eu-west-1",
+      "resource_state": "ACTIVE",
+      "resource_uid": "aws://aws/111122223333/eu-west-1/rds/db-instance/db-x1",
+      "standing_access_count": 0,
+      "state": "coverage_incomplete",
+      "target_id": "aws://aws/111122223333/eu-west-1/rds/db-instance/db-x1"
+    },
+    {
+      "account_id": "111122223333",
+      "arn": "arn:aws:s3:::empty-bucket",
+      "coverage_withheld_reason": "lifecycle_held",
+      "crown_jewel_source": null,
+      "data_classification": null,
+      "data_classification_source": "unknown",
+      "held_path_count": 1,
+      "inventory_present": true,
+      "is_internet_exposed": null,
+      "kind": "S3Bucket",
+      "manifest_path_count": 1,
+      "max_severity": 0,
+      "max_severity_label": null,
+      "member_arns": [
+        "arn:aws:s3:::empty-bucket"
+      ],
+      "member_uids": [
+        "aws://aws/111122223333/global/s3/bucket/empty-bucket"
+      ],
+      "name": "empty-bucket",
+      "native_id": "empty-bucket",
+      "observed_path_count": 0,
+      "parent_status": "none",
+      "path_count": 0,
+      "region": "global",
+      "resource_state": "ACTIVE",
+      "resource_uid": "aws://aws/111122223333/global/s3/bucket/empty-bucket",
+      "standing_access_count": 0,
+      "state": "coverage_incomplete",
+      "target_id": "aws://aws/111122223333/global/s3/bucket/empty-bucket"
+    },
+    {
+      "account_id": "111122223333",
+      "arn": "arn:aws:s3:::orders",
+      "crown_jewel_source": null,
+      "data_classification": null,
+      "data_classification_source": "unknown",
+      "inventory_present": true,
+      "is_internet_exposed": null,
+      "kind": "S3Bucket",
+      "manifest_path_count": null,
+      "max_severity": 0,
+      "max_severity_label": null,
+      "member_arns": [
+        "arn:aws:s3:::orders"
+      ],
+      "member_uids": [
+        "aws://aws/111122223333/global/s3/bucket/orders"
+      ],
+      "name": "orders",
+      "native_id": "orders",
+      "observed_path_count": 0,
+      "parent_status": "none",
+      "path_count": 0,
+      "region": "global",
+      "resource_state": "ACTIVE",
+      "resource_uid": "aws://aws/111122223333/global/s3/bucket/orders",
+      "standing_access_count": 0,
+      "state": "coverage_incomplete",
+      "target_id": "aws://aws/111122223333/global/s3/bucket/orders"
+    }
+  ],
+  "total_targets": 10,
+  "unjoined": [
+    {
+      "cj_type": null,
+      "key": "arn:aws:s3:::orders",
+      "origin": "manifest",
+      "path_count": 0,
+      "reason": "AMBIGUOUS_CROSS_KIND"
+    }
+  ]
+}

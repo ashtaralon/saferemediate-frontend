@@ -1,0 +1,95 @@
+/**
+ * AP182 · the crown-jewel rail (CrownJewelListPanel) over the captured target catalog section.
+ *
+ * Real: the panel, the target-catalog adapter and the captured backend section (__tests__/fixtures/ap182-lifecycle).
+ * Each row's held count and cause are the TARGET's own, as served. The non-install shape is derived by removing
+ * every `held_path_count` (the live route's model drops it).
+ */
+import { cleanup, render, screen, within } from "@testing-library/react"
+import { afterEach, describe, expect, it } from "vitest"
+
+import capturedSection from "@/__tests__/fixtures/ap182-lifecycle/target-catalog-section.json"
+import { CrownJewelListPanel } from "@/components/identity-attack-paths/crown-jewel-list-panel"
+import { LIFECYCLE_HELD_EXPLANATION } from "@/lib/attack-paths/lifecycle-coverage"
+import { targetCatalogToJewelSummaries, type TargetCatalog } from "@/lib/attack-paths/target-catalog"
+import { TARGET_STATE_CONFIG } from "@/lib/types"
+
+afterEach(() => cleanup())
+
+const SECTION = capturedSection as unknown as TargetCatalog
+const NON_INSTALL = {
+  ...SECTION,
+  targets: SECTION.targets.map(({ held_path_count: _drop, ...rest }) => rest),
+} as TargetCatalog
+
+function renderRail(catalog: TargetCatalog) {
+  render(
+    <CrownJewelListPanel
+      jewels={targetCatalogToJewelSummaries(catalog)}
+      serveState={catalog.serve_state}
+      stateCounts={catalog.counts}
+      selectedJewelId={null}
+      onSelect={() => undefined}
+    />,
+  )
+}
+
+function row(name: string): HTMLElement {
+  return screen.getByTitle(name).closest("button") as HTMLElement
+}
+
+describe("the rail names each target's own lifecycle / withheld cause", () => {
+  it("mixed target: its listed count, its own held count beside it, and the lifecycle explanation", () => {
+    renderRail(SECTION)
+    const mixed = row("bucket-1")
+    expect(mixed).toHaveTextContent("1 path")
+    const note = within(mixed).getByTestId("target-coverage-note")
+    expect(note).toHaveTextContent("+2 held, not counted")
+    expect(note).toHaveAttribute("data-coverage-cause", "lifecycle")
+    expect(note).toHaveAttribute("title", `Lifecycle coverage incomplete (2 paths held). ${LIFECYCLE_HELD_EXPLANATION}`)
+    expect(within(mixed).getByText("observed")).toHaveAttribute(
+      "title", `Lifecycle coverage incomplete (2 paths held). ${LIFECYCLE_HELD_EXPLANATION}`)
+  })
+
+  it("all-held target: PENDING, explained as lifecycle — not as a missing manifest", () => {
+    renderRail(SECTION)
+    const allHeld = row("empty-bucket")
+    expect(within(allHeld).getByText("PENDING")).toHaveAttribute(
+      "aria-label", `Lifecycle coverage incomplete (1 path held). ${LIFECYCLE_HELD_EXPLANATION}`)
+    expect(within(allHeld).getByTestId("target-coverage-note")).toHaveTextContent("+1 held, not counted")
+    expect(allHeld.innerHTML).not.toContain("no manifest entry")
+  })
+
+  it("withheld target: the receipt code, never called lifecycle", () => {
+    renderRail(SECTION)
+    const withheld = row("aurora-a")
+    const note = within(withheld).getByTestId("target-coverage-note")
+    expect(note).toHaveTextContent("coverage withheld")
+    expect(note).toHaveAttribute("data-coverage-cause", "withheld")
+    expect(note.getAttribute("title")).toContain("database_eni_binding_not_in_normalized_inventory")
+    expect(note.getAttribute("title")).not.toMatch(/lifecycle/i)
+  })
+
+  it("nothing recorded: the established state description and no note", () => {
+    renderRail(SECTION)
+    const legacy = row("db-1")
+    expect(within(legacy).queryByTestId("target-coverage-note")).toBeNull()
+    expect(within(legacy).getByText("PENDING")).toHaveAttribute(
+      "aria-label", TARGET_STATE_CONFIG.coverage_incomplete.description)
+    expect(within(legacy).getByText("coverage incomplete")).toHaveAttribute(
+      "title", TARGET_STATE_CONFIG.coverage_incomplete.description)
+  })
+
+  it("non-install shape: still held, and no count is invented", () => {
+    renderRail(NON_INSTALL)
+    const mixed = within(row("bucket-1")).getByTestId("target-coverage-note")
+    expect(mixed).toHaveTextContent("more paths held, not counted")
+    expect(mixed.textContent).not.toMatch(/\d+ held/)
+    expect(mixed).toHaveAttribute("title", `Lifecycle coverage incomplete. ${LIFECYCLE_HELD_EXPLANATION}`)
+  })
+
+  it("the per-state counts line is the catalog's own, unchanged", () => {
+    renderRail(SECTION)
+    expect(screen.getByTestId("target-zero-states")).toHaveTextContent("8 coverage incomplete")
+  })
+})

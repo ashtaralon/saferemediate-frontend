@@ -20,7 +20,12 @@
  * is the consumer half: nothing may render "none found" without an explicit
  * READY + analysis_complete, and a non-READY payload must never reach the
  * cache, or a cold-start zero outlives the outage that produced it.
+ *
+ * AP182: lifecycle-held paths (lib/attack-paths/lifecycle-coverage.ts) are in no total either. Their evidence rides
+ * on the integrity, and a payload that carries any of it is never READY, whatever it declares.
  */
+
+import { deriveAllLifecycleCoverage, type AllLifecycleCoverage } from "@/lib/attack-paths/lifecycle-coverage"
 
 export type PathsServeState = "READY" | "PARTIAL" | "NOT_READY"
 
@@ -54,6 +59,8 @@ export interface PathsIntegrity {
   uncomputed: string[]
   errors: string[]
   reason: string | null
+  /** Lifecycle-held / unverified systems (AP182); `incomplete` false on the resolved and legacy shapes. */
+  lifecycle: AllLifecycleCoverage
 }
 
 function finite(v: unknown): number | null {
@@ -70,12 +77,14 @@ function finite(v: unknown): number | null {
 export function derivePathsIntegrity(raw: unknown): PathsIntegrity {
   const p = (raw ?? {}) as PathsIntegrityFields
   const declared = typeof p.serve_state === "string" ? p.serve_state : null
-  const complete = p.analysis_complete === true
+  const lifecycle = deriveAllLifecycleCoverage(raw)
+  // Lifecycle evidence on a payload that says READY contradicts it: never READY, so never cached or "none found".
+  const complete = p.analysis_complete === true && !lifecycle.incomplete
 
   const state: PathsServeState =
     declared === "READY" && complete
       ? "READY"
-      : declared === "PARTIAL"
+      : declared === "PARTIAL" || (declared === "READY" && lifecycle.incomplete)
         ? "PARTIAL"
         : "NOT_READY"
 
@@ -99,6 +108,7 @@ export function derivePathsIntegrity(raw: unknown): PathsIntegrity {
       p.not_ready_reason ??
       p.error ??
       (state === "READY" ? null : "no provenance on this payload"),
+    lifecycle,
   }
 }
 

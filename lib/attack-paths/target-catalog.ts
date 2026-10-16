@@ -14,6 +14,7 @@
  */
 
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
+import { heldCountOrNull, targetCoverageCause } from "@/lib/attack-paths/lifecycle-coverage"
 import { TARGET_STATE_CONFIG, type TargetState } from "@/lib/types"
 
 export type TargetSeverityLabel = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
@@ -41,6 +42,11 @@ export interface TargetCatalogEntry {
   manifest_path_count: number | null
   state: TargetState
   crown_jewel_source: string | null
+  /** AP105 / AP177: why this target's coverage is not complete — `lifecycle_held`, or a stage-receipt code. Absent
+   *  when nothing is recorded. */
+  coverage_withheld_reason?: string | null
+  /** AP177: lifecycle-held paths to this target, not in `path_count`. Served only on an install, and only when > 0. */
+  held_path_count?: number
 }
 
 /** GET /api/attack-paths/{system}/targets — mirrors TargetCatalog. */
@@ -131,6 +137,14 @@ export function targetEntryToJewelSummary(entry: TargetCatalogEntry): CrownJewel
     inventory_present: entry.inventory_present !== false,
     data_classification_source:
       entry.data_classification_source === "tag" ? "tag" : "unknown",
+    // AP182: the recorded cause, carried as served (the row reads exactly as before when neither is present). A held
+    // count that is present but malformed is carried as null: held, count not reported -- never 0.
+    ...(typeof entry.coverage_withheld_reason === "string" && entry.coverage_withheld_reason.trim()
+      ? { coverage_withheld_reason: entry.coverage_withheld_reason.trim() }
+      : {}),
+    ...(entry.held_path_count !== undefined && entry.held_path_count !== null
+      ? { held_path_count: heldCountOrNull(entry.held_path_count) }
+      : {}),
   }
 }
 
@@ -148,19 +162,47 @@ export function targetCatalogToJewelSummaries(
  * different model with a different population. The header and rail must quote
  * the same target catalog the operator is looking at.
  */
+export interface TargetCatalogTotals {
+  /** Listed (eligible) paths only. */
+  pathCount: number
+  reachableTargetCount: number
+  /** AP182: some target's paths are lifecycle-held, so the two counts above are not totals. */
+  lifecycleHeld: boolean
+  /** Held paths across those targets when every one of them reports its count; null otherwise (or none held). */
+  heldPathCount: number | null
+  /** Targets whose coverage the active generation withheld for a recorded non-lifecycle reason (a stage-receipt code):
+   *  another reason the counts are not totals. */
+  withheldTargetCount: number
+}
+
 export function targetCatalogTotals(
   catalog: TargetCatalog | null | undefined,
-): { pathCount: number; reachableTargetCount: number } | null {
+): TargetCatalogTotals | null {
   if (!catalog || catalog.serve_state !== "READY" || !Array.isArray(catalog.targets)) {
     return null
   }
-  return catalog.targets.reduce(
-    (totals, target) => {
-      const paths = Math.max(0, Number(target.path_count ?? 0))
-      totals.pathCount += paths
-      if (paths > 0) totals.reachableTargetCount += 1
-      return totals
-    },
-    { pathCount: 0, reachableTargetCount: 0 },
-  )
+  const totals: TargetCatalogTotals = {
+    pathCount: 0, reachableTargetCount: 0, lifecycleHeld: false, heldPathCount: null, withheldTargetCount: 0,
+  }
+  let heldTargets = 0
+  let heldCounted = 0
+  let heldSum = 0
+  for (const target of catalog.targets) {
+    const paths = Math.max(0, Number(target.path_count ?? 0))
+    totals.pathCount += paths
+    if (paths > 0) totals.reachableTargetCount += 1
+    const cause = targetCoverageCause(target.coverage_withheld_reason, target.held_path_count)
+    if (cause.kind === "withheld") totals.withheldTargetCount += 1
+    // Held: the lifecycle reason, or a held count served beside a receipt code (well formed or not).
+    if (cause.kind === "lifecycle" || (cause.kind === "withheld" && target.held_path_count != null)) {
+      heldTargets += 1
+      if (cause.heldCount !== null) {
+        heldCounted += 1
+        heldSum += cause.heldCount
+      }
+    }
+  }
+  totals.lifecycleHeld = heldTargets > 0
+  totals.heldPathCount = heldTargets > 0 && heldCounted === heldTargets ? heldSum : null
+  return totals
 }

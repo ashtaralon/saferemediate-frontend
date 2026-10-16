@@ -3,6 +3,11 @@
 import { useState } from "react"
 import { Shield, Globe, ChevronLeft, ChevronRight, PauseCircle } from "lucide-react"
 import { iapHoldTitle, type IapHold } from "@/lib/attack-paths/path-evidence-view"
+import {
+  targetCoverageCause,
+  targetCoverageDescription,
+  targetCoverageNote,
+} from "@/lib/attack-paths/lifecycle-coverage"
 import { MaterializedScopeBadge } from "@/components/attack-paths-v2/materialized-scope-badge"
 import { ServiceTypeBadge, getServiceMeta } from "@/lib/service-type"
 import { TARGET_STATE_CONFIG, type TargetState } from "@/lib/types"
@@ -33,14 +38,15 @@ interface CrownJewelListPanelProps {
 
 /** Explicit target state chip (AP3-104). Exact backend strings; a state the
  *  config does not know is not rendered rather than guessed. */
-function TargetStateChip({ state }: { state: TargetState }) {
+function TargetStateChip({ state, description }: { state: TargetState; description?: string | null }) {
   const cfg = TARGET_STATE_CONFIG[state]
   if (!cfg) return null
   return (
     <span
       className="inline-flex items-center rounded border px-1.5 py-px text-[9.5px] font-medium leading-tight"
       style={{ color: cfg.color, backgroundColor: cfg.bgColor, borderColor: cfg.color }}
-      title={cfg.description}
+      // AP182: a recorded cause (lifecycle-held, a withheld receipt code) explains this target; otherwise the state's.
+      title={description ?? cfg.description}
       data-target-state={state}
     >
       {cfg.label}
@@ -185,8 +191,12 @@ export function CrownJewelListPanel({
             targetState === "no_modeled_route" ? "NO PATH" :
             targetState === "coverage_incomplete" ? "PENDING" :
             targetState === "projection_not_ready" ? "WAIT" : "—"
+          // AP182: the target's own recorded cause and held count, exactly as the catalog served them.
+          const coverageCause = targetCoverageCause(jewel.coverage_withheld_reason, jewel.held_path_count)
+          const coverageDescription = targetCoverageDescription(coverageCause)
+          const coverageNote = targetCoverageNote(coverageCause)
           const zeroDescription = targetState
-            ? TARGET_STATE_CONFIG[targetState]?.description
+            ? coverageDescription ?? TARGET_STATE_CONFIG[targetState]?.description
             : "No path severity is available for this target."
           const svc = getServiceMeta(jewel.type)
 
@@ -228,7 +238,7 @@ export function CrownJewelListPanel({
                       {svc.short}
                     </span>
                     {targetState ? (
-                      <TargetStateChip state={targetState} />
+                      <TargetStateChip state={targetState} description={coverageDescription} />
                     ) : notComputed ? (
                       <span
                         className="text-[10px] text-muted-foreground"
@@ -277,6 +287,17 @@ export function CrownJewelListPanel({
                       </div>
                     )
                   })()}
+                  {coverageNote && (
+                    // AP182: this target's own held count / withheld cause, never another scope's.
+                    <div
+                      className="text-[9.5px] text-amber-700 dark:text-amber-400 mt-0.5"
+                      title={coverageDescription ?? undefined}
+                      data-testid="target-coverage-note"
+                      data-coverage-cause={coverageCause.kind}
+                    >
+                      {coverageNote}
+                    </div>
+                  )}
                 </div>
               </div>
             </button>

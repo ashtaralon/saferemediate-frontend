@@ -53,7 +53,9 @@ describe("crown-jewel rail panel", () => {
 
   it("renders the explicit state chip from TARGET_STATE_CONFIG", () => {
     expect(src).toContain("TARGET_STATE_CONFIG[state]")
-    expect(src).toContain("<TargetStateChip state={targetState} />")
+    // AP182: the chip also takes the target's recorded-cause description (its own state's when none is recorded).
+    expect(src).toContain("<TargetStateChip state={targetState} description={coverageDescription} />")
+    expect(src).toContain("title={description ?? cfg.description}")
   })
 
   it("never defaults a missing severity to LOW", () => {

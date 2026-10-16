@@ -56,6 +56,12 @@ import {
   targetCatalogToJewelSummaries,
   type TargetCatalog,
 } from "@/lib/attack-paths/target-catalog"
+import {
+  LIFECYCLE_HELD_EXPLANATION,
+  heldPathsPhrase,
+  targetCoverageCause,
+  targetZeroCoverageSubtitle,
+} from "@/lib/attack-paths/lifecycle-coverage"
 import { ConvergenceMapLoader } from "./convergence-map-loader"
 import { CrownJewelUnionViewLink } from "./crown-jewel-union-view-link"
 import { JewelExposurePanel } from "./jewel-exposure-panel"
@@ -562,7 +568,12 @@ export function AttackPathsV2({
     selectedJewelZeroState === "no_modeled_route"
       ? "The active generation evaluated this crown jewel and found no compute-to-jewel route. Lateral and Exfiltration remain separate attacker-lens analyses."
       : selectedJewelZeroState === "coverage_incomplete"
-        ? "The active generation has no evaluation manifest for this crown jewel, so Cyntro does not claim that no route exists."
+        // AP182: the recorded cause when there is one (lifecycle-held, or a withheld receipt code); the missing
+        // manifest only when nothing else is recorded.
+        ? targetZeroCoverageSubtitle(
+            targetCoverageCause(selectedJewel?.coverage_withheld_reason, selectedJewel?.held_path_count),
+          ) ??
+          "The active generation has no evaluation manifest for this crown jewel, so Cyntro does not claim that no route exists."
         : "No active Attack Paths generation can author a current-access conclusion yet."
 
   const iapJewelPaths: ActivePathList<IdentityAttackPath> = useMemo(() => {
@@ -1162,6 +1173,21 @@ export function AttackPathsV2({
                     : railIapHold
                       ? iapHoldTitle(railIapHold)
                       : `${jewels.length} targets${isLoading ? " · totals loading…" : ""}`}
+                {/* AP182: with a catalog the counts above ARE its listed paths (displayedPathCount =
+                    catalogTotals.pathCount). When some are held or a target's coverage was withheld, say so beside
+                    them, never as a total. */}
+                {catalogTotals?.lifecycleHeld ? (
+                  <span title={LIFECYCLE_HELD_EXPLANATION} data-testid="catalog-held-not-counted">
+                    {` · ${heldPathsPhrase(catalogTotals.heldPathCount)}, not counted`}
+                  </span>
+                ) : null}
+                {catalogTotals && catalogTotals.withheldTargetCount > 0 ? (
+                  <span data-testid="catalog-coverage-withheld">
+                    {` · coverage withheld for ${catalogTotals.withheldTargetCount} target${
+                      catalogTotals.withheldTargetCount === 1 ? "" : "s"
+                    }`}
+                  </span>
+                ) : null}
                 {showingStale ? " · showing cached" : ""}
               </div>
             </div>

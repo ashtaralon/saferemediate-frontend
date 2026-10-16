@@ -17,7 +17,13 @@ import {
   buildTfmSpotlightUrl,
   navigateCrownJewelClick,
 } from "@/lib/attack-paths/crown-jewel-v2-navigation"
-import { derivePathsIntegrity, isCacheablePaths } from "@/lib/paths-integrity"
+import { derivePathsIntegrity, isCacheablePaths, type PathsIntegrity } from "@/lib/paths-integrity"
+import {
+  LIFECYCLE_HELD_EXPLANATION,
+  heldPathsPhrase,
+  unverifiedReasonText,
+  type AllLifecycleCoverage,
+} from "@/lib/attack-paths/lifecycle-coverage"
 
 /**
  * Top Attack Paths to Crown Jewels.
@@ -64,6 +70,66 @@ export type PathsResponse = {
   uncomputed?: string[]
   errors?: string[]
   error?: string
+  /** AP101: membership systems the grouping placed no path in (another reason the list is partial). */
+  membership_systems_without_paths?: string[]
+  /** AP179/AP182: read through derivePathsIntegrity().lifecycle, never directly. */
+  lifecycle_held_systems?: unknown
+  lifecycle_unverified_systems?: unknown
+}
+
+/** Partial for a reason other than lifecycle: a system not scanned, or a membership system without paths. */
+function partialBeyondLifecycle(data: PathsResponse, integrity: PathsIntegrity): boolean {
+  const { systemsScanned: scanned, systemsDiscovered: discovered } = integrity
+  return (
+    (integrity.systemsUncomputed ?? 0) > 0 ||
+    integrity.uncomputed.length > 0 ||
+    (scanned !== null && discovered !== null && scanned < discovered) ||
+    (Array.isArray(data.membership_systems_without_paths) && data.membership_systems_without_paths.length > 0)
+  )
+}
+
+/** AP182: the systems /all names as lifecycle-held or unverified. Counts are per SYSTEM, exactly as supplied; the
+ *  answer carries none per jewel, so none is shown on a jewel row. */
+function LifecycleCoverageNote({ lifecycle }: { lifecycle: AllLifecycleCoverage }) {
+  if (!lifecycle.incomplete) return null
+  const lines = [
+    ...lifecycle.held.map((h, i) => ({
+      key: `held:${i}:${h.systemKey ?? h.system}`,
+      title: h.systemKey ?? undefined,
+      text: `${h.system}: ${heldPathsPhrase(h.heldPathCount)}`,
+    })),
+    ...lifecycle.unverified.map((u, i) => ({
+      key: `unverified:${i}:${u.label}`,
+      title: u.reason ?? undefined,
+      text: `${u.label}: ${unverifiedReasonText(u.reason)}`,
+    })),
+  ]
+  return (
+    <div
+      className="mb-3 rounded-md border border-amber-200 bg-amber-50/60 p-3 text-xs"
+      data-testid="paths-lifecycle-coverage"
+    >
+      <div className="font-semibold text-amber-800">
+        Lifecycle coverage incomplete
+        {lifecycle.heldTotal !== null ? ` · ${heldPathsPhrase(lifecycle.heldTotal)}` : ""} — some paths are not listed
+        or counted
+      </div>
+      {lifecycle.held.length > 0 && <p className="mt-1 text-amber-700">{LIFECYCLE_HELD_EXPLANATION}</p>}
+      {lifecycle.unreadable && (
+        <p className="mt-1 text-amber-700">Part of this answer&apos;s lifecycle coverage evidence could not be read.</p>
+      )}
+      {lines.length > 0 && (
+        <ul className="mt-1.5 space-y-0.5 text-[11px] text-amber-700">
+          {lines.slice(0, 4).map((line) => (
+            <li key={line.key} className="truncate" title={line.title}>
+              · {line.text}
+            </li>
+          ))}
+          {lines.length > 4 && <li className="text-amber-600">+ {lines.length - 4} more</li>}
+        </ul>
+      )}
+    </div>
+  )
 }
 
 const SEVERITY_PILL: Record<string, string> = {
@@ -224,6 +290,11 @@ export function AttackPathsCard({ onNavigateToSection, limit = 8, shared }: Atta
                 </li>
               )}
             </ul>
+            {integrity.lifecycle.incomplete && (
+              <div className="mt-2">
+                <LifecycleCoverageNote lifecycle={integrity.lifecycle} />
+              </div>
+            )}
           </div>
         ) : (
           <div className={descriptorClass}>
@@ -239,9 +310,16 @@ export function AttackPathsCard({ onNavigateToSection, limit = 8, shared }: Atta
       label="Top damage paths"
       descriptor={
         integrity.listIsPartial
-          ? `Ranked by priority_score · partial scan (${
-              integrity.systemsScanned ?? "?"
-            } of ${integrity.systemsDiscovered ?? "?"} systems) — more may exist`
+          ? `Ranked by priority_score · ${[
+              // The scan wording stays whenever anything but lifecycle can make the list partial; a list partial
+              // only for lifecycle says so instead of calling a complete scan partial (AP182).
+              !integrity.lifecycle.incomplete || partialBeyondLifecycle(data, integrity)
+                ? `partial scan (${integrity.systemsScanned ?? "?"} of ${integrity.systemsDiscovered ?? "?"} systems)`
+                : null,
+              integrity.lifecycle.incomplete ? "lifecycle coverage incomplete" : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")} — more may exist`
           : "Crown jewels ranked by priority_score across all inbound paths · click to open the path graph"
       }
       className="border-l-[3px] border-l-rose-500"
@@ -253,6 +331,7 @@ export function AttackPathsCard({ onNavigateToSection, limit = 8, shared }: Atta
         </span>
       }
     >
+      <LifecycleCoverageNote lifecycle={integrity.lifecycle} />
       <ul className="space-y-2">
         {jewels.map((j) => {
           const sevClass = SEVERITY_PILL[j.severity] ?? "bg-slate-100 text-slate-600"
