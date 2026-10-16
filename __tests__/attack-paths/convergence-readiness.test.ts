@@ -18,6 +18,7 @@ import {
   zoom0ServeCoverage,
 } from "@/lib/attack-paths/convergence-readiness"
 import { zoom0ServeCoverage as reExported, zoom0EmptyCanvasMessage } from "@/components/attack-paths-v2/zoom0-fan-in-panel"
+import { targetEntryToJewelSummary, type TargetCatalogEntry } from "@/lib/attack-paths/target-catalog"
 import { TARGET_STATE_CONFIG } from "@/lib/types"
 
 const PATH = { path_id: "p1", workload_arn: "arn:aws:lambda:eu-west-1:111122223333:function:f", damage: [], score: 1,
@@ -126,9 +127,11 @@ describe("zoom0ServeCoverage moved, not changed", () => {
 
 // ── the selected target's header count ───────────────────────────────────────────────────────────────────────────
 
+// A catalog row as targetEntryToJewelSummary builds it: `catalog_path_count` is the served count, validated (AP190).
 const jewel = (over: Partial<CrownJewelSummary>): CrownJewelSummary => ({
   id: "t1", canonical_id: "arn:aws:s3:::b", name: "bucket-1", type: "S3Bucket", severity: "HIGH", path_count: 3,
-  highest_risk_score: 80, is_internet_exposed: false, data_classification: null, target_state: "observed", ...over,
+  highest_risk_score: 80, is_internet_exposed: false, data_classification: null, target_state: "observed",
+  catalog_path_count: over.path_count ?? 3, ...over,
 } as CrownJewelSummary)
 const base = { coverageNote: null, railSource: "none" as const, listedCount: 0, serve: null, loading: false, failed: false, error: null }
 
@@ -168,6 +171,33 @@ describe("selectedPathCount: never a zero the read state does not support", () =
       .toEqual({ kind: "count", count: 0, partial: null })
     expect(selectedPathCount({ ...base, jewel: jewel({ target_state: "coverage_incomplete", path_count: 0 }),
       coverageNote: "+1 held, not counted" })).toEqual({ kind: "count", count: 0, partial: "+1 held, not counted" })
+  })
+})
+
+describe("AP190-R2: only a VALID served zero is a zero (rows built by the actual targetEntryToJewelSummary)", () => {
+  const row = (path_count: unknown) => targetEntryToJewelSummary({
+    target_id: "arn:aws:s3:::bucket-a", kind: "S3Bucket", name: "bucket-a", state: "observed", path_count,
+  } as unknown as TargetCatalogEntry)
+
+  it("CONTROL: a served 0 is the catalog's zero (Codex's valid-zero control)", () => {
+    expect(row(0).catalog_path_count).toBe(0)
+    expect(selectedPathCount({ ...base, jewel: row(0) })).toEqual({ kind: "count", count: 0, partial: null })
+  })
+
+  it.each([["bad"], [-1], [1.5], [null], [undefined], ["3"]])("served path_count %j is no zero, failed or not", (raw) => {
+    const j = row(raw)
+    expect(j.catalog_path_count).toBeNull()
+    // Codex's reproduction: rail none + a failed detail read
+    expect(selectedPathCount({ ...base, jewel: j, failed: true, error: "unavailable" }))
+      .toEqual({ kind: "unavailable", catalogCount: null, note: null, reason: "unavailable" })
+    // no read at all (the page fetches only when the coerced count is above 0): still no count, and said why
+    const idle = selectedPathCount({ ...base, jewel: j })
+    expect(idle.kind === "loading" || idle.kind === "unavailable", JSON.stringify(idle)).toBe(true)
+    expect(idle.kind).not.toBe("count")
+  })
+
+  it("a valid served count with a failed read names that count as the catalog's", () => {
+    expect(selectedPathCount({ ...base, jewel: row(3), failed: true, error: "x" })).toMatchObject({ kind: "unavailable", catalogCount: 3 })
   })
 })
 

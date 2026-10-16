@@ -148,7 +148,14 @@ export function targetEntryToJewelSummary(entry: TargetCatalogEntry): CrownJewel
     // AP182/AP183: the recorded cause, judged HERE from the raw fields, where absence and malformed presence still
     // differ (lib/attack-paths/lifecycle-coverage.ts). A row with nothing recorded carries no key and reads as before.
     ...(cause.kind !== "none" ? { coverage_cause: cause } : {}),
+    // AP190: what the catalog itself served for the count, validated, so a missing or malformed value (coerced to 0 /
+    // NaN above for display) never proves that the target has no path.
+    catalog_path_count: isServedCount(entry.path_count) ? entry.path_count : null,
   }
+}
+
+function isServedCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
 }
 
 /** Whole catalog → rail list, in the backend's order. Empty when absent. */

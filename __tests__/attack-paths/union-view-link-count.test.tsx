@@ -100,3 +100,88 @@ describe("the union-view link's count claim", () => {
     expect(screen.queryByRole("link")).toBeNull()
   })
 })
+
+// AP190-R1: the count is the answer to ONE request (system + jewel). Codex's reproduction: bucket-a READY with 2 paths,
+// then bucket-b with its read unresolved, still said "2 paths to this jewel" while the href already named bucket-b.
+describe("AP190-R1 the count belongs to the request that produced it", () => {
+  const named = (name: string) => ({ ...JEWEL, id: `arn:aws:s3:::${name}`, canonical_id: `arn:aws:s3:::${name}`, name })
+  const READY_2 = { serve_state: "ACTIVE", coverage_state: "READY", paths: [real(1), real(2)] }
+  type Answer = { status: number; body: unknown } | "pending" | "reject"
+  function byJewel(answers: Record<string, Answer>) {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = decodeURIComponent(String(input instanceof Request ? input.url : input))
+      const key = Object.keys(answers).find((k) => url.includes(k))
+      const a = key ? answers[key] : { status: 502, body: { detail: "not stubbed" } }
+      if (a === "pending") return new Promise<Response>(() => undefined)
+      if (a === "reject") throw new TypeError("network down")
+      return new Response(JSON.stringify(a.body), { status: a.status, headers: { "content-type": "application/json" } })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    return fetchMock
+  }
+  async function fromBucketA(next: Answer, nextSystem = "Orders") {
+    const fetchMock = byJewel({ "bucket-a": { status: 200, body: READY_2 }, "bucket-b": next })
+    const view = render(<CrownJewelUnionViewLink systemName="Orders" jewel={named("bucket-a")} />)
+    const first = await screen.findByRole("link")
+    expect(first).toHaveTextContent(/^Advanced: 2 paths to this jewel — view all$/)          // the precondition
+    view.rerender(<CrownJewelUnionViewLink systemName={nextSystem} jewel={named("bucket-b")} />)
+    await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => decodeURIComponent(String(u)).includes("bucket-b"))).toBe(true))
+    await new Promise((r) => setTimeout(r, 30))
+    return view
+  }
+
+  it("pending: the new jewel has no count yet, so there is no link (never bucket-a's 2 under bucket-b's href)", async () => {
+    await fromBucketA("pending")
+    expect(screen.queryByRole("link")).toBeNull()
+  })
+
+  it.each([
+    ["held", { status: 200, body: { semantic_status: "not_recorded", hold_reason: "JEWEL_NOT_IN_IAP_PUBLICATION" } }],
+    ["not ready", { status: 200, body: { serve_state: "NOT_READY" } }],
+    ["failed", { status: 502, body: { detail: "bad gateway" } }],
+  ] as const)("%s: no count for the new jewel, and none of the old one's", async (_label, next) => {
+    await fromBucketA(next)
+    expect(screen.queryByRole("link")).toBeNull()
+  })
+
+  it("a rejected fetch for the new jewel: no link, no unhandled rejection", async () => {
+    const unhandled = vi.fn()
+    process.on("unhandledRejection", unhandled)
+    try {
+      await fromBucketA("reject")
+      expect(screen.queryByRole("link")).toBeNull()
+      expect(unhandled).not.toHaveBeenCalled()
+    } finally {
+      process.off("unhandledRejection", unhandled)
+    }
+  })
+
+  it("a system AND jewel switch with the read pending: the old count is not shown", async () => {
+    await fromBucketA("pending", "Billing")
+    expect(screen.queryByRole("link")).toBeNull()
+  })
+
+  it("a system switch with the SAME jewel, its read pending: the other system's count is not shown", async () => {
+    // keyed by system: Orders answers READY with 2 paths, Billing never answers
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = decodeURIComponent(String(input instanceof Request ? input.url : input))
+      if (url.includes("/attack-paths/Billing/")) return new Promise<Response>(() => undefined)
+      return new Response(JSON.stringify(READY_2), { status: 200, headers: { "content-type": "application/json" } })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const view = render(<CrownJewelUnionViewLink systemName="Orders" jewel={named("bucket-a")} />)
+    expect(await screen.findByRole("link")).toHaveTextContent(/^Advanced: 2 paths to this jewel — view all$/)
+    view.rerender(<CrownJewelUnionViewLink systemName="Billing" jewel={named("bucket-a")} />)
+    await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => decodeURIComponent(String(u)).includes("/attack-paths/Billing/"))).toBe(true))
+    await new Promise((r) => setTimeout(r, 30))
+    expect(screen.queryByRole("link")).toBeNull()
+  })
+
+  it("CONTROL: the new jewel READY with 3 paths shows ITS count, linking to it", async () => {
+    await fromBucketA({ status: 200, body: { serve_state: "ACTIVE", coverage_state: "READY", paths: PATHS } })
+    const link = await screen.findByRole("link")
+    expect(link).toHaveTextContent(/^Advanced: 3 paths to this jewel — view all$/)
+    expect(decodeURIComponent(link.getAttribute("href") ?? "")).toContain("bucket-b")
+  })
+})
+

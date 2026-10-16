@@ -320,6 +320,16 @@ describe("AttackPathsV2 header count — what the read state supports, never a b
     expect(consoleError.mock.calls.map((c) => String(c[0])).join("\n")).not.toMatch(/reading 'map'|reading 'length'/)
   })
 
+  it.each([["bad"], [-1]])("AP190-R2 CONSTRUCTED a catalog path_count of %j: no zero, the count named unreadable", async (raw) => {
+    const header = await headerFor("bucket-1", "S3Bucket", {
+      ...withoutLifecycle("bucket-1"),
+      targets: withoutLifecycle("bucket-1").targets.map((t) => (t.name === "bucket-1" ? { ...t, path_count: raw } : t)),
+    })
+    await waitFor(() => expect(header).toHaveTextContent(/^bucket-1 · detail paths unavailable$/))
+    expect(header.getAttribute("title")).toBe("the catalog's path count could not be read")
+    expect(header.textContent).not.toMatch(/· \d+ (listed )?paths?/)
+  })
+
   it("CONSTRUCTED control: legacy no-route keeps exactly '<name> · 0 paths', no note", async () => {
     const legacy = await headerFor("db-x1", "RDSInstance", {
       ...SECTION, targets: SECTION.targets.map((t) => (t.name === "db-x1" ? { ...t, state: "no_modeled_route" } : t)),

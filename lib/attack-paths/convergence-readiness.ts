@@ -145,7 +145,11 @@ export function selectedPathCount(args: {
 }): SelectedPathCount {
   const { jewel, coverageNote: note } = args
   if (jewel.target_state === "projection_not_ready") return { kind: "not_ready" }
-  const catalogCount = jewel.target_state !== undefined && isCount(jewel.path_count) ? jewel.path_count : null
+  // AP190: a catalog row's count is the catalog's own, validated by the adapter (null: missing or malformed); a
+  // legacy /jewels row has no catalog count at all. `path_count` itself is coerced for display and proves nothing.
+  const fromCatalog = jewel.target_state !== undefined
+  const catalogCount = fromCatalog ? (isCount(jewel.catalog_path_count) ? jewel.catalog_path_count : null) : null
+  const listedNone = fromCatalog ? catalogCount === 0 : isCount(jewel.path_count) && jewel.path_count === 0
   if (args.railSource === "serve") {
     const reading = readConvergencePaths(args.serve)
     if (reading.kind === "not_ready") return { kind: "not_ready" }
@@ -156,10 +160,15 @@ export function selectedPathCount(args: {
     // The capped IAP preview stood in for an unreachable serve answer: its paths are real, never the whole list.
     return { kind: "count", count: args.listedCount, partial: joinNotes(note, "IAP preview") }
   }
-  // Nothing resolved. The catalog listing no path means nothing is fetched, and its zero is the count. Otherwise the
-  // read is in flight or failed; either way there is no count.
-  if (!(Number(jewel.path_count ?? 0) > 0)) return { kind: "count", count: 0, partial: note }
+  // Nothing resolved. Only a valid served zero means the catalog lists no path (nothing is fetched, and that zero is
+  // the count). Otherwise the read is in flight or failed -- or, for a missing / malformed catalog count, never
+  // started -- and there is no count.
+  if (listedNone) return { kind: "count", count: 0, partial: note }
   if (args.failed) return { kind: "unavailable", catalogCount, note, reason: args.error }
+  if (args.loading) return { kind: "loading", note }
+  if (fromCatalog && catalogCount === null) {
+    return { kind: "unavailable", catalogCount: null, note, reason: "the catalog's path count could not be read" }
+  }
   return { kind: "loading", note }
 }
 

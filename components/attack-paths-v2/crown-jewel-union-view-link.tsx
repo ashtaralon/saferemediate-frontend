@@ -21,6 +21,10 @@ export function CrownJewelUnionViewLink({
   const [realPathCount, setRealPathCount] = useState<number | null>(null)
   // AP188: why the count is not every path to the jewel (an install's capped publication is always PARTIAL), or null.
   const [countPartial, setCountPartial] = useState<string | null>(null)
+  // AP190: the request the count and its reason answer. Evidence about another system or jewel is never shown: while
+  // a new jewel's read is pending, or after it fails, is held or is not ready, there is no count.
+  const requestKey = jewel && systemName ? [systemName, jewel.id, jewel.canonical_id ?? "", jewel.name ?? ""].join("\u0000") : null
+  const [countKey, setCountKey] = useState<string | null>(null)
 
   useEffect(() => {
     if (!jewel || !systemName) {
@@ -28,6 +32,7 @@ export function CrownJewelUnionViewLink({
       return
     }
     let cancelled = false
+    const key = requestKey
     void (async () => {
       const summary = await fetchConvergenceSummary(systemName, jewel)
       if (cancelled) return
@@ -35,15 +40,18 @@ export function CrownJewelUnionViewLink({
       const reading = readConvergencePaths(summary)
       setRealPathCount(reading.kind === "paths" ? filterRealConvergencePaths(reading.paths).length : null)
       setCountPartial(reading.kind === "paths" ? reading.partial : null)
+      setCountKey(key)
     })().catch(() => {
-      if (!cancelled) setRealPathCount(null)            // a failed read is no count, never an unhandled rejection
+      if (cancelled) return
+      setRealPathCount(null)                            // a failed read is no count, never an unhandled rejection
+      setCountKey(key)
     })
     return () => {
       cancelled = true
     }
   }, [systemName, jewel?.id, jewel?.canonical_id, jewel?.name])
 
-  if (!jewel || realPathCount === null || realPathCount <= 1) return null
+  if (!jewel || countKey !== requestKey || realPathCount === null || realPathCount <= 1) return null
 
   const href = buildTfmSpotlightUrl(systemName, jewelIdForNavigation(jewel))
 
