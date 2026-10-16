@@ -712,6 +712,16 @@ const BINDING_REASON_WORDS: Record<string, string> = {
   WORKSPACE_REGION_MISMATCH: "no resource of the uploaded state is in this Region",
 }
 
+/** (S2 C4a-2) A Terraform binding's code in words -- the resolver's own, and the preview's (contract
+ *  S2-C4A2-PREVIEW-TERRAFORM-JOIN-CONTRACT-2026-10-16 §4) -- or null for a code without words here (said by its code alone). */
+export function bindingReasonWords(code: string): string | null {
+  if (BINDING_REASON_WORDS[code]) return BINDING_REASON_WORDS[code]
+  if (code === "BINDING_CHANGED") return "the binding changed while the preview read it; preview again"
+  if (code === "INVENTORY_READ_DIFFERS") return "the account's Inventory read differently from the preview's own read; preview again"
+  if (code.startsWith("ACCOUNT_NOT_JOINED:")) return "the preview did not compute this account, so nothing was joined"
+  return null
+}
+
 /** Words for one derived disposition: what the server found, never a claim the browser makes. */
 export function derivedSentence(derived: DerivedDisposition): string {
   const code = derived.resolution.reason

@@ -26,6 +26,11 @@ import { decoratedMembersAreWhole, decoration, deploymentContext, type Decoratio
 export const PREVIEW_CONTRACT = "system_boundary_setup_preview/v1"
 /** (S1b) A plural draft's preview; read only from a setup-level-5 answer. */
 export const PREVIEW_CONTRACT_V2 = "system_boundary_setup_preview/v2"
+/** (S2 C4a-2) A draft with an ``iac`` row using an uploaded Terraform state: the v1 (single) or v2 (plural) answer plus
+ *  ``terraform`` -- each such row as the server judged it now and, assessed, its identities joined against the Inventory
+ *  generation the account's assembly bound. DESCRIPTIVE: it changes no member, count, state or Finish permission. Read only
+ *  from a setup-level-5 answer; single or plural is told by ``draft_targets`` exactly as v1 / v2 are. */
+export const PREVIEW_CONTRACT_V3 = "system_boundary_setup_preview/v3"
 export const PREVIEW_CONTRACT_UNKNOWN = "PREVIEW_CONTRACT_UNKNOWN"
 export const PREVIEW_STATES = ["COMPUTED", "HELD"] as const
 export type PreviewState = (typeof PREVIEW_STATES)[number]
@@ -60,6 +65,21 @@ export interface PreviewAccount {
   deploymentContext: Decoration | null
 }
 
+/** (S2 C4a-2) One Terraform row of the draft, as the preview's ``terraform`` section answers it. */
+export interface TerraformPreviewBinding {
+  row: { accountId: string; region: string | null; deployment: string | null }
+  bindingId: string
+  state: "JOINED" | "HELD"
+  /** Why it is held (the resolver's own code, BINDING_CHANGED, ACCOUNT_NOT_JOINED:<state>, INVENTORY_READ_DIFFERS); null joined. */
+  reason: string | null
+  bindingRevision: number | null
+  inventoryGeneration: number | null
+  /** FULL counts (joined only); ``rows`` are the first ones by address and ``omitted`` the rest. */
+  counts: { identities: number; matched: number; notInInventory: number; ambiguous: number; notJoinable: number } | null
+  rows: { address: string; inventoryUid: string | null; outcome: string }[]
+  omitted: number
+}
+
 export interface PreviewPage {
   accountId: string
   bucket: ResultList
@@ -83,6 +103,8 @@ export interface Preview {
   counts: PreviewCounts
   accounts: PreviewAccount[]
   page: PreviewPage | null
+  /** (S2 C4a-2, v3) Every Terraform row of the draft; null for a v1 / v2 preview (the draft has none). */
+  terraform: TerraformPreviewBinding[] | null
 }
 
 export type PreviewRead =
@@ -187,6 +209,51 @@ function page(value: unknown, previewDigest: string, contract: string): PreviewP
                                      next: value.next as string | null }
 }
 
+const REGION = /^[a-z0-9-]{1,32}$/
+const OUTCOME = /^(matched|not_in_inventory|ambiguous|not_joinable:[a-z_]+)$/
+const exactly = (value: Record<string, unknown>, keys: readonly string[]): boolean =>
+  Object.keys(value).length === keys.length && keys.every((k) => k in value)
+const TF_KEYS = ["row", "binding_id", "state", "reason", "assessment", "acquisition", "binding_revision", "inventory_generation",
+                 "counts", "rows", "omitted"] as const
+
+/** (S2 C4a-2) The ``terraform`` section, read exactly: a HELD row shows nothing of its binding; a JOINED one is assessed only,
+ *  its counts whole and adding up, its rows a prefix of them, joined on EXACTLY the generation its computed account names. */
+function terraformSection(value: unknown, accounts: readonly PreviewAccount[]): TerraformPreviewBinding[] | null {
+  if (!isRecord(value) || !exactly(value, ["effect", "bindings"]) || value.effect !== "none" || !Array.isArray(value.bindings)) return null
+  const out: TerraformPreviewBinding[] = []
+  for (const b of value.bindings) {
+    if (!isRecord(b) || !exactly(b, TF_KEYS) || !isRecord(b.row) || !exactly(b.row, ["account_id", "region", "deployment"])) return null
+    const { account_id: accountId, region, deployment } = b.row
+    if (typeof accountId !== "string" || !ACCOUNT_ID.test(accountId) || !(region === null || (typeof region === "string" && REGION.test(region)))
+        || !(deployment === null || isText(deployment)) || !isText(b.binding_id) || !Array.isArray(b.rows) || !isCount(b.omitted)) return null
+    const row = { accountId, region: region as string | null, deployment: deployment as string | null }
+    if (b.state === "HELD") {
+      if (!isText(b.reason) || b.assessment !== null || b.acquisition !== null || b.binding_revision !== null
+          || b.inventory_generation !== null || b.counts !== null || b.rows.length !== 0 || b.omitted !== 0) return null
+      out.push({ row, bindingId: b.binding_id, state: "HELD", reason: b.reason, bindingRevision: null, inventoryGeneration: null,
+                 counts: null, rows: [], omitted: 0 })
+      continue
+    }
+    if (b.state !== "JOINED" || b.reason !== null || b.assessment !== "assessed" || b.acquisition !== "unsupported"
+        || !isInt(b.binding_revision) || (b.binding_revision as number) < 1 || !isCount(b.inventory_generation)) return null
+    const c = counts(b.counts, ["identities", "matched", "not_in_inventory", "ambiguous", "not_joinable"])
+    if (c === null || c.identities !== c.matched + c.not_in_inventory + c.ambiguous + c.not_joinable) return null
+    const rows = b.rows.map((r) => (isRecord(r) && exactly(r, ["address", "inventory_uid", "outcome"]) && isText(r.address)
+      && (r.inventory_uid === null || isText(r.inventory_uid)) && typeof r.outcome === "string" && OUTCOME.test(r.outcome)
+      ? { address: r.address, inventoryUid: r.inventory_uid as string | null, outcome: r.outcome } : null))
+    if (rows.some((r) => r === null) || rows.length + (b.omitted as number) !== c.identities) return null
+    // joined on the generation its OWN account was computed on -- never another account's, never a held one's
+    const account = accounts.find((a) => a.accountId === accountId)
+    if (!account || account.state !== "COMPUTED" || account.inventory.generation !== b.inventory_generation) return null
+    out.push({ row, bindingId: b.binding_id, state: "JOINED", reason: null, bindingRevision: b.binding_revision as number,
+               inventoryGeneration: b.inventory_generation as number,
+               counts: { identities: c.identities, matched: c.matched, notInInventory: c.not_in_inventory, ambiguous: c.ambiguous,
+                         notJoinable: c.not_joinable },
+               rows: rows as TerraformPreviewBinding["rows"], omitted: b.omitted as number })
+  }
+  return out
+}
+
 /** One preview answer as THIS frontend reads it: a 200 tagged with exactly this preview contract AND this setup contract, whose
  *  digests are what they claim (``preview_digest`` binds the other two), every account and page read exactly -- or by name. */
 export function parsePreview(status: number | null, json: unknown): PreviewRead {
@@ -201,9 +268,12 @@ export function parsePreview(status: number | null, json: unknown): PreviewRead 
   if (!isRecord(json)) return { kind: "UNAVAILABLE", status, code: "MALFORMED_RESPONSE" }
   const level = setupLevelOf({ contract: json.setup_contract })
   if (level === null) return { kind: "UNAVAILABLE", status, code: SETUP_CONTRACT_UNKNOWN }
-  // v1 under either setup level (a single draft); v2 only from a setup-level-5 answer (a plural draft)
-  const v2 = json.contract === PREVIEW_CONTRACT_V2 && level === SETUP_CONTRACT_LEVEL
-  if (json.contract !== PREVIEW_CONTRACT && !v2) return { kind: "UNAVAILABLE", status, code: PREVIEW_CONTRACT_UNKNOWN }
+  // v1 under either setup level (a single draft); v2 only from a setup-level-5 answer (a plural draft); (S2 C4a-2) v3 only
+  // from a setup-level-5 answer, single or plural as its draft_targets say
+  const v3 = json.contract === PREVIEW_CONTRACT_V3 && level === SETUP_CONTRACT_LEVEL
+  const v2 = (json.contract === PREVIEW_CONTRACT_V2 && level === SETUP_CONTRACT_LEVEL)
+    || (v3 && isRecord(json.draft_targets) && "deployment_ids" in json.draft_targets)
+  if (json.contract !== PREVIEW_CONTRACT && !v2 && !v3) return { kind: "UNAVAILABLE", status, code: PREVIEW_CONTRACT_UNKNOWN }
   const malformed: PreviewRead = { kind: "UNAVAILABLE", status, code: "MALFORMED_RESPONSE" }
   const digests = [json.preview_digest, json.basis_digest, json.result_digest]
   if (!digests.every((d) => typeof d === "string" && PREVIEW_DIGEST.test(d))) return malformed
@@ -230,6 +300,9 @@ export function parsePreview(status: number | null, json: unknown): PreviewRead 
   // COMPUTED: every account computed (the backend's own rule); a held account makes the whole preview HELD.
   if ((json.state === "COMPUTED") !== read.every((a) => a.state === "COMPUTED")) return malformed
   const contract = json.contract as string
+  // (S2 C4a-2) v3 carries exactly one ``terraform`` section; v1 / v2 carry none
+  const terraform = v3 ? terraformSection(json.terraform, read) : null
+  if ((v3 && terraform === null) || (!v3 && "terraform" in json)) return malformed
   const shown = json.page === undefined ? null : page(json.page, previewDigest, contract)
   if (json.page !== undefined && shown === null) return malformed
   // (S1A-UI-PREVIEW-02) a page of an account this preview does not have is no page of it
@@ -248,7 +321,7 @@ export function parsePreview(status: number | null, json: unknown): PreviewRead 
     setup: { setupId: setup.setup_id, intentRevision: setup.intent_revision, stateVersion: setup.state_version },
     systemId: targets.system_id, deploymentId: v2 ? null : (targets.deployment_id as string), contract, deploymentIds,
     rules: json.rules,
-    counts: total as unknown as PreviewCounts, accounts: read, page: shown,
+    counts: total as unknown as PreviewCounts, accounts: read, page: shown, terraform,
   } }
 }
 

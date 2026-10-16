@@ -1,0 +1,319 @@
+{
+  "_provenance": {
+    "harness": "tests/cyntro_data/test_system_boundary_preview_terraform.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/system-boundary/setup/d0cf5b3c-0b8c-4d9e-aaf6-e0851abdf2a5/preview",
+      "params": {
+        "state_version": 2,
+        "account_id": "111122223333",
+        "bucket": "members"
+      },
+      "body": null
+    }
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "body": {
+    "contract": "system_boundary_setup_preview/v3",
+    "state": "COMPUTED",
+    "preview_digest": "v1:c7914270048c1eff8c9fe210a6ccbc83239cfb44c61b21e934d67e025dea67a7",
+    "basis_digest": "v1:04623515e8d9c6f9767ddca9600a589ddb82c89de285ad8629ea7277346b872d",
+    "result_digest": "v1:cf72367a15818551a5a614828abb2ab6bb95c58ed0a6efaa82a1385158bf1641",
+    "setup": {
+      "setup_id": "d0cf5b3c-0b8c-4d9e-aaf6-e0851abdf2a5",
+      "intent_revision": 2,
+      "state_version": 2
+    },
+    "draft_targets": {
+      "system_id": "authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f",
+      "deployment_id": "authored_deployment:9727d62b9a8cd7b27eb3bf7f0e3c8c55dccab3c667221bbe89e277bf2bdb516e"
+    },
+    "rules": {
+      "a7": "a7_rules_v2",
+      "projector": "1.0.0",
+      "row_schema": "system-membership-row-v2",
+      "stack_input": "stack_membership_input/v1",
+      "result_contract": "system_boundary_result_read/v1",
+      "preview_contract": "system_boundary_setup_preview/v3",
+      "limits": {
+        "work_budget": 5000000,
+        "max_resources": 250000,
+        "max_edges": 1000000
+      }
+    },
+    "counts": {
+      "members": 3,
+      "dependencies": 0,
+      "held": 0,
+      "not_members": 0,
+      "stale_members": 0,
+      "unlisted": 0
+    },
+    "accounts": [
+      {
+        "account_id": "111122223333",
+        "state": "COMPUTED",
+        "reason": null,
+        "coverage": {
+          "complete": true,
+          "incomplete_reason": null,
+          "partial": [],
+          "withheld": [],
+          "frontier_count": 0,
+          "conflicting_rows": [],
+          "retirement_support": {
+            "work_used": 0,
+            "limit": 4999905,
+            "complete": true
+          },
+          "stacks": {
+            "input": {
+              "version": "stack_membership_input/v1",
+              "census_status": "served",
+              "census_pin": {
+                "generation": 1,
+                "source_identity": "v1:992f48b23a4148826397a8af47f2d110e1b4b0331e50cdaefbaf5e645f2e5af1",
+                "attempt": "670eb7674071485080011410df1cbea8",
+                "inventory_generation": 1
+              },
+              "stacks": [
+                [
+                  "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+                  1,
+                  "exclusive",
+                  "authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f",
+                  "authored_deployment:9727d62b9a8cd7b27eb3bf7f0e3c8c55dccab3c667221bbe89e277bf2bdb516e",
+                  ""
+                ]
+              ],
+              "hash": "v1:74d1186566ba91fd396e0bd6a6d1a1bd704aca5e9b2726c85a05c612d36e536b"
+            },
+            "counts": {
+              "stacks": 1,
+              "usable": 1,
+              "roots": 3,
+              "candidates": 0,
+              "listed_only": 0,
+              "not_in_generation": 0,
+              "excluded": 0,
+              "shared_foundation": 0,
+              "nested_stacks": 0,
+              "held_recreated": 0,
+              "waiting": 0
+            },
+            "tag_shadow": {
+              "count": 0,
+              "rows": [],
+              "rows_cut": false
+            },
+            "not_built": [],
+            "deferred_by_spec": [
+              "R7_LISTED_ONLY_MEMBERSHIP"
+            ]
+          }
+        },
+        "counts": {
+          "members": 3,
+          "stale_members": 0,
+          "dependencies": 0,
+          "held": 0,
+          "not_members": 0
+        },
+        "display": {
+          "system_key": "authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f",
+          "system_name": "Payments",
+          "members": [
+            {
+              "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/instance/i-1",
+              "resource_type": "ec2:instance",
+              "state": "ACTIVE",
+              "proof": {
+                "source": "stack",
+                "stack_id": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+                "listing_stack": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+                "logical_id": "Web",
+                "proof": "stack_listing",
+                "identity": "marker"
+              },
+              "valid_from": "2026-08-06T10:00:00+00:00"
+            },
+            {
+              "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/security-group/sg-1",
+              "resource_type": "ec2:security-group",
+              "state": "ACTIVE",
+              "proof": {
+                "source": "stack",
+                "stack_id": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+                "listing_stack": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+                "logical_id": "WebSg",
+                "proof": "stack_listing",
+                "identity": "marker"
+              },
+              "valid_from": "2026-08-06T10:00:00+00:00"
+            },
+            {
+              "resource_uid": "aws://aws/111122223333/global/iam/role/app-role",
+              "resource_type": "iam:role",
+              "state": "ACTIVE",
+              "proof": {
+                "source": "stack",
+                "stack_id": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+                "listing_stack": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+                "logical_id": "WebRole",
+                "proof": "stack_listing",
+                "identity": "marker"
+              },
+              "valid_from": "2026-08-06T10:00:00+00:00"
+            }
+          ],
+          "dependencies": [],
+          "held": [],
+          "not_members": [],
+          "counts": {
+            "members": 3,
+            "stale_members": 0,
+            "dependencies": 0,
+            "held": 0,
+            "not_members": 0
+          },
+          "omitted": {}
+        },
+        "inventory": {
+          "generation": 1,
+          "projected_through": "2026-08-06T10:00:00+00:00"
+        }
+      }
+    ],
+    "terraform": {
+      "effect": "none",
+      "bindings": [
+        {
+          "row": {
+            "account_id": "111122223333",
+            "region": null,
+            "deployment": null
+          },
+          "binding_id": "7e218d06-ae65-4be9-bef7-235ef267703a",
+          "state": "JOINED",
+          "reason": null,
+          "assessment": "assessed",
+          "acquisition": "unsupported",
+          "binding_revision": 1,
+          "inventory_generation": 1,
+          "counts": {
+            "identities": 3,
+            "matched": 2,
+            "not_in_inventory": 1,
+            "ambiguous": 0,
+            "not_joinable": 0
+          },
+          "rows": [
+            {
+              "address": "aws_s3_bucket.evidence",
+              "inventory_uid": "aws://aws/111122223333/global/s3/bucket/cyntro-evidence-localtest-216844",
+              "outcome": "not_in_inventory"
+            },
+            {
+              "address": "aws_security_group.consumer_lambda",
+              "inventory_uid": "aws://aws/111122223333/eu-west-1/ec2/security-group/sg-0439d9e000f134f53",
+              "outcome": "matched"
+            },
+            {
+              "address": "aws_vpc.platform",
+              "inventory_uid": "aws://aws/111122223333/eu-west-1/ec2/vpc/vpc-00a3ae5227a226b7d",
+              "outcome": "matched"
+            }
+          ],
+          "omitted": 0
+        },
+        {
+          "row": {
+            "account_id": "111122223333",
+            "region": "eu-west-1",
+            "deployment": null
+          },
+          "binding_id": "c6623410-4d00-4c25-9696-bb71fc392270",
+          "state": "HELD",
+          "reason": "BINDING_REVOKED",
+          "assessment": null,
+          "acquisition": null,
+          "binding_revision": null,
+          "inventory_generation": null,
+          "counts": null,
+          "rows": [],
+          "omitted": 0
+        },
+        {
+          "row": {
+            "account_id": "111122223333",
+            "region": "us-east-1",
+            "deployment": null
+          },
+          "binding_id": "0746cf0c-b01f-4833-b225-07679e66170a",
+          "state": "HELD",
+          "reason": "BINDING_NOT_FOUND",
+          "assessment": null,
+          "acquisition": null,
+          "binding_revision": null,
+          "inventory_generation": null,
+          "counts": null,
+          "rows": [],
+          "omitted": 0
+        }
+      ]
+    },
+    "page": {
+      "contract": "system_boundary_setup_preview/v3",
+      "preview_digest": "v1:c7914270048c1eff8c9fe210a6ccbc83239cfb44c61b21e934d67e025dea67a7",
+      "account_id": "111122223333",
+      "bucket": "members",
+      "entries": [
+        {
+          "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/instance/i-1",
+          "resource_type": "ec2:instance",
+          "state": "ACTIVE",
+          "proof": {
+            "source": "stack",
+            "stack_id": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+            "listing_stack": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+            "logical_id": "Web",
+            "proof": "stack_listing",
+            "identity": "marker"
+          },
+          "valid_from": "2026-08-06T10:00:00+00:00"
+        },
+        {
+          "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/security-group/sg-1",
+          "resource_type": "ec2:security-group",
+          "state": "ACTIVE",
+          "proof": {
+            "source": "stack",
+            "stack_id": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+            "listing_stack": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+            "logical_id": "WebSg",
+            "proof": "stack_listing",
+            "identity": "marker"
+          },
+          "valid_from": "2026-08-06T10:00:00+00:00"
+        },
+        {
+          "resource_uid": "aws://aws/111122223333/global/iam/role/app-role",
+          "resource_type": "iam:role",
+          "state": "ACTIVE",
+          "proof": {
+            "source": "stack",
+            "stack_id": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+            "listing_stack": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+            "logical_id": "WebRole",
+            "proof": "stack_listing",
+            "identity": "marker"
+          },
+          "valid_from": "2026-08-06T10:00:00+00:00"
+        }
+      ],
+      "next": null
+    },
+    "setup_contract": "system_boundary_setup/v5"
+  }
+}

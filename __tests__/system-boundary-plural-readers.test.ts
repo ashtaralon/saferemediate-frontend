@@ -141,8 +141,11 @@ describe("the draft preview v1 / v2", () => {
       .toEqual({ kind: "UNAVAILABLE", status: 200, code: PREVIEW_CONTRACT_UNKNOWN })
     expect(parsePreview(200, { ...plural, setup_contract: "system_boundary_setup/v6" }))
       .toEqual({ kind: "UNAVAILABLE", status: 200, code: SETUP_CONTRACT_UNKNOWN })
-    expect(parsePreview(200, { ...plural, contract: "system_boundary_setup_preview/v3" }))
+    expect(parsePreview(200, { ...plural, contract: "system_boundary_setup_preview/v4" }))
       .toEqual({ kind: "UNAVAILABLE", status: 200, code: PREVIEW_CONTRACT_UNKNOWN })
+    // (S2 C4a-2) v3 is known now: a v2 body tagged v3 lacks the section v3 must carry -- malformed, never read as v2
+    expect(parsePreview(200, { ...plural, contract: "system_boundary_setup_preview/v3" }))
+      .toEqual({ kind: "UNAVAILABLE", status: 200, code: "MALFORMED_RESPONSE" })
   })
 
   it("refuses a v2 preview whose targets, accounts or contexts are not exactly this draft's", () => {

@@ -60,13 +60,13 @@ import {
 import {
   coverageLimits,
   heldSentence,
-  PREVIEW_CONTRACT_V2,
   previewRefusalSentence,
   previewSentence,
   readPreview as readPreviewDefault,
   type Preview,
   type PreviewFetcher,
   type PreviewRead,
+  type TerraformPreviewBinding,
 } from "@/lib/system-boundary-setup-preview"
 import {
   freezeOp,
@@ -81,6 +81,7 @@ import {
   derivedSentence,
   evidenceRows,
   observationSentence,
+  bindingReasonWords,
   requestSentence,
   requiredFactsSentence,
   finishSetup as finishSetupDefault,
@@ -1188,6 +1189,47 @@ function previewRowSentence(list: ResultList, row: ResultRow): string {
   return `held (${String(row.reason ?? row.state)})`
 }
 
+/** (S2 C4a-2) What the preview's ``terraform`` section says of each Terraform row -- the server's join, never the browser's.
+ *  Descriptive: it names no member, changes no count and is no Finish condition. A row the saved setup does not have is not
+ *  shown as one of its own. */
+function TerraformPreview({ bindings, rows }: { bindings: TerraformPreviewBinding[]; rows: AuthoredDisposition[] }) {
+  const ours = (b: TerraformPreviewBinding) => rows.some((d) => d.ref?.key === b.bindingId && d.scope.account_id === b.row.accountId
+    && (d.scope.region ?? null) === b.row.region && (d.scope.deployment ?? null) === b.row.deployment)
+  const where = (b: TerraformPreviewBinding) => `${b.row.accountId} / ${b.row.region ?? "all Regions"}`
+    + (b.row.deployment === null ? "" : ` · Deployment ${b.row.deployment}`)
+  return (
+    <div className="space-y-1 text-xs" data-testid="setup-preview-terraform">
+      <p className="font-medium">Uploaded Terraform states</p>
+      {bindings.map((b) => (
+        <div key={`${where(b)}|${b.bindingId}`} data-testid={`setup-preview-terraform-${b.bindingId}`}>
+          {!ours(b) ? (
+            <p className="text-amber-800">The preview names a Terraform row this saved setup does not have ({where(b)}); it is not shown.</p>
+          ) : b.state === "JOINED" && b.counts ? (
+            <>
+              <p>
+                {where(b)}: {b.counts.matched} of {b.counts.identities} resource(s) of the uploaded state are in this account&apos;s
+                Inventory (generation {b.inventoryGeneration}); {b.counts.notInInventory} not in it, {b.counts.ambiguous} ambiguous,
+                {" "}{b.counts.notJoinable} not joinable.
+              </p>
+              <p className="text-slate-500">
+                Assessed only, not connected: this uploaded snapshot is not acquired, and makes nothing a member.
+              </p>
+              <ul className="pl-4 text-slate-600">
+                {b.rows.map((r) => <li key={`${r.address}|${r.outcome}`}>{r.address} -- {r.outcome.replaceAll("_", " ")}</li>)}
+              </ul>
+              {b.omitted ? <p className="text-slate-500">{b.omitted} more not shown.</p> : null}
+            </>
+          ) : (
+            <p className="text-amber-800">
+              {where(b)}: held ({b.reason}{b.reason && bindingReasonWords(b.reason) ? `: ${bindingReasonWords(b.reason)}` : ""}).
+            </p>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 const LIST_TITLES: Record<ResultList, string> = {
   members: "Members", dependencies: "Dependencies", held: "Held", not_members: "Not members",
 }
@@ -1195,7 +1237,7 @@ const LIST_TITLES: Record<ResultList, string> = {
 /** (S1a R3/R6) The preview of the saved revision: its state, each account's state, evidence time and lists with their
  *  explanations, and the rest of a list the summary cuts, page by page -- every page a view of THIS preview (a page of another
  *  preview is never added to it). Never applied membership. */
-function PreviewPanel({ read, setupId, stateVersion, readPreview, onPreviewAgain, context, deploymentKeys }: {
+function PreviewPanel({ read, setupId, stateVersion, readPreview, onPreviewAgain, context, deploymentKeys, terraformRows }: {
   read: PreviewRead | null
   setupId: string
   stateVersion: number
@@ -1204,6 +1246,8 @@ function PreviewPanel({ read, setupId, stateVersion, readPreview, onPreviewAgain
   context: string
   /** (S1b) The saved intent's Deployment keys, to name a v2 preview's Deployments (agreed A3 order). */
   deploymentKeys: string[]
+  /** (S2 C4a-2) The saved intent's Terraform rows: a v3 section is shown only for rows the saved setup has. */
+  terraformRows: AuthoredDisposition[]
 }) {
   // (S1A-UI-PREVIEW-01/02) Each list's pages, read one request at a time: a page is accepted only as the answer to the
   // cursor that list is waiting for (each cursor once), and only when it names THIS preview, setup and version, account and
@@ -1259,12 +1303,13 @@ function PreviewPanel({ read, setupId, stateVersion, readPreview, onPreviewAgain
             Preview {shown.previewDigest.slice(0, 15)}… of saved revision {shown.setup.intentRevision} (state version{" "}
             {shown.setup.stateVersion}); rules {String(shown.rules.a7 ?? "?")}, projector {String(shown.rules.projector ?? "?")}.
           </p>
-          {shown.contract === PREVIEW_CONTRACT_V2 ? <Assessment preview={shown} deploymentKeys={deploymentKeys} /> : null}
+          {shown.deploymentId === null ? <Assessment preview={shown} deploymentKeys={deploymentKeys} /> : null}
           {unlisted > 0 ? (
             <p className="text-xs text-amber-800" data-testid="setup-preview-unlisted">
               {unlisted} row(s) of this system are in no list shown here (unlisted).
             </p>
           ) : null}
+          {shown.terraform ? <TerraformPreview bindings={shown.terraform} rows={terraformRows} /> : null}
           {shown.accounts.map((account) => (
             <div key={account.accountId} className="text-xs" data-testid={`setup-preview-account-${account.accountId}`}>
               <p>
@@ -1405,7 +1450,8 @@ function Review({ local, view, setup, dirty, status, statusProblem, preview, nee
       {setup.status === "DRAFT" && setup.mode === "create" ? (
         <PreviewPanel key={`${context}|${setup.setup_id}|${setup.state_version}`} read={preview} setupId={setup.setup_id}
           stateVersion={setup.state_version} readPreview={readPreview} onPreviewAgain={onPreviewAgain} context={context}
-          deploymentKeys={intentDeploymentKeys(setup.intent)} />
+          deploymentKeys={intentDeploymentKeys(setup.intent)}
+          terraformRows={(setup.intent.dispositions ?? []).filter(isTerraform)} />
       ) : null}
       {needsPreview ? (
         <p className="text-xs text-slate-600" data-testid="setup-review-preview-rule">
