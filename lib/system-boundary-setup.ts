@@ -697,9 +697,26 @@ export function associatedSystemId(association: Association | null): string | nu
   return key.startsWith("SYSTEM#") && key.length > "SYSTEM#".length ? key.slice("SYSTEM#".length) : null
 }
 
+/** (S2 intake I2c) The Terraform workspace binding's own reasons (backend system_boundary_terraform_binding.resolve), in words
+ *  beside the code -- what the server found about the uploaded state, never a claim the browser makes. */
+const BINDING_REASON_WORDS: Record<string, string> = {
+  SNAPSHOT_UPLOADED: "an uploaded Terraform state: assessed as a snapshot, never acquired or kept current",
+  PROFILE_NOT_CERTIFIED: "this Terraform state profile is not certified",
+  BINDING_NOT_FOUND: "no Terraform state binding you can see has this id",
+  BINDING_REVOKED: "this Terraform state binding was revoked",
+  BINDING_ACCOUNT_MISMATCH: "this Terraform state was uploaded for another account",
+  BINDING_RECORD_INVALID: "the stored Terraform state binding does not verify",
+  BINDING_AUTHOR_REVOKED: "whoever uploaded this state no longer has access to the account",
+  STATE_EMPTY: "the uploaded state has no resources",
+  NO_RESOLVED_IDENTITY: "no resource of the uploaded state has an identity Cyntro can place",
+  WORKSPACE_REGION_MISMATCH: "no resource of the uploaded state is in this Region",
+}
+
 /** Words for one derived disposition: what the server found, never a claim the browser makes. */
 export function derivedSentence(derived: DerivedDisposition): string {
-  const reason = derived.resolution.reason ? ` (${derived.resolution.reason})` : ""
+  const code = derived.resolution.reason
+  const words = code && BINDING_REASON_WORDS[code] ? `: ${BINDING_REASON_WORDS[code]}` : ""
+  const reason = code ? ` (${code}${words})` : ""
   const limit = derived.consequence.length ? ` -- ${derived.consequence.join(", ")}` : ""
   switch (derived.resolution.state) {
     case "resolved": return `Found${limit}`

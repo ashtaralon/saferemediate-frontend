@@ -34,6 +34,7 @@ import { FinishResult } from "@/components/system-boundary/finish-result"
 import { assess, assessmentWithheldSentence } from "@/lib/system-boundary-assessment"
 import { stackResources, type Resources } from "@/components/system-boundary/stack-binding-wizard"
 import { Button } from "@/components/ui/button"
+import { TerraformStateUpload } from "@/components/system-boundary/terraform-state-upload"
 import { fetchCensusPage, rowName, type CensusFetcher, type CensusRow } from "@/lib/account-census"
 import type { DeclarationsView, ResourceDecision, StackBinding } from "@/lib/system-boundary-authoring"
 import { buildDeclaration, type PickedRoot } from "@/lib/system-boundary-declaration"
@@ -183,6 +184,12 @@ const CHOICE_WORDS: Record<Choice, string> = {
   no_history: "No history to import",
   connect_later: "Connect later",
 }
+
+/** (S2 intake I2c) The iac row's "use an uploaded Terraform state": the disposition stays ``use_existing``; its reference is a
+ *  ``terraform_state`` binding (the id the upload returned) instead of a CloudFormation stack. Offered for this screen's
+ *  account only -- a binding is uploaded for exactly one account. */
+const TERRAFORM = "use_existing:terraform_state"
+const isTerraform = (d: AuthoredDisposition): boolean => d.choice === "use_existing" && d.ref?.kind === "terraform_state"
 
 /** The ref key an account-source subject names: the feature the account's coverage reports. */
 const SOURCE_FEATURE: Record<string, string> = {
@@ -440,6 +447,12 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
 
   const save = useCallback((nextStep: SetupStep) => {
     if (!setup || !local) return
+    // (S2 intake I2c) a row that will use a Terraform state names its binding only once the upload returns one
+    const unbound = local.dispositions.find((d) => isTerraform(d) && !d.ref?.key)
+    if (unbound) {
+      setProblem(`Upload the Terraform state for ${scopeWords(unbound.scope)} first, or choose another option for it.`)
+      return
+    }
     return dispatch(() => ({ version: 1, kind: "update", actor, accountId, setupId: setup.setup_id, requestId: freshRequestId(),
                              base: setup.state_version, steps: intentFor(nextStep), startedAt: new Date().toISOString() }))
   }, [accountId, actor, dispatch, intentFor, local, setup])
@@ -582,6 +595,22 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
     const proposed = { ...d, scope, ref: { kind: "stack_binding" as const, key: stackId } }
     return refused(index, proposed) ?? placeRow(index, proposed)
   }
+  /** (S2 intake I2c) The iac row at ``index`` uses the uploaded Terraform state ``key`` (empty: not uploaded yet) -- its scope
+   *  kept exactly as authored, any stack it used released. */
+  const terraformAt = (index: number, key: string): string | null => {
+    const d = local.dispositions[index]
+    const proposed: AuthoredDisposition = { subject: d.subject, scope: { ...d.scope }, choice: "use_existing", reason_code: "USE_EXISTING",
+                                            ref: { kind: "terraform_state", key } }
+    return refused(index, proposed) ?? placeRow(index, proposed)
+  }
+  /** (S2 intake I2c) A NEW iac row for this account at ``region`` that will use an uploaded Terraform state. */
+  const addTerraform = (subject: string, region: string, deployment?: string): string | null => {
+    if (region && !REGION.test(region)) return `"${region}" is not a Region name.`
+    const scope = { account_id: accountId, ...(region ? { region } : {}), ...(deployment === undefined ? {} : { deployment }) }
+    const proposed: AuthoredDisposition = { subject, scope, choice: "use_existing", reason_code: "USE_EXISTING",
+                                            ref: { kind: "terraform_state", key: "" } }
+    return refused(-1, proposed) ?? placeRow(-1, proposed)
+  }
   /** A NEW row of ``subject`` for this account at ``region`` (all of the account when none) -- (S1b) of Deployment
    *  ``deployment`` for a code / iac row of a plural setup -- or why not: a Region the backend would refuse, or anything
    *  ``refused`` names. */
@@ -723,7 +752,8 @@ export function SetupWizard({ setupId, accountId, view, picks, onClose, client: 
                     regional={needsRegion(subject, setup.requirement_profile)} regions={knownRegions}
                     onChoose={chooseAt} onAdd={(region, choice) => addRow(subject, region, choice, key)}
                     stackOptions={meta.refKind === "stack_binding" && stacks?.state === "served" ? stacks.stacks : null}
-                    onStack={stackAt} />
+                    onStack={stackAt}
+                    terraform={subject === "iac" ? { accountId, onUse: terraformAt, onAdd: (region) => addTerraform(subject, region, key) } : undefined} />
                 ))}
               </div>
             ))}
@@ -808,7 +838,8 @@ function rowLabel(d: DerivedDisposition): string {
 
 /** (S0 NSW-04) One subject's rows -- each its own (account, Region), never merged -- and, where THE served profile scopes the
  *  subject by Region, a way to add it for a Region the person names (rows of the setup's Regions are offered, never chosen). */
-function Subject({ subject, label, deployment, choices, editable, rows, regional, regions, onChoose, onAdd, stackOptions, onStack }: {
+function Subject({ subject, label, deployment, choices, editable, rows, regional, regions, onChoose, onAdd, stackOptions, onStack,
+                   terraform }: {
   subject: string
   label: string
   /** (S1b) The Deployment these rows are of (a plural setup's code / iac); undefined: the setup's or the union's. */
@@ -823,12 +854,14 @@ function Subject({ subject, label, deployment, choices, editable, rows, regional
   /** This account's stacks, for a NEW row; each existing row carries those of its own account. */
   stackOptions: StackOption[] | null
   onStack: (index: number, key: string) => string | null
+  /** (S2 intake I2c) iac only: rows of THIS account may use an uploaded Terraform state. */
+  terraform?: { accountId: string; onUse: (index: number, key: string) => string | null; onAdd: (region: string) => string | null }
 }) {
   const [region, setRegion] = useState("")
   const [problem, setProblem] = useState<string | null>(null)
   const scoped = deployment === undefined ? subject : `${subject}-${deployment}`
   const listId = `setup-regions-${scoped.replace(/[^A-Za-z0-9_-]/g, "-")}`          // an id a selector can name
-  const options = (empty: string, offered: StackOption[] | null) => (
+  const options = (empty: string, offered: StackOption[] | null, terraformOffered: boolean) => (
     <>
       <option value="">{empty}</option>
       {choices.map((choice) => (
@@ -836,11 +869,12 @@ function Subject({ subject, label, deployment, choices, editable, rows, regional
           {CHOICE_WORDS[choice]}
         </option>
       ))}
+      {terraformOffered ? <option value={TERRAFORM}>Use an uploaded Terraform state</option> : null}
     </>
   )
-  const add = (choice: Choice | "") => {
+  const add = (choice: Choice | typeof TERRAFORM | "") => {
     if (!choice) return
-    const refused = onAdd(region.trim(), choice)
+    const refused = choice === TERRAFORM ? terraform!.onAdd(region.trim()) : onAdd(region.trim(), choice)
     setProblem(refused)
     if (!refused) setRegion("")
   }
@@ -851,12 +885,18 @@ function Subject({ subject, label, deployment, choices, editable, rows, regional
         <div key={rowKey(d)} className="mt-1" data-testid={`setup-row-${scoped}-${d.scope.region ?? "all"}`}>
           <label className="block">
             <span className="text-xs text-slate-600">{scopeWords(d.scope)}</span>
-            <select className="ml-2 rounded border px-2 py-1" value={d.choice} disabled={!editable}
-              aria-label={`${label}, ${scopeWords(d.scope)}`} onChange={(e) => setProblem(onChoose(index, e.target.value as Choice | ""))}>
-              {options("Remove this choice", stacks)}
+            <select className="ml-2 rounded border px-2 py-1" value={isTerraform(d) ? TERRAFORM : d.choice} disabled={!editable}
+              aria-label={`${label}, ${scopeWords(d.scope)}`} onChange={(e) => setProblem(e.target.value === TERRAFORM
+                ? terraform!.onUse(index, isTerraform(d) ? d.ref!.key : "") : onChoose(index, e.target.value as Choice | ""))}>
+              {options("Remove this choice", stacks, terraform !== undefined && (isTerraform(d) || d.scope.account_id === terraform.accountId))}
             </select>
           </label>
-          {d.choice === "use_existing" && subject === "iac" && stacks ? (
+          {isTerraform(d) && terraform ? (
+            <TerraformRow bindingId={d.ref!.key} accountId={d.scope.account_id}
+              editable={editable && d.scope.account_id === terraform.accountId}
+              onBound={(bindingId) => setProblem(terraform.onUse(index, bindingId))} />
+          ) : null}
+          {d.choice === "use_existing" && subject === "iac" && stacks && !isTerraform(d) ? (
             <select className="mt-1 block rounded border px-2 py-1" value={d.ref?.key ?? ""} disabled={!editable}
               onChange={(e) => setProblem(onStack(index, e.target.value))} aria-label="CloudFormation stack">
               <option value="">Choose a stack…</option>
@@ -878,13 +918,40 @@ function Subject({ subject, label, deployment, choices, editable, rows, regional
             </>
           ) : null}
           <select className="rounded border px-2 py-1" value="" aria-label={regional ? `${label} for this Region` : label}
-            onChange={(e) => add(e.target.value as Choice | "")}>
-            {options("Choose…", stackOptions)}
+            onChange={(e) => add(e.target.value as Choice | typeof TERRAFORM | "")}>
+            {options("Choose…", stackOptions, terraform !== undefined)}
           </select>
         </div>
       ) : null}
       {problem ? <p role="alert" className="mt-1 text-xs text-amber-800">{problem}</p> : null}
     </div>
+  )
+}
+
+/** (S2 intake I2c) An iac row that uses an uploaded Terraform state: the binding it names, or -- none yet, or on request -- the
+ *  upload (disclosure, local reduction and count, explicit confirmation). What the server makes of the binding is the row's
+ *  derived sentence, once saved. Only a row of THIS screen's account uploads (``editable``): a saved row of another account
+ *  shows its binding and nothing to upload. */
+function TerraformRow({ bindingId, accountId, editable, onBound }: {
+  bindingId: string
+  accountId: string
+  editable: boolean
+  onBound: (bindingId: string) => void
+}) {
+  const [replacing, setReplacing] = useState(false)
+  if (bindingId && !replacing) {
+    return (
+      <div className="mt-1 text-xs" data-testid="setup-terraform-bound">
+        <p>Uses the uploaded Terraform state binding {bindingId}.</p>
+        {editable ? <Button type="button" size="sm" variant="outline" onClick={() => setReplacing(true)}>Upload a different state</Button> : null}
+      </div>
+    )
+  }
+  return (
+    <TerraformStateUpload accountId={accountId} editable={editable} onBound={(created) => {
+      setReplacing(false)
+      onBound(created.binding_id)
+    }} />
   )
 }
 
