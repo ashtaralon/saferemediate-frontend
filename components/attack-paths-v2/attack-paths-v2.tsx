@@ -563,6 +563,8 @@ export function AttackPathsV2({
   const selectedCoverageNote = selectedJewel
     ? targetIncompleteCoverageNote(selectedJewel.target_state, selectedJewel.coverage_cause ?? NO_TARGET_COVERAGE_CAUSE)
     : null
+  // AP188 (F4 P1): the rail's own Collapse notifies the page, so the aside itself narrows (it stayed 320px before).
+  const [railCollapsed, setRailCollapsed] = useState(false)
   const selectedJewelHasPaths = Number(selectedJewel?.path_count ?? 0) > 0
   const selectedJewelZeroState = selectedJewel?.target_state
   const currentAccessZero =
@@ -1156,10 +1158,12 @@ export function AttackPathsV2({
 
   // ─── Main 3-column layout ──────────────────────────────────────
   return (
-    <div className={`flex ${shellHeight} bg-background text-foreground overflow-hidden${embedded ? " rounded-xl border border-border" : ""}`}>
+    // AP188 (F4 P2): below md the three panes stack and the shell scrolls, so the selected explanation is reached by
+    // ordinary scrolling; from md up the row and its fixed columns are exactly as before.
+    <div className={`flex flex-col md:flex-row ${shellHeight} bg-background text-foreground overflow-y-auto md:overflow-hidden${embedded ? " rounded-xl border border-border" : ""}`}>
       {/* Column 1 — Crown jewels (hidden when path is maximized) */}
       <aside
-        className={`${isPathExpanded ? "hidden" : "w-[320px]"} shrink-0 border-r border-border bg-background overflow-y-auto`}
+        className={`${isPathExpanded ? "hidden" : railCollapsed ? "w-full md:w-9" : "w-full md:w-[320px]"} shrink-0 border-r border-border bg-background overflow-y-auto`}
       >
         <div className="px-4 py-3 border-b border-border">
           <div className="flex items-start gap-2">
@@ -1244,6 +1248,7 @@ export function AttackPathsV2({
           selectedJewelId={selectedJewelId}
           onSelect={handleSelectJewel}
           iapHold={railIapHold}
+          onCollapsedChange={setRailCollapsed}
         />
       </aside>
 
@@ -1252,7 +1257,7 @@ export function AttackPathsV2({
           paths). Operator can still get back to per-path view via the
           mode toggle in the right-column header. */}
       <section
-        className={`${isPathExpanded || viewMode === "exposure" || viewMode === "topology" || viewMode === "lateral" ? "hidden" : "w-[400px]"} shrink-0 border-r border-border overflow-y-auto bg-muted/30`}
+        className={`${isPathExpanded || viewMode === "exposure" || viewMode === "topology" || viewMode === "lateral" ? "hidden" : "w-full md:w-[400px]"} shrink-0 border-r border-border overflow-y-auto bg-muted/30`}
       >
         {!selectedJewelId ? (
           <EmptyState
@@ -1348,7 +1353,7 @@ export function AttackPathsV2({
       {/* Column 3 — Per-path analysis OR Exposure view, gated by mode */}
       <main
         ref={mainScrollRef}
-        className={`flex-1 bg-background ${
+        className={`flex-1 min-h-[70vh] md:min-h-0 bg-background ${
           embedded && isPathExpanded
             ? "flex flex-col min-h-[78vh] overflow-visible"
             : isPathExpanded && (viewMode === "attacker_map" || viewMode === "attack-path")
@@ -1682,7 +1687,7 @@ function ModeToggle({
   const tabs = buildModeBarTabs(showBeta)
   const highlight = modeBarHighlight(mode)
   return (
-    <div className="px-6 py-3 border-b border-border bg-background/95 backdrop-blur sticky top-0 z-20 flex items-center gap-3 min-w-0 shrink-0">
+    <div className="px-6 py-3 border-b border-border bg-background/95 backdrop-blur sticky top-0 z-20 flex flex-wrap md:flex-nowrap items-center gap-3 min-w-0 shrink-0">
       {/* Freshness pill — graph age from CollectorRun.finished_at.
           Lives in the shared tab bar so every view tab inherits an
           honest "Graph synced X min ago" signal. Replaces the
@@ -1693,12 +1698,18 @@ function ModeToggle({
           direction: jewel = SOURCE, external destinations = SINKS.
           Topology shows the customer's architecture, not the
           attacker's path. */}
-      <div className="min-w-0 flex-1 overflow-x-auto">
-        <div className="flex rounded-md border border-border overflow-hidden w-max max-w-full">
+      {/* AP188 (F5): the row keeps its full width (w-max) inside the overflow-x-auto wrapper, so every tab is reachable
+          by scrolling or keyboard focus; with max-w-full it was clipped at the wrapper and the last tabs were
+          unreachable. Below md the wrapper takes its own full line of the wrapping bar (a flex-1 item there was
+          squeezed to 58px, narrower than any tab); from md up it is flex-1 as before. */}
+      <div className="min-w-0 w-full md:w-auto md:flex-1 overflow-x-auto" data-testid="mode-bar-tabs">
+        <div className="flex rounded-md border border-border overflow-hidden w-max">
         {tabs.map((tab) => (
           <button
             key={tab.key}
             onClick={() => onChange(tab.key)}
+            // AP188 (F5): a tab reached by keyboard scrolls fully into view (focus alone left it partly clipped).
+            onFocus={(e) => e.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" })}
             title={tab.title}
             className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider transition-colors border-r border-border last:border-r-0 ${
               highlight === tab.key
@@ -1717,13 +1728,14 @@ function ModeToggle({
          different number). Showing both invites confusion. */}
       {/* AP187/AP188: the selected target's count in the words its read state supports (convergence-readiness): a
           whole count keeps "<name> · N paths", a partial one says "listed", and loading / unavailable / not ready say
-          so, never a zero. A note line takes the first line's width and never widens the block (w-0 min-w-full): the
-          tab strip beside it is already clipped at desktop widths and must not lose more. Full text in the titles. */}
+          so, never a zero. A note line takes the first line's width and never widens the block (w-0 min-w-full), so
+          the tab strip beside it keeps its room. Full text in the titles. AP188 (F4/F5): shown at every width (it was
+          md-only); below md the bar wraps and the count takes its own line. */}
       {(() => {
         const lines = jewelName && mode !== "topology" && count ? selectedPathCountLines(jewelName, count) : null
         if (lines?.secondary) {
           return (
-            <div className="text-[10px] min-w-0 hidden md:block max-w-[220px] shrink" data-testid="mode-bar-target-count">
+            <div className="text-[10px] min-w-0 max-w-[220px] shrink" data-testid="mode-bar-target-count">
               <div className="truncate text-muted-foreground" title={lines.title ? `${lines.primary} — ${lines.title}` : lines.primary}>
                 {lines.primary}
               </div>
@@ -1735,7 +1747,7 @@ function ModeToggle({
         }
         return (
           <div
-            className="text-[10px] text-muted-foreground min-w-0 truncate hidden md:block max-w-[220px] shrink"
+            className="text-[10px] text-muted-foreground min-w-0 truncate max-w-[220px] shrink"
             data-testid="mode-bar-target-count"
             title={lines?.title ?? undefined}
           >

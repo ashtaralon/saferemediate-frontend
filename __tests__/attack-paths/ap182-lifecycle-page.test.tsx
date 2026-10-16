@@ -338,3 +338,82 @@ describe("AttackPathsV2 header count — what the read state supports, never a b
     expect(within(legacy).queryByTestId("mode-bar-coverage-note")).toBeNull()
   })
 })
+
+// AP188 (F4 P1+P2, F5): class contracts only -- jsdom has no layout. The geometry and the real wheel / keyboard / click
+// reachability are measured by the browser journey (agent-coordinator AP188 packet, journey.mjs).
+describe("AttackPathsV2 responsive journey contracts (AP188 F4/F5)", () => {
+  async function renderSelected() {
+    setUrl({ system: SYSTEM, jewel: idOf("empty-bucket", "S3Bucket") })
+    serve(capturedSection)
+    await renderPage()
+    await waitFor(() => expect(screen.getByTestId("mode-bar-target-count")).toHaveTextContent("empty-bucket"))
+    return document.querySelector("aside") as HTMLElement
+  }
+
+  it("the rail's Collapse narrows the ASIDE itself (md:w-9), and Expand restores md:w-[320px]", async () => {
+    const aside = await renderSelected()
+    expect(aside.className).toContain("md:w-[320px]")
+    await act(async () => { screen.getByTitle("Collapse to give the attack graph more room").click() })
+    expect(aside.className).toContain("md:w-9")
+    expect(aside.className).not.toContain("md:w-[320px]")
+    await act(async () => { screen.getByTitle("Expand crown jewel list").click() })
+    expect(aside.className).toContain("md:w-[320px]")
+  })
+
+  it("below md the panes stack and the shell scrolls; from md up the row is as before", async () => {
+    const aside = await renderSelected()
+    const shell = aside.parentElement as HTMLElement
+    for (const c of ["flex-col", "md:flex-row", "overflow-y-auto", "md:overflow-hidden"]) expect(shell.className.split(/\s+/)).toContain(c)
+    expect(aside.className.split(/\s+/)).toContain("w-full")
+    const main = shell.querySelector(":scope > main") as HTMLElement
+    expect(main.className.split(/\s+/)).toEqual(expect.arrayContaining(["flex-1", "min-h-[70vh]", "md:min-h-0"]))
+  })
+
+  it("F5: the tab row keeps its full width inside the scrolling wrapper (no max-w-full clip); every tab is a button", async () => {
+    await renderSelected()
+    const wrap = screen.getByTestId("mode-bar-tabs")
+    // below md: its own full line of the wrapping bar; from md up: flex-1 as before
+    expect(wrap.className.split(/\s+/)).toEqual(expect.arrayContaining(["overflow-x-auto", "min-w-0", "w-full", "md:w-auto", "md:flex-1"]))
+    expect(wrap.className.split(/\s+/)).not.toContain("flex-1")
+    const row = wrap.firstElementChild as HTMLElement
+    expect(row.className.split(/\s+/)).toContain("w-max")
+    expect(row.className.split(/\s+/)).not.toContain("max-w-full")
+    expect(within(wrap).getAllByRole("button").length).toBeGreaterThanOrEqual(5)
+  })
+
+  it("F5: a tab reached by keyboard asks to be scrolled fully into view (nearest)", async () => {
+    await renderSelected()
+    const tabs = within(screen.getByTestId("mode-bar-tabs")).getAllByRole("button")
+    const calls: unknown[] = []
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = function (this: Element, arg?: unknown) { calls.push([this.textContent, arg]) } as typeof original
+    try {
+      await act(async () => { tabs[tabs.length - 1].focus() })
+    } finally {
+      Element.prototype.scrollIntoView = original
+    }
+    expect(calls).toEqual([[tabs[tabs.length - 1].textContent, { block: "nearest", inline: "nearest" }]])
+  })
+
+  it("the selected-target count is shown at every width (no md-only hiding), and the bar may wrap below md", async () => {
+    await renderSelected()
+    const count = screen.getByTestId("mode-bar-target-count")
+    expect(count.className.split(/\s+/)).not.toContain("hidden")
+    const bar = count.parentElement as HTMLElement
+    expect(bar.className.split(/\s+/)).toEqual(expect.arrayContaining(["flex-wrap", "md:flex-nowrap"]))
+  })
+
+  it("the single-line count (a whole count, here the legacy no-route control) is shown at every width too", async () => {
+    setUrl({ system: SYSTEM, jewel: idOf("db-x1", "RDSInstance") })
+    serve({ ...SECTION, targets: SECTION.targets.map((t) => (t.name === "db-x1" ? { ...t, state: "no_modeled_route" } : t)) })
+    await renderPage()
+    const count = await waitFor(() => {
+      const el = screen.getByTestId("mode-bar-target-count")
+      expect(el).toHaveTextContent(/^db-x1 · 0 paths$/)
+      return el
+    })
+    expect(within(count).queryByTestId("mode-bar-coverage-note")).toBeNull()      // the single-line form
+    expect(count.className.split(/\s+/)).not.toContain("hidden")
+  })
+})
+
