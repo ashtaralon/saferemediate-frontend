@@ -1,0 +1,22 @@
+{
+  "_provenance": {
+    "harness": "tests/test_system_boundary_terraform_captures.py",
+    "request": {
+      "method": "POST",
+      "path": "/api/system-boundary/terraform-bindings/7fb10000-0000-4000-8000-000000000003/revoke",
+      "body": {
+        "request_id": "00000000-0000-4000-8000-0000000f0005",
+        "base_revision": 2
+      }
+    }
+  },
+  "status": 409,
+  "cache_control": null,
+  "content_type": "application/json",
+  "body": {
+    "detail": {
+      "code": "VERSION_CONFLICT",
+      "current_revision": 1
+    }
+  }
+}

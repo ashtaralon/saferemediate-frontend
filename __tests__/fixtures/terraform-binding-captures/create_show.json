@@ -1,0 +1,48 @@
+{
+  "_provenance": {
+    "harness": "tests/test_system_boundary_terraform_captures.py",
+    "request": {
+      "method": "POST",
+      "path": "/api/system-boundary/terraform-bindings",
+      "body": {
+        "request_id": "00000000-0000-4000-8000-0000000f0002",
+        "account_id": "178254216844",
+        "workspace_identity": "s3://platform-tfstate/platform.tfstate#default",
+        "format": "show_state_json",
+        "document": {
+          "sha256": "0cc2ba7793079c7a13ee98849e409e84530eb19ab8ff47bc8c08450bfbd54cfd",
+          "bytes": 1070
+        },
+        "reduction": "client_supported_types/v1",
+        "consent": {
+          "text_version": "terraform_reduced_upload_consent/v1",
+          "confirmed": true
+        },
+        "claimed_source_digest": "sha256:44bb293f07b098d0b6b3f2cf762263a794899cf0a9ef2409c83f5c403c938534"
+      }
+    }
+  },
+  "status": 201,
+  "cache_control": "no-store",
+  "content_type": "application/json",
+  "body": {
+    "binding_id": "7fb10000-0000-4000-8000-000000000003",
+    "revision": 1,
+    "counts": {
+      "admission": {
+        "instances": 3,
+        "managed_current": 3,
+        "managed_deposed": 0,
+        "tainted": 0,
+        "data_reference": 0,
+        "provider_aws": 3,
+        "provider_unsupported": 0,
+        "sensitive_identity_dropped": 0
+      },
+      "resolution": {
+        "resolved": 3
+      }
+    },
+    "contract": "terraform_workspace_binding_read/v1"
+  }
+}

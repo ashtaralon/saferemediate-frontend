@@ -1,0 +1,33 @@
+{
+  "_provenance": {
+    "harness": "tests/test_system_boundary_terraform_captures.py",
+    "request": {
+      "method": "POST",
+      "path": "/api/system-boundary/terraform-bindings",
+      "body": {
+        "request_id": "00000000-0000-4000-8000-0000000f0009",
+        "account_id": "178254216844",
+        "workspace_identity": "s3://platform-tfstate/platform.tfstate#default",
+        "format": "raw_state_v4",
+        "document": {
+          "sha256": "03e8f9d70cdd9b7e01a0759ae2b140f16e7f31d904df9196938014b25486d949",
+          "bytes": 1079
+        },
+        "reduction": "client_supported_types/v1",
+        "consent": {
+          "text_version": "terraform_reduced_upload_consent/v1",
+          "confirmed": true
+        },
+        "claimed_source_digest": "sha256:c531a3ab14c4851b546a72444e50aa7eeded5c12e6cea4833670d2f8eaed2632"
+      }
+    }
+  },
+  "status": 403,
+  "cache_control": null,
+  "content_type": "application/json",
+  "body": {
+    "detail": {
+      "code": "PERSON_NOT_AUTHORIZED"
+    }
+  }
+}

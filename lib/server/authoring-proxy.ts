@@ -3,10 +3,11 @@ import { accountAdminIdentityHeaders, accountAdminWriteFromOwnOrigin } from "@/l
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 /**
- * The System Boundary authoring proxy (Phase 2 F1): a NAMED proxy for exactly nineteen backend routes, never a relay -- F1's
- * seven, (A7 rev 4) the wizard's capability read, the declarations' applied status and one system's result, (onboarding
- * G2) the eight routes of the resumable System setup (create, list, read, status, update, finish, cancel, amend), and (S1a)
- * the read-only draft preview of one setup.
+ * The System Boundary authoring proxy (Phase 2 F1): a NAMED proxy for exactly twenty-two backend routes, never a relay --
+ * F1's seven, (A7 rev 4) the wizard's capability read, the declarations' applied status and one system's result, (onboarding
+ * G2) the eight routes of the resumable System setup (create, list, read, status, update, finish, cancel, amend), (S1a)
+ * the read-only draft preview of one setup, and (S2 intake I2b) a Terraform workspace binding's create (a browser-REDUCED
+ * state, contract S2-INTAKE-CONTRACT-2026-10-16), read and revoke.
  *
  * The backend verifies the person on these routes by the console transport (api/system_boundary.py::_console_person,
  * backend a3c945b0): the IdP access token alone, against the keys installed on the issuer's trust block, else its
@@ -40,15 +41,17 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 type Route = { method: "GET" | "POST" | "PUT"; matches: (suffix: string) => boolean; query: readonly string[]; maxCursor?: number }
 
-/** (Onboarding G2) ``setup/<uuid>`` exactly, optionally followed by one of ``tails``: nothing else under setup/. */
-function setupPath(suffix: string, tails: readonly string[]): boolean {
-  if (!suffix.startsWith("setup/")) return false
-  const rest = suffix.slice("setup/".length)
+/** ``<collection>/<uuid>`` exactly, optionally followed by one of ``tails``: nothing else under the collection. */
+function idPath(collection: string, suffix: string, tails: readonly string[]): boolean {
+  if (!suffix.startsWith(`${collection}/`)) return false
+  const rest = suffix.slice(collection.length + 1)
   const id = rest.slice(0, 36)
   return UUID.test(id) && tails.includes(rest.slice(36))
 }
+/** (Onboarding G2) ``setup/<uuid>`` exactly, optionally followed by one of ``tails``: nothing else under setup/. */
+const setupPath = (suffix: string, tails: readonly string[]): boolean => idPath("setup", suffix, tails)
 
-/** The nineteen routes, by exact method and path below /api/system-boundary/, with the query each may carry. */
+/** The twenty-two routes, by exact method and path below /api/system-boundary/, with the query each may carry. */
 const ROUTES: readonly Route[] = [
   { method: "GET", matches: (s) => s === "declarations/view", query: [] },
   { method: "GET", matches: (s) => s === "declarations/head", query: [] },
@@ -76,6 +79,11 @@ const ROUTES: readonly Route[] = [
   // S1a: the draft preview of ONE saved state version (read-only), optionally one page of one list of one account.
   { method: "GET", matches: (s) => setupPath(s, ["/preview"]), query: ["state_version", "account_id", "bucket", "cursor"],
     maxCursor: AUTHORING_MAX_PREVIEW_CURSOR },
+  // S2 intake I2b: one Terraform workspace binding from a browser-REDUCED state (the 1 MiB cap below is the whole envelope),
+  // one binding's retained view, and its one-way revoke. No query on any of them.
+  { method: "POST", matches: (s) => s === "terraform-bindings", query: [] },
+  { method: "GET", matches: (s) => idPath("terraform-bindings", s, [""]), query: [] },
+  { method: "POST", matches: (s) => idPath("terraform-bindings", s, ["/revoke"]), query: [] },
 ]
 
 function refused(status: number, detail: Record<string, unknown>): NextResponse {

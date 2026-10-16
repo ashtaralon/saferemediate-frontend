@@ -167,6 +167,58 @@ describe("authoring proxy -- exactly the ten routes", () => {
   })
 })
 
+describe("authoring proxy -- (S2 intake I2b) the three Terraform binding routes, and nothing near them", () => {
+  it.each([
+    ["POST", "terraform-bindings"],
+    ["GET", `terraform-bindings/${RID}`],
+    ["POST", `terraform-bindings/${RID}/revoke`],
+  ] as const)("%s %s reaches exactly its backend route", async (method, path) => {
+    resident()
+    const upstream = backendAnswers()
+    const response = await send(method, path, method === "POST" ? { headers: { ...SAME_ORIGIN, ...JSON_TYPE }, body: "{}" } : {})
+    expect(upstream).toHaveBeenCalledTimes(1)
+    const { url, init } = upstreamCall(upstream)
+    expect(url).toBe(`${UPSTREAM}/${path}`)
+    expect([init.method, init.cache, init.redirect]).toEqual([method, "no-store", "error"])
+    expect(response.status).toBe(200)
+  })
+
+  it.each([
+    ["GET", "terraform-bindings"],
+    ["POST", `terraform-bindings/${RID}`],
+    ["GET", `terraform-bindings/${RID}/revoke`],
+    ["GET", `terraform-bindings/${RID.toUpperCase()}`],
+    ["GET", "terraform-bindings/NOT-A-UUID"],
+    ["GET", `terraform-bindings/${RID}/identities`],
+    ["POST", `terraform-bindings/${RID}/revoke/`],
+    ["POST", "terraform-bindings/"],
+    ["POST", "terraform-bindings%2Fx"],
+  ] as const)("refuses %s %s by name and forwards nothing", async (method, path) => {
+    resident()
+    const upstream = vi.spyOn(globalThis, "fetch")
+    const response = await send(method, path, method === "POST" ? { headers: { ...SAME_ORIGIN, ...JSON_TYPE }, body: "{}" } : {})
+    expect([response.status, await response.json()]).toEqual([404, { detail: { code: "AUTHORING_ROUTE_UNKNOWN" } }])
+    expect(upstream).not.toHaveBeenCalled()
+  })
+
+  it.each([`terraform-bindings/${RID}?account_id=111111111111`, `terraform-bindings/${RID}?cursor=x`])(
+    "refuses a query on a binding route (%s) and forwards nothing", async (path) => {
+      resident()
+      const upstream = vi.spyOn(globalThis, "fetch")
+      const response = await send("GET", path)
+      expect([response.status, await response.json()]).toEqual([400, { detail: { code: "AUTHORING_QUERY_INVALID" } }])
+      expect(upstream).not.toHaveBeenCalled()
+    })
+
+  it("a cross-site create is refused before anything is read or forwarded", async () => {
+    resident()
+    const upstream = vi.spyOn(globalThis, "fetch")
+    const response = await send("POST", "terraform-bindings", { headers: { "sec-fetch-site": "cross-site", ...JSON_TYPE }, body: "{}" })
+    expect([response.status, await response.json()]).toEqual([403, { detail: { code: "AUTHORING_ORIGIN_REFUSED" } }])
+    expect(upstream).not.toHaveBeenCalled()
+  })
+})
+
 describe("authoring proxy -- a customer-resident write comes from this console's own origin", () => {
   it.each([
     ["Sec-Fetch-Site cross-site, even with this console's Origin", { "sec-fetch-site": "cross-site", origin: APP }],
