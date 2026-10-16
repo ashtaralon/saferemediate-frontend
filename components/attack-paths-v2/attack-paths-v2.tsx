@@ -1158,12 +1158,13 @@ export function AttackPathsV2({
 
   // ─── Main 3-column layout ──────────────────────────────────────
   return (
-    // AP188 (F4 P2): below md the three panes stack and the shell scrolls, so the selected explanation is reached by
-    // ordinary scrolling; from md up the row and its fixed columns are exactly as before.
-    <div className={`flex flex-col md:flex-row ${shellHeight} bg-background text-foreground overflow-y-auto md:overflow-hidden${embedded ? " rounded-xl border border-border" : ""}`}>
+    // AP188 (F4 P2): below lg the three panes stack and the shell scrolls, so the selected explanation is reached by
+    // ordinary scrolling; from lg up the row and its fixed columns are exactly as before. (AP192: below lg the fixed
+    // 320 + 400 columns left the graph pane 180px wide at 900 and 48px at 768, too narrow for any mode tab.)
+    <div className={`flex flex-col lg:flex-row ${shellHeight} bg-background text-foreground overflow-y-auto lg:overflow-hidden${embedded ? " rounded-xl border border-border" : ""}`}>
       {/* Column 1 — Crown jewels (hidden when path is maximized) */}
       <aside
-        className={`${isPathExpanded ? "hidden" : railCollapsed ? "w-full md:w-9" : "w-full md:w-[320px]"} shrink-0 border-r border-border bg-background overflow-y-auto`}
+        className={`${isPathExpanded ? "hidden" : railCollapsed ? "w-full lg:w-9" : "w-full lg:w-[320px]"} shrink-0 border-r border-border bg-background overflow-y-auto`}
       >
         <div className="px-4 py-3 border-b border-border">
           <div className="flex items-start gap-2">
@@ -1257,7 +1258,7 @@ export function AttackPathsV2({
           paths). Operator can still get back to per-path view via the
           mode toggle in the right-column header. */}
       <section
-        className={`${isPathExpanded || viewMode === "exposure" || viewMode === "topology" || viewMode === "lateral" ? "hidden" : "w-full md:w-[400px]"} shrink-0 border-r border-border overflow-y-auto bg-muted/30`}
+        className={`${isPathExpanded || viewMode === "exposure" || viewMode === "topology" || viewMode === "lateral" ? "hidden" : "w-full lg:w-[400px]"} shrink-0 border-r border-border overflow-y-auto bg-muted/30`}
       >
         {!selectedJewelId ? (
           <EmptyState
@@ -1353,7 +1354,7 @@ export function AttackPathsV2({
       {/* Column 3 — Per-path analysis OR Exposure view, gated by mode */}
       <main
         ref={mainScrollRef}
-        className={`flex-1 min-h-[70vh] md:min-h-0 bg-background ${
+        className={`flex-1 min-h-[70vh] lg:min-h-0 bg-background ${
           embedded && isPathExpanded
             ? "flex flex-col min-h-[78vh] overflow-visible"
             : isPathExpanded && (viewMode === "attacker_map" || viewMode === "attack-path")
@@ -1687,41 +1688,15 @@ function ModeToggle({
   const tabs = buildModeBarTabs(showBeta)
   const highlight = modeBarHighlight(mode)
   return (
-    <div className="px-6 py-3 border-b border-border bg-background/95 backdrop-blur sticky top-0 z-20 flex flex-wrap md:flex-nowrap items-center gap-3 min-w-0 shrink-0">
+    // AP192: the bar wraps by the room the graph pane gives it, never by the viewport. The tab strip comes last and is
+    // sized by its content (flex-auto): it shares the first line only when every tab fits there, otherwise it takes a
+    // full line of its own and scrolls inside it. So the strip and the selected-target count are never 0px wide.
+    <div className="px-6 py-3 border-b border-border bg-background/95 backdrop-blur sticky top-0 z-20 flex flex-wrap items-center gap-3 min-w-0 shrink-0">
       {/* Freshness pill — graph age from CollectorRun.finished_at.
           Lives in the shared tab bar so every view tab inherits an
           honest "Graph synced X min ago" signal. Replaces the
           implicit "live" framing the tab subtitles use. */}
       <FreshnessBanner variant="pill" className="shrink-0" />
-      {/* ATLAS is an inline section at the bottom of the Attacker View
-          canvas (atlas-inline-section.tsx). EXFIL inverts the BFS
-          direction: jewel = SOURCE, external destinations = SINKS.
-          Topology shows the customer's architecture, not the
-          attacker's path. */}
-      {/* AP188 (F5): the row keeps its full width (w-max) inside the overflow-x-auto wrapper, so every tab is reachable
-          by scrolling or keyboard focus; with max-w-full it was clipped at the wrapper and the last tabs were
-          unreachable. Below md the wrapper takes its own full line of the wrapping bar (a flex-1 item there was
-          squeezed to 58px, narrower than any tab); from md up it is flex-1 as before. */}
-      <div className="min-w-0 w-full md:w-auto md:flex-1 overflow-x-auto" data-testid="mode-bar-tabs">
-        <div className="flex rounded-md border border-border overflow-hidden w-max">
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => onChange(tab.key)}
-            // AP188 (F5): a tab reached by keyboard scrolls fully into view (focus alone left it partly clipped).
-            onFocus={(e) => e.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" })}
-            title={tab.title}
-            className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider transition-colors border-r border-border last:border-r-0 ${
-              highlight === tab.key
-                ? "bg-primary/10 text-primary"
-                : "bg-card text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-        </div>
-      </div>
       {/* Quiet context — mode descriptions live in the tab tooltips. The
          path count is suppressed in topology mode because the canvas
          displays its own count from /by-crown-jewel (different endpoint,
@@ -1730,7 +1705,7 @@ function ModeToggle({
           whole count keeps "<name> · N paths", a partial one says "listed", and loading / unavailable / not ready say
           so, never a zero. A note line takes the first line's width and never widens the block (w-0 min-w-full), so
           the tab strip beside it keeps its room. Full text in the titles. AP188 (F4/F5): shown at every width (it was
-          md-only); below md the bar wraps and the count takes its own line. */}
+          md-only); AP192: the bar wraps by its own room, so the count is never squeezed to 0px. */}
       {(() => {
         const lines = jewelName && mode !== "topology" && count ? selectedPathCountLines(jewelName, count) : null
         if (lines?.secondary) {
@@ -1773,6 +1748,36 @@ function ModeToggle({
           </>
         )}
       </button>
+      {/* ATLAS is an inline section at the bottom of the Attacker View
+          canvas (atlas-inline-section.tsx). EXFIL inverts the BFS
+          direction: jewel = SOURCE, external destinations = SINKS.
+          Topology shows the customer's architecture, not the
+          attacker's path. */}
+      {/* AP188 (F5): the row keeps its full width (w-max) inside the overflow-x-auto wrapper, so every tab is reachable
+          by scrolling or keyboard focus; with max-w-full it was clipped at the wrapper and the last tabs were
+          unreachable. AP192: the wrapper is flex-auto (its basis is the row's own width), so in the wrapping bar it
+          takes a full line whenever the first line has no room for every tab; a flex-1 item (basis 0) was squeezed to
+          58px below md and to 0px at 900 / 1024. */}
+      <div className="min-w-0 flex-auto overflow-x-auto" data-testid="mode-bar-tabs">
+        <div className="flex rounded-md border border-border overflow-hidden w-max">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => onChange(tab.key)}
+            // AP188 (F5): a tab reached by keyboard scrolls fully into view (focus alone left it partly clipped).
+            onFocus={(e) => e.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" })}
+            title={tab.title}
+            className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider transition-colors border-r border-border last:border-r-0 ${
+              highlight === tab.key
+                ? "bg-primary/10 text-primary"
+                : "bg-card text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+        </div>
+      </div>
     </div>
   )
 }

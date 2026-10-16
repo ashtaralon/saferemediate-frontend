@@ -361,31 +361,33 @@ describe("AttackPathsV2 responsive journey contracts (AP188 F4/F5)", () => {
     return document.querySelector("aside") as HTMLElement
   }
 
-  it("the rail's Collapse narrows the ASIDE itself (md:w-9), and Expand restores md:w-[320px]", async () => {
+  it("the rail's Collapse narrows the ASIDE itself (lg:w-9), and Expand restores lg:w-[320px]", async () => {
     const aside = await renderSelected()
-    expect(aside.className).toContain("md:w-[320px]")
+    expect(aside.className).toContain("lg:w-[320px]")
     await act(async () => { screen.getByTitle("Collapse to give the attack graph more room").click() })
-    expect(aside.className).toContain("md:w-9")
-    expect(aside.className).not.toContain("md:w-[320px]")
+    expect(aside.className).toContain("lg:w-9")
+    expect(aside.className).not.toContain("lg:w-[320px]")
     await act(async () => { screen.getByTitle("Expand crown jewel list").click() })
-    expect(aside.className).toContain("md:w-[320px]")
+    expect(aside.className).toContain("lg:w-[320px]")
   })
 
-  it("below md the panes stack and the shell scrolls; from md up the row is as before", async () => {
+  it("below lg the panes stack and the shell scrolls; from lg up the row is as before (AP192: md left 180px at 900)", async () => {
     const aside = await renderSelected()
     const shell = aside.parentElement as HTMLElement
-    for (const c of ["flex-col", "md:flex-row", "overflow-y-auto", "md:overflow-hidden"]) expect(shell.className.split(/\s+/)).toContain(c)
+    for (const c of ["flex-col", "lg:flex-row", "overflow-y-auto", "lg:overflow-hidden"]) expect(shell.className.split(/\s+/)).toContain(c)
+    expect(shell.className).not.toMatch(/\bmd:/)
     expect(aside.className.split(/\s+/)).toContain("w-full")
     const main = shell.querySelector(":scope > main") as HTMLElement
-    expect(main.className.split(/\s+/)).toEqual(expect.arrayContaining(["flex-1", "min-h-[70vh]", "md:min-h-0"]))
+    expect(main.className.split(/\s+/)).toEqual(expect.arrayContaining(["flex-1", "min-h-[70vh]", "lg:min-h-0"]))
   })
 
   it("F5: the tab row keeps its full width inside the scrolling wrapper (no max-w-full clip); every tab is a button", async () => {
     await renderSelected()
     const wrap = screen.getByTestId("mode-bar-tabs")
-    // below md: its own full line of the wrapping bar; from md up: flex-1 as before
-    expect(wrap.className.split(/\s+/)).toEqual(expect.arrayContaining(["overflow-x-auto", "min-w-0", "w-full", "md:w-auto", "md:flex-1"]))
-    expect(wrap.className.split(/\s+/)).not.toContain("flex-1")
+    // AP192: sized by its content (flex-auto), so the wrapping bar gives it a full line whenever the first has no room
+    expect(wrap.className.split(/\s+/)).toEqual(expect.arrayContaining(["overflow-x-auto", "min-w-0", "flex-auto"]))
+    expect(wrap.className.split(/\s+/)).not.toEqual(expect.arrayContaining(["flex-1"]))
+    expect(wrap.className).not.toMatch(/\bmd:/)
     const row = wrap.firstElementChild as HTMLElement
     expect(row.className.split(/\s+/)).toContain("w-max")
     expect(row.className.split(/\s+/)).not.toContain("max-w-full")
@@ -411,7 +413,13 @@ describe("AttackPathsV2 responsive journey contracts (AP188 F4/F5)", () => {
     const count = screen.getByTestId("mode-bar-target-count")
     expect(count.className.split(/\s+/)).not.toContain("hidden")
     const bar = count.parentElement as HTMLElement
-    expect(bar.className.split(/\s+/)).toEqual(expect.arrayContaining(["flex-wrap", "md:flex-nowrap"]))
+    // AP192: the bar always wraps by its own room (md:flex-nowrap forced one line and squeezed the strip to 0px)
+    expect(bar.className.split(/\s+/)).toContain("flex-wrap")
+    expect(bar.className).not.toMatch(/flex-nowrap/)
+    // DOM order = visual order: freshness, the count, Expand, then the tab strip last
+    const order = [...bar.children].map((c) => c.getAttribute("data-testid") ?? c.tagName.toLowerCase())
+    expect(order.indexOf("mode-bar-target-count")).toBeLessThan(order.indexOf("mode-bar-tabs"))
+    expect(order[order.length - 1]).toBe("mode-bar-tabs")
   })
 
   it("the single-line count (a whole count, here the legacy no-route control) is shown at every width too", async () => {
