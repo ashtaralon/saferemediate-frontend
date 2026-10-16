@@ -210,14 +210,31 @@ function page(value: unknown, previewDigest: string, contract: string): PreviewP
 }
 
 const REGION = /^[a-z0-9-]{1,32}$/
-const OUTCOME = /^(matched|not_in_inventory|ambiguous|not_joinable:[a-z_]+)$/
+/** (S2 C4a-2) The backend's SHOWN_ROWS: a JOINED row shows exactly its first min(identities, 200) rows. */
+export const TERRAFORM_SHOWN_ROWS = 200
+/** Why an identity is not joinable: the backend's ``aws_physical_identity.REASONS``, exactly. */
+const NOT_JOINABLE = ["deposed_not_joined", "data_reference_not_joined", "unsupported_provider", "unsupported_type", "no_arn",
+                      "arn_invalid", "arn_not_canonical", "arn_kind_mismatch", "identity_inconsistent", "account_unresolved",
+                      "account_mismatch", "region_unresolved", "identity_unmapped"]
+const OUTCOMES = new Set(["matched", "not_in_inventory", "ambiguous", ...NOT_JOINABLE.map((r) => `not_joinable:${r}`)])
+/** A HELD row's reason (contract §4): the resolver's own holds, and the preview's -- ``ACCOUNT_NOT_JOINED:<state>`` is
+ *  checked against the row's account apart. */
+const HELD_REASONS = new Set([
+  "BINDING_NOT_FOUND", "BINDING_RECORD_INVALID", "BINDING_REVOKED", "BINDING_ACCOUNT_MISMATCH", "ACCOUNT_NOT_REGISTERED",
+  "ACCOUNT_REMOVED", "REGISTRATION_CHANGED", "DERIVATION_UNAVAILABLE", "BINDING_AUTHOR_REVOKED", "STATE_EMPTY",
+  "NO_RESOLVED_IDENTITY", "WORKSPACE_REGION_MISMATCH", "RESOLUTION_INVALID", "BINDING_CHANGED", "INVENTORY_READ_DIFFERS",
+])
+/** A shown row's category, as the counts name it. */
+const category = (outcome: string) => (outcome.startsWith("not_joinable:") ? "not_joinable" : outcome)
 const exactly = (value: Record<string, unknown>, keys: readonly string[]): boolean =>
   Object.keys(value).length === keys.length && keys.every((k) => k in value)
 const TF_KEYS = ["row", "binding_id", "state", "reason", "assessment", "acquisition", "binding_revision", "inventory_generation",
                  "counts", "rows", "omitted"] as const
 
-/** (S2 C4a-2) The ``terraform`` section, read exactly: a HELD row shows nothing of its binding; a JOINED one is assessed only,
- *  its counts whole and adding up, its rows a prefix of them, joined on EXACTLY the generation its computed account names. */
+/** (S2 C4a-2) The ``terraform`` section, read exactly: a HELD row shows nothing of its binding and names a reason the contract
+ *  has; a JOINED one is assessed only, its counts whole and adding up, its rows exactly the first min(identities, 200) with
+ *  known outcomes and per-category counts within (omitted 0: equal to) the totals, joined on EXACTLY the generation its
+ *  computed account names. (SW117) */
 function terraformSection(value: unknown, accounts: readonly PreviewAccount[]): TerraformPreviewBinding[] | null {
   if (!isRecord(value) || !exactly(value, ["effect", "bindings"]) || value.effect !== "none" || !Array.isArray(value.bindings)) return null
   const out: TerraformPreviewBinding[] = []
@@ -228,9 +245,13 @@ function terraformSection(value: unknown, accounts: readonly PreviewAccount[]): 
         || !(deployment === null || isText(deployment)) || !isText(b.binding_id) || !Array.isArray(b.rows) || !isCount(b.omitted)) return null
     const row = { accountId, region: region as string | null, deployment: deployment as string | null }
     if (b.state === "HELD") {
-      if (!isText(b.reason) || b.assessment !== null || b.acquisition !== null || b.binding_revision !== null
+      const of = accounts.find((a) => a.accountId === accountId)
+      const reason = typeof b.reason === "string" ? b.reason : null
+      const named = reason !== null && (HELD_REASONS.has(reason)
+        || (of?.state !== "COMPUTED" && reason === `ACCOUNT_NOT_JOINED:${of?.state ?? "NOT_IN_PREVIEW"}`))
+      if (!named || b.assessment !== null || b.acquisition !== null || b.binding_revision !== null
           || b.inventory_generation !== null || b.counts !== null || b.rows.length !== 0 || b.omitted !== 0) return null
-      out.push({ row, bindingId: b.binding_id, state: "HELD", reason: b.reason, bindingRevision: null, inventoryGeneration: null,
+      out.push({ row, bindingId: b.binding_id, state: "HELD", reason, bindingRevision: null, inventoryGeneration: null,
                  counts: null, rows: [], omitted: 0 })
       continue
     }
@@ -239,9 +260,15 @@ function terraformSection(value: unknown, accounts: readonly PreviewAccount[]): 
     const c = counts(b.counts, ["identities", "matched", "not_in_inventory", "ambiguous", "not_joinable"])
     if (c === null || c.identities !== c.matched + c.not_in_inventory + c.ambiguous + c.not_joinable) return null
     const rows = b.rows.map((r) => (isRecord(r) && exactly(r, ["address", "inventory_uid", "outcome"]) && isText(r.address)
-      && (r.inventory_uid === null || isText(r.inventory_uid)) && typeof r.outcome === "string" && OUTCOME.test(r.outcome)
+      && (r.inventory_uid === null || isText(r.inventory_uid)) && typeof r.outcome === "string" && OUTCOMES.has(r.outcome)
       ? { address: r.address, inventoryUid: r.inventory_uid as string | null, outcome: r.outcome } : null))
-    if (rows.some((r) => r === null) || rows.length + (b.omitted as number) !== c.identities) return null
+    if (rows.some((r) => r === null) || rows.length !== Math.min(c.identities, TERRAFORM_SHOWN_ROWS)
+        || rows.length + (b.omitted as number) !== c.identities) return null
+    // the rows shown are a prefix of the whole: never more of a category than its total. (With nothing omitted that IS
+    // equality: the shown rows are all identities, and the totals add up to them.)
+    const shownOf: Record<string, number> = {}
+    for (const r of rows as { outcome: string }[]) shownOf[category(r.outcome)] = (shownOf[category(r.outcome)] ?? 0) + 1
+    if (["matched", "not_in_inventory", "ambiguous", "not_joinable"].some((k) => (shownOf[k] ?? 0) > c[k])) return null
     // joined on the generation its OWN account was computed on -- never another account's, never a held one's
     const account = accounts.find((a) => a.accountId === accountId)
     if (!account || account.state !== "COMPUTED" || account.inventory.generation !== b.inventory_generation) return null

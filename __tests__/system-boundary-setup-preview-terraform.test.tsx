@@ -75,13 +75,67 @@ describe("the v3 reader", () => {
     ["a joined row claiming acquisition", (b: any) => { b.terraform.bindings[0].acquisition = "acquired" }],    // eslint-disable-line @typescript-eslint/no-explicit-any
     ["a joined row claiming resolution", (b: any) => { b.terraform.bindings[0].assessment = "resolved" }],      // eslint-disable-line @typescript-eslint/no-explicit-any
     ["counts that do not add up", (b: any) => { b.terraform.bindings[0].counts.matched = 3 }],                  // eslint-disable-line @typescript-eslint/no-explicit-any
-    ["rows and omitted short of the identities", (b: any) => { b.terraform.bindings[0].rows.pop() }],           // eslint-disable-line @typescript-eslint/no-explicit-any
+    ["a shown row lost", (b: any) => { b.terraform.bindings[0].rows.pop() }],                                   // eslint-disable-line @typescript-eslint/no-explicit-any
+    ["an omitted count that does not add up", (b: any) => { b.terraform.bindings[0].omitted = 1 }],             // eslint-disable-line @typescript-eslint/no-explicit-any
     ["a join on another generation", (b: any) => { b.terraform.bindings[0].inventory_generation += 1 }],         // eslint-disable-line @typescript-eslint/no-explicit-any
     ["an unknown outcome", (b: any) => { b.terraform.bindings[0].rows[0].outcome = "member" }],                 // eslint-disable-line @typescript-eslint/no-explicit-any
     ["another member on a row", (b: any) => { b.terraform.bindings[0].membership = "member" }],                 // eslint-disable-line @typescript-eslint/no-explicit-any
-    ["a row of no account", (b: any) => { b.terraform.bindings[0].row.account_id = "1234" }],                   // eslint-disable-line @typescript-eslint/no-explicit-any
+    ["a row of no account", (b: any) => { b.terraform.bindings[1].row.account_id = "1234" }],                   // eslint-disable-line @typescript-eslint/no-explicit-any
   ])("%s is MALFORMED_RESPONSE", (_name, change) => {
     expect(parsePreview(200, changed(change))).toEqual({ kind: "UNAVAILABLE", status: 200, code: "MALFORMED_RESPONSE" })
+  })
+
+  // ── SW117: the display cap, the producer's finite vocabulary, and shown rows consistent with the full counts ──────────
+  /** The joined row with ``n`` shown rows of ``outcome`` (the capture's first row repeated -- an edit) and these counts. */
+  const joinedWith = (n: number, counts: Record<string, number>, omitted: number) => changed((b) => {
+    const row = b.terraform.bindings[0]
+    row.rows = Array.from({ length: n }, () => ({ ...row.rows.find((r: { outcome: string }) => r.outcome === "matched") }))
+    row.counts = { identities: 0, matched: 0, not_in_inventory: 0, ambiguous: 0, not_joinable: 0, ...counts }
+    row.omitted = omitted
+  })
+
+  it.each([
+    ["full counts that contradict the shown rows (the review's probe 1)", (b: any) => {   // eslint-disable-line @typescript-eslint/no-explicit-any
+      b.terraform.bindings[0].counts = { ...b.terraform.bindings[0].counts, matched: 0, not_in_inventory: 3 } }],
+    ["an invented not-joinable reason (probe 3)", (b: any) => { b.terraform.bindings[0].rows[0].outcome = "not_joinable:invented_reason" }],  // eslint-disable-line @typescript-eslint/no-explicit-any
+    ["a held reason the contract does not have", (b: any) => { b.terraform.bindings[1].reason = "SOMETHING_ELSE" }],   // eslint-disable-line @typescript-eslint/no-explicit-any
+    ["ACCOUNT_NOT_JOINED on an account the preview computed", (b: any) => { b.terraform.bindings[1].reason = "ACCOUNT_NOT_JOINED:COMPUTED" }],  // eslint-disable-line @typescript-eslint/no-explicit-any
+  ])("%s is MALFORMED_RESPONSE", (_name, change) => {
+    expect(parsePreview(200, changed(change))).toEqual({ kind: "UNAVAILABLE", status: 200, code: "MALFORMED_RESPONSE" })
+  })
+
+  it("a producer not-joinable reason is read (the vocabulary's positive baseline)", () => {
+    const body = changed((b) => {
+      const row = b.terraform.bindings[0]
+      row.rows.find((r: { outcome: string }) => r.outcome === "matched").outcome = "not_joinable:no_arn"
+      row.counts = { ...row.counts, matched: 1, not_joinable: 1 }
+    })
+    expect(parsePreview(200, body).kind).toBe("OK")
+  })
+
+  it("201 shown rows, above the 200 cap, is MALFORMED_RESPONSE (the review's probe 2)", () => {
+    expect(parsePreview(200, joinedWith(201, { identities: 201, matched: 201 }, 0)))
+      .toEqual({ kind: "UNAVAILABLE", status: 200, code: "MALFORMED_RESPONSE" })
+  })
+
+  it.each([
+    ["full counts that do not add up", 200, { identities: 250, matched: 250, not_in_inventory: 1 }, 50, null],
+    ["an unknown outcome among the shown", 200, { identities: 250, matched: 250 }, 50, "member"],
+    ["an invented not-joinable reason among the shown", 200, { identities: 250, matched: 249, not_joinable: 1 }, 50,
+     "not_joinable:invented_reason"],
+  ] as const)("a capped row with %s is MALFORMED_RESPONSE (no other rule sees it)", (_name, n, counts, omitted, outcome) => {
+    const body = joinedWith(n, counts, omitted)
+    if (outcome) body.terraform.bindings[0].rows[0].outcome = outcome
+    expect(parsePreview(200, body)).toEqual({ kind: "UNAVAILABLE", status: 200, code: "MALFORMED_RESPONSE" })
+  })
+
+  it("a capped row -- 200 shown of 250 -- is read, and its shown categories may not exceed the totals", () => {
+    const capped = parsePreview(200, joinedWith(200, { identities: 250, matched: 250 }, 50))
+    expect(capped.kind === "OK" && [capped.value.terraform![0].rows.length, capped.value.terraform![0].omitted]).toEqual([200, 50])
+    expect(parsePreview(200, joinedWith(200, { identities: 250, matched: 1, not_in_inventory: 249 }, 50)))
+      .toEqual({ kind: "UNAVAILABLE", status: 200, code: "MALFORMED_RESPONSE" })
+    expect(parsePreview(200, joinedWith(199, { identities: 250, matched: 250 }, 51)))          // fewer than the cap shown
+      .toEqual({ kind: "UNAVAILABLE", status: 200, code: "MALFORMED_RESPONSE" })
   })
 
   it("a joined row of an account the preview held is MALFORMED_RESPONSE (never joined on an unadmitted account)", () => {
