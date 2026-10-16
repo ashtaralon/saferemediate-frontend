@@ -6,6 +6,7 @@ import { iapHoldTitle, type IapHold } from "@/lib/attack-paths/path-evidence-vie
 import {
   NO_TARGET_COVERAGE_CAUSE,
   displayedTargetState,
+  displayedTargetStateCounts,
   targetCoverageDescription,
   targetCoverageNote,
 } from "@/lib/attack-paths/lifecycle-coverage"
@@ -64,6 +65,15 @@ const ZERO_STATE_ORDER: TargetState[] = [
   "coverage_incomplete",
   "projection_not_ready",
 ]
+
+/** "1 no modeled route · 7 coverage incomplete"; "" when no zero state has a target. */
+function zeroStateSummary(counts: Partial<Record<TargetState, number>>): string {
+  return ZERO_STATE_ORDER
+    .map((state) => ({ state, n: counts[state] ?? 0 }))
+    .filter(({ n }) => n > 0)
+    .map(({ state, n }) => `${n} ${TARGET_STATE_CONFIG[state].label}`)
+    .join(" · ")
+}
 
 /** Crown-jewel names carry a trailing `-<12-digit account id>`; strip it for a
  *  cleaner rail (full name stays in the title attr). Type icon + color now come
@@ -139,14 +149,25 @@ export function CrownJewelListPanel({
           {stateCounts && (() => {
             // Zero states are product truth: say how many targets have no
             // route, were never considered, or wait on the projection.
-            const parts = ZERO_STATE_ORDER
-              .map((state) => ({ state, n: stateCounts[state] ?? 0 }))
-              .filter(({ n }) => n > 0)
-              .map(({ state, n }) => `${n} ${TARGET_STATE_CONFIG[state].label}`)
-            if (!parts.length) return null
+            // AP187: in the states the rows are SHOWN in (a recorded cause is never "no route"); the served counts
+            // stay on the element, and in its title when they differ. Counts that cannot account for the rows: none.
+            const shown = displayedTargetStateCounts(
+              stateCounts,
+              (jewels ?? []).map((j) => ({ state: j.target_state, cause: j.coverage_cause ?? NO_TARGET_COVERAGE_CAUSE })),
+            )
+            const served = zeroStateSummary(stateCounts)
+            const summary = shown ? zeroStateSummary(shown) : ""
+            if (!summary) return null
             return (
-              <div className="text-[10px] text-muted-foreground mt-0.5" data-testid="target-zero-states">
-                {parts.join(" · ")}
+              <div
+                className="text-[10px] text-muted-foreground mt-0.5"
+                data-testid="target-zero-states"
+                data-served-zero-states={served}
+                {...(summary !== served
+                  ? { title: `Served: ${served || "none"}. A target with a recorded coverage cause is shown as coverage incomplete, as its row is.` }
+                  : {})}
+              >
+                {summary}
               </div>
             )
           })()}

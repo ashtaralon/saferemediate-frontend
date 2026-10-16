@@ -7,7 +7,7 @@
  * — the target catalog answers the captured section (__tests__/fixtures/ap182-lifecycle/target-catalog-section.json),
  * the IAP an untyped 502 — and next/navigation. Harness after __tests__/cf01-attack-paths-v2-page.test.tsx.
  */
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import capturedSection from "@/__tests__/fixtures/ap182-lifecycle/target-catalog-section.json"
@@ -206,5 +206,69 @@ describe("AttackPathsV2 whole page — lifecycle-held targets", () => {
       expect(subtitle.textContent).not.toMatch(/lifecycle|held \(/i)
     }
     expect(screen.getByTestId("coverage-incomplete-state")).toHaveAttribute("data-coverage-cause", "withheld")
+  })
+})
+
+// AP187-F3: the graph header's count. The IAP answers 502 here, so the listed count is whatever the page lists (0); what
+// is under test is that an incomplete selection says "listed" and carries its row's own note, and a complete one is
+// exactly the established "<name> · N paths".
+describe("AttackPathsV2 header count — listed paths, and incomplete coverage said beside it (AP187-F3)", () => {
+  async function headerFor(name: string, kind: string, section: unknown = capturedSection) {
+    setUrl({ system: SYSTEM, jewel: idOf(name, kind) })
+    serve(section)
+    await renderPage()
+    return waitFor(() => {
+      const el = screen.getByTestId("mode-bar-target-count")
+      expect(el.textContent).toContain(name)
+      return el
+    })
+  }
+
+  it.each([
+    ["bucket-1", "S3Bucket", "+2 held, not counted"],                 // mixed: 1 listed + 2 held
+    ["empty-bucket", "S3Bucket", "+1 held, not counted"],             // all held
+    ["cluster-1", "RDSCluster", "coverage withheld"],                 // receipt-withheld, no path
+    ["aurora-a", "RDSCluster", "coverage withheld"],                  // receipt-withheld beside an observed path
+    ["db-1", "RDSInstance", "coverage incomplete"],                   // served coverage_incomplete, nothing recorded
+  ])("captured %s: the count is 'listed', the row's note beside it", async (name, kind, note) => {
+    const header = await headerFor(name, kind)
+    expect(header.firstElementChild).toHaveTextContent(new RegExp(`^${name} · \\d+ listed paths?$`))
+    const noteEl = within(header).getByTestId("mode-bar-coverage-note")
+    expect(noteEl).toHaveTextContent(new RegExp(`^${note.replace("+", "\\+")}$`))
+    expect(noteEl).toHaveAttribute("title", note)                               // the full note, if the line truncates
+    // Layout contract (measured in the AP187 browser harness, not by jsdom): the note line never widens the block, so
+    // the already-clipped tab strip beside it loses only the word "listed".
+    expect(noteEl.className.split(/\s+/)).toEqual(expect.arrayContaining(["w-0", "min-w-full", "truncate"]))
+  })
+
+  it("CONSTRUCTED unreadable evidence on a no_modeled_route target: listed, 'coverage evidence unreadable'", async () => {
+    const header = await headerFor("db-us-only", "RDSInstance", {
+      ...SECTION,
+      targets: SECTION.targets.map((t) => (t.name === "db-us-only" ? { ...t, state: "no_modeled_route", held_path_count: "bad" } : t)),
+    })
+    expect(header.firstElementChild).toHaveTextContent(/^db-us-only · \d+ listed paths?$/)
+    expect(within(header).getByTestId("mode-bar-coverage-note")).toHaveTextContent(/^coverage evidence unreadable$/)
+  })
+
+  it("CONSTRUCTED controls: legacy no-route and a resolved target keep exactly '<name> · N paths', no note", async () => {
+    const legacy = await headerFor("db-x1", "RDSInstance", {
+      ...SECTION, targets: SECTION.targets.map((t) => (t.name === "db-x1" ? { ...t, state: "no_modeled_route" } : t)),
+    })
+    expect(legacy).toHaveTextContent(/^db-x1 · \d+ paths?$/)
+    expect(within(legacy).queryByTestId("mode-bar-coverage-note")).toBeNull()
+    cleanup()
+    vi.unstubAllGlobals()
+    window.localStorage.clear()
+    // bucket-1 with its lifecycle fields REMOVED: an observed target with nothing recorded
+    const resolved = await headerFor("bucket-1", "S3Bucket", {
+      ...SECTION,
+      targets: SECTION.targets.map((t) => {
+        if (t.name !== "bucket-1") return t
+        const { held_path_count: _h, coverage_withheld_reason: _r, ...rest } = t
+        return rest
+      }),
+    })
+    expect(resolved).toHaveTextContent(/^bucket-1 · \d+ paths?$/)
+    expect(within(resolved).queryByTestId("mode-bar-coverage-note")).toBeNull()
   })
 })

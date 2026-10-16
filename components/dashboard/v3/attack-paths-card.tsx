@@ -20,6 +20,7 @@ import {
 import { derivePathsIntegrity, isCacheablePaths, type PathsIntegrity } from "@/lib/paths-integrity"
 import {
   LIFECYCLE_HELD_EXPLANATION,
+  LIFECYCLE_TOTALS_WITHHELD,
   heldPathsPhrase,
   unverifiedReasonText,
   type AllLifecycleCoverage,
@@ -219,9 +220,16 @@ export function AttackPathsCard({ onNavigateToSection, limit = 8, shared }: Atta
   // backend was returning 502s — a clean bill of health composed entirely of
   // nulls, on the card that answers "can anyone reach our crown jewels".
   // A count is only a count when it is a finite number.
-  const n = (v: unknown) => (Number.isFinite(v as number) ? String(v as number) : "—")
+  // AP187: and only a total when the answer's lifecycle evidence is complete. Held, unverified or unreadable lifecycle
+  // evidence means paths are missing from these numbers, whatever the payload carries, so they are not shown.
+  const totalsWithheld = integrity.lifecycle.incomplete
+  const n = (v: unknown) => (!totalsWithheld && Number.isFinite(v as number) ? String(v as number) : "—")
   const summary = (
-    <span className="text-xs text-slate-500">
+    <span
+      className="text-xs text-slate-500"
+      data-testid="paths-totals"
+      {...(totalsWithheld ? { title: LIFECYCLE_TOTALS_WITHHELD, "data-totals-withheld": "lifecycle" } : {})}
+    >
       <span className="font-semibold text-slate-700">{n(data.total_jewels)}</span> jewels ·{" "}
       <span className="font-semibold text-slate-700">{n(data.total_paths)}</span> paths ·{" "}
       <span className="font-semibold text-rose-700">{n(data.exposed_jewels)}</span> internet-exposed

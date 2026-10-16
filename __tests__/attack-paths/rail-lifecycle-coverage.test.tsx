@@ -148,6 +148,52 @@ describe("the rail names each target's own lifecycle / withheld cause", () => {
 
   it("the per-state counts line is the catalog's own, unchanged", () => {
     renderRail(SECTION)
-    expect(screen.getByTestId("target-zero-states")).toHaveTextContent("8 coverage incomplete")
+    const line = screen.getByTestId("target-zero-states")
+    expect(line).toHaveTextContent("8 coverage incomplete")
+    expect(line).toHaveAttribute("data-served-zero-states", "8 coverage incomplete")
+    expect(line).not.toHaveAttribute("title")                                    // shown = served
+  })
+
+  // AP187-F2. A constructed catalog that changes a state recounts `counts` the way the captured one is counted.
+  const recounted = (targets: TargetCatalog["targets"]): TargetCatalog => {
+    const counts: Record<string, number> = Object.fromEntries(Object.keys(SECTION.counts).map((k) => [k, 0]))
+    for (const t of targets) counts[t.state] = (counts[t.state] ?? 0) + 1
+    return { ...SECTION, targets, counts } as TargetCatalog
+  }
+
+  it("precondition: the captured catalog's counts are exactly the tally of its target states", () => {
+    expect(recounted(SECTION.targets).counts).toEqual(SECTION.counts)
+  })
+
+  it("AP187-F2 CONSTRUCTED: the summary counts rows as SHOWN; the served counts stay on the element", () => {
+    renderRail(recounted(SECTION.targets.map((t) =>
+      t.name === "db-us-only" ? { ...t, state: "no_modeled_route" as const, held_path_count: "bad" as never }
+        : t.name === "db-x1" ? { ...t, state: "no_modeled_route" as const } : t)))
+    const line = screen.getByTestId("target-zero-states")
+    // db-us-only's row says coverage incomplete (AP184), so the summary does too; db-x1 still has no route
+    expect(line).toHaveTextContent(/^1 no modeled route · 7 coverage incomplete$/)
+    expect(line).toHaveAttribute("data-served-zero-states", "2 no modeled route · 6 coverage incomplete")
+    expect(line.getAttribute("title")).toMatch(/^Served: 2 no modeled route · 6 coverage incomplete\./)
+    // ... and it agrees with the rows themselves
+    const shownNoRoute = screen.getAllByText("no modeled route").filter((el) => el.hasAttribute("data-target-state"))
+    expect(shownNoRoute).toHaveLength(1)
+  })
+
+  it("AP187-F2 CONSTRUCTED control: a legacy no-route row with nothing recorded is counted as served", () => {
+    renderRail(recounted(SECTION.targets.map((t) => (t.name === "db-x1" ? { ...t, state: "no_modeled_route" as const } : t))))
+    const line = screen.getByTestId("target-zero-states")
+    expect(line).toHaveTextContent(/^1 no modeled route · 7 coverage incomplete$/)
+    expect(line).toHaveAttribute("data-served-zero-states", "1 no modeled route · 7 coverage incomplete")
+    expect(line).not.toHaveAttribute("title")
+  })
+
+  it("AP187-F2 CONSTRUCTED: served counts that cannot account for a re-shown row show no summary at all", () => {
+    // the state changed WITHOUT a recount: the served counts hold no no-route target for the row to move from
+    renderRail({
+      ...SECTION,
+      targets: SECTION.targets.map((t) => (t.name === "db-us-only" ? { ...t, state: "no_modeled_route", held_path_count: "bad" as never } : t)),
+    } as TargetCatalog)
+    expect(screen.queryByTestId("target-zero-states")).toBeNull()
+    expect(screen.queryAllByText(/no modeled route/).filter((el) => !el.hasAttribute("data-target-state"))).toEqual([])
   })
 })

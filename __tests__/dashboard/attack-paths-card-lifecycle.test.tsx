@@ -17,7 +17,7 @@ vi.mock("next/navigation", () => ({
 }))
 
 import { AttackPathsCard, type PathsResponse } from "@/components/dashboard/v3/attack-paths-card"
-import { LIFECYCLE_HELD_EXPLANATION } from "@/lib/attack-paths/lifecycle-coverage"
+import { LIFECYCLE_HELD_EXPLANATION, LIFECYCLE_TOTALS_WITHHELD } from "@/lib/attack-paths/lifecycle-coverage"
 import { derivePathsIntegrity, isCacheablePaths } from "@/lib/paths-integrity"
 import type { UseCachedFetchResult } from "@/lib/use-cached-fetch"
 
@@ -178,6 +178,51 @@ describe("AttackPathsCard: lifecycle-held paths are explained, never totalled", 
       expect(note).toHaveTextContent(`${label}: its lifecycle coverage could not be verified`)
     }
     expect(note.textContent).not.toMatch(/function|\[object|native code/)
+  })
+
+  // AP187-F1: the aggregate totals are a total only when the lifecycle evidence is complete.
+  const totals = () => screen.getByTestId("paths-totals")
+  const WITHHELD_TEXT = "— jewels · — paths · — internet-exposed"
+
+  it.each(["lifecycle_held_systems", "lifecycle_unverified_systems"])(
+    "AP187-F1 CONSTRUCTED: READY + numeric totals with %s: null withholds the totals and names why, no count invented",
+    (field) => {
+      renderCard({ ...allResolved, [field]: null })                    // the body still carries 1 / 2 / 0
+      expect(totals()).toHaveTextContent(WITHHELD_TEXT)
+      expect(totals()).toHaveAttribute("title", LIFECYCLE_TOTALS_WITHHELD)
+      expect(totals()).toHaveAttribute("data-totals-withheld", "lifecycle")
+      expect(totals().textContent).not.toMatch(/\d/)
+      expect(screen.getByTestId("paths-lifecycle-coverage").textContent).not.toMatch(/\d+ paths? held/)
+    },
+  )
+
+  it("AP187-F1 CONSTRUCTED: held / unverified answers that DO carry numeric totals still withhold them", () => {
+    for (const body of [allHeld, allMissing]) {
+      renderCard({ ...body, total_jewels: 1, total_paths: 2, exposed_jewels: 0 })
+      expect(totals()).toHaveTextContent(WITHHELD_TEXT)
+      expect(totals()).toHaveAttribute("title", LIFECYCLE_TOTALS_WITHHELD)
+      cleanup()
+    }
+    // the empty-list (not-an-all-clear) branch shares the same totals
+    renderCard({ ...allMissing, crown_jewels: [], total_jewels: 0, total_paths: 0, exposed_jewels: 0 })
+    expect(totals()).toHaveTextContent(WITHHELD_TEXT)
+  })
+
+  it("AP187-F1 controls: resolved and legacy-partial totals are shown exactly as before, with no withheld marker", () => {
+    renderCard(allResolved)
+    expect(totals()).toHaveTextContent("1 jewels · 2 paths · 0 internet-exposed")
+    expect(totals()).not.toHaveAttribute("title")
+    expect(totals()).not.toHaveAttribute("data-totals-withheld")
+    cleanup()
+    // CONSTRUCTED legacy partial carrying numbers and no lifecycle field: the established card shows them
+    renderCard({
+      serve_state: "PARTIAL", analysis_complete: false, crown_jewels_partial: true, systems_discovered: 3,
+      systems_scanned: 2, systems_uncomputed: 1, uncomputed: ["Billing: computing"], errors: [],
+      total_jewels: 4, total_paths: 9, exposed_jewels: 1,
+      crown_jewels: [{ id: "arn:aws:s3:::x", name: "x", type: "S3Bucket", severity: "HIGH", path_count: 2, system_name: "Orders" }],
+    })
+    expect(totals()).toHaveTextContent("4 jewels · 9 paths · 1 internet-exposed")
+    expect(totals()).not.toHaveAttribute("data-totals-withheld")
   })
 
   it("a cached reading keeps its stale marker beside the lifecycle note", () => {

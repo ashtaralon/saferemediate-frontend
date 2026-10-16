@@ -60,6 +60,7 @@ import {
   LIFECYCLE_HELD_EXPLANATION,
   NO_TARGET_COVERAGE_CAUSE,
   heldPathsPhrase,
+  targetIncompleteCoverageNote,
   targetZeroCoverageSubtitle,
 } from "@/lib/attack-paths/lifecycle-coverage"
 import { ConvergenceMapLoader } from "./convergence-map-loader"
@@ -551,6 +552,11 @@ export function AttackPathsV2({
       ) ?? null,
     [jewels, selectedJewelId],
   )
+  // AP187: when the selected target's coverage is not complete, the header's count is its listed paths only and says
+  // so, with the row's own note (held, withheld, unreadable, coverage incomplete) beside it.
+  const selectedCoverageNote = selectedJewel
+    ? targetIncompleteCoverageNote(selectedJewel.target_state, selectedJewel.coverage_cause ?? NO_TARGET_COVERAGE_CAUSE)
+    : null
   const selectedJewelHasPaths = Number(selectedJewel?.path_count ?? 0) > 0
   const selectedJewelZeroState = selectedJewel?.target_state
   const currentAccessZero =
@@ -1335,6 +1341,7 @@ export function AttackPathsV2({
               onChange={handleSetMode}
               jewelName={jewels.find((j) => j.id === selectedJewelId)?.name ?? null}
               pathCount={jewelPaths.length}
+              coverageNote={selectedCoverageNote}
               isExpanded={isPathExpanded}
               onToggleExpand={handleToggleExpand}
               showBeta={showBeta}
@@ -1377,6 +1384,7 @@ export function AttackPathsV2({
               onChange={handleSetMode}
               jewelName={jewels.find((j) => j.id === selectedJewelId)?.name ?? null}
               pathCount={jewelPaths.length}
+              coverageNote={selectedCoverageNote}
               isExpanded={isPathExpanded}
               onToggleExpand={handleToggleExpand}
               showBeta={showBeta}
@@ -1633,6 +1641,7 @@ function ModeToggle({
   onChange,
   jewelName,
   pathCount,
+  coverageNote = null,
   isExpanded,
   onToggleExpand,
   showBeta = false,
@@ -1641,6 +1650,8 @@ function ModeToggle({
   onChange: (next: AttackPathsMode) => void
   jewelName: string | null
   pathCount: number
+  /** AP187: the selected target's coverage is not complete; `pathCount` is its listed paths only. */
+  coverageNote?: string | null
   isExpanded: boolean
   onToggleExpand: () => void
   /** Gate for beta engineering canvases (?beta=1). */
@@ -1684,13 +1695,28 @@ function ModeToggle({
          path count is suppressed in topology mode because the canvas
          displays its own count from /by-crown-jewel (different endpoint,
          different number). Showing both invites confusion. */}
-      <div className="text-[10px] text-muted-foreground min-w-0 truncate hidden md:block max-w-[220px] shrink">
-        {jewelName
-          ? mode === "topology"
-            ? jewelName
-            : `${jewelName} · ${pathCount} path${pathCount === 1 ? "" : "s"}`
-          : null}
-      </div>
+      {/* AP187: when the selected target's coverage is not complete, the count is said to be listed paths and the
+          target's note follows on its own line. That line takes the count line's width and never widens the block
+          (w-0 min-w-full): the tab strip beside it is already clipped at desktop widths and must not lose more. The
+          full note is in its title. */}
+      {jewelName && mode !== "topology" && coverageNote ? (
+        <div className="text-[10px] min-w-0 hidden md:block max-w-[220px] shrink" data-testid="mode-bar-target-count">
+          <div className="truncate text-muted-foreground" title={`${jewelName} · ${pathCount} listed path${pathCount === 1 ? "" : "s"}`}>
+            {`${jewelName} · ${pathCount} listed path${pathCount === 1 ? "" : "s"}`}
+          </div>
+          <div className="w-0 min-w-full truncate text-amber-700 dark:text-amber-400" title={coverageNote} data-testid="mode-bar-coverage-note">
+            {coverageNote}
+          </div>
+        </div>
+      ) : (
+        <div className="text-[10px] text-muted-foreground min-w-0 truncate hidden md:block max-w-[220px] shrink" data-testid="mode-bar-target-count">
+          {jewelName
+            ? mode === "topology"
+              ? jewelName
+              : `${jewelName} · ${pathCount} path${pathCount === 1 ? "" : "s"}`
+            : null}
+        </div>
+      )}
       <button
         onClick={onToggleExpand}
         title={isExpanded ? "Collapse — restore jewels + paths columns" : "Expand canvas — hide jewels + paths columns"}

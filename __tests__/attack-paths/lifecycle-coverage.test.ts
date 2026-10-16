@@ -16,6 +16,7 @@ import {
   LIFECYCLE_HELD_REASON,
   deriveAllLifecycleCoverage,
   displayedTargetState,
+  displayedTargetStateCounts,
   heldCountOrNull,
   heldPathsPhrase,
   targetCoverageCause,
@@ -24,6 +25,7 @@ import {
   targetEvidenceUnreadable,
   targetHasHeldPaths,
   targetHeldCount,
+  targetIncompleteCoverageNote,
   targetZeroCoverageSubtitle,
   unverifiedReasonText,
 } from "@/lib/attack-paths/lifecycle-coverage"
@@ -115,6 +117,53 @@ describe("targetCoverageCause over the captured catalog section", () => {
       ["   ", undefined], ["", undefined], [7, undefined], [[], 2],
     ] as Array<[unknown, unknown]>) {
       expect(targetCoverageCause(reason, count), JSON.stringify([reason, count])).toEqual({ kind: "unreadable" })
+    }
+  })
+})
+
+describe("AP187: counts and header notes agree with the rows' shown states", () => {
+  type State = "observed" | "no_modeled_route" | "coverage_incomplete" | "projection_not_ready"
+  const NONE = { kind: "none" } as const
+  const UNREADABLE = { kind: "unreadable" } as const
+
+  it("moves exactly the rows a recorded cause re-shows, and leaves the served counts untouched", () => {
+    const served: Partial<Record<State, number>> = { observed: 2, no_modeled_route: 2, coverage_incomplete: 6 }
+    const rows: Array<{ state: State | undefined; cause: Parameters<typeof displayedTargetState>[1] }> = [
+      { state: "no_modeled_route", cause: UNREADABLE },                              // shown as coverage incomplete
+      { state: "no_modeled_route", cause: NONE },                                    // legacy: stays no route
+      { state: "observed", cause: { kind: "lifecycle", held: 2 } },                  // a mixed row: no state change
+      { state: "coverage_incomplete", cause: { kind: "withheld", code: "c", held: "none" } },
+      { state: undefined, cause: UNREADABLE },                                       // a legacy /jewels row: no state
+    ]
+    expect(displayedTargetStateCounts(served, rows)).toEqual({ observed: 2, no_modeled_route: 1, coverage_incomplete: 7 })
+    expect(served).toEqual({ observed: 2, no_modeled_route: 2, coverage_incomplete: 6 })
+  })
+
+  it("nothing to move: the served counts as they are (the captured catalog, and a legacy no-route row)", () => {
+    const served = { observed: 2, coverage_incomplete: 8 }
+    expect(displayedTargetStateCounts(served, [{ state: "observed", cause: { kind: "lifecycle", held: 2 } }])).toEqual(served)
+    expect(displayedTargetStateCounts({ no_modeled_route: 1 }, [{ state: "no_modeled_route", cause: NONE }]))
+      .toEqual({ no_modeled_route: 1 })
+  })
+
+  it("CONSTRUCTED: served counts that cannot account for a re-shown row are not shown (null), never negative", () => {
+    const row = { state: "no_modeled_route" as State, cause: UNREADABLE }
+    for (const served of [{}, { no_modeled_route: 0 }, { no_modeled_route: "1" as never }, { no_modeled_route: 0.5 }]) {
+      expect(displayedTargetStateCounts(served as Partial<Record<State, number>>, [row]), JSON.stringify(served)).toBeNull()
+    }
+    expect(displayedTargetStateCounts({ no_modeled_route: 1 }, [row, row])).toBeNull()
+  })
+
+  it("the header note: the row's own note, 'coverage incomplete' for a served incomplete target, else nothing", () => {
+    expect(targetIncompleteCoverageNote("observed", { kind: "lifecycle", held: 2 })).toBe("+2 held, not counted")
+    expect(targetIncompleteCoverageNote("coverage_incomplete", { kind: "lifecycle", held: 1 })).toBe("+1 held, not counted")
+    expect(targetIncompleteCoverageNote("observed", { kind: "withheld", code: "c", held: "none" })).toBe("coverage withheld")
+    expect(targetIncompleteCoverageNote("no_modeled_route", UNREADABLE)).toBe("coverage evidence unreadable")
+    expect(targetIncompleteCoverageNote("coverage_incomplete", NONE)).toBe("coverage incomplete")
+    // nothing recorded on a resolved, legacy no-route or legacy /jewels row: no note, the established header
+    // (projection_not_ready is not asserted here: its header is outside AP187-F3 and is reported as a residual)
+    for (const state of ["observed", "no_modeled_route", "configured_only", undefined]) {
+      expect(targetIncompleteCoverageNote(state, NONE), String(state)).toBeNull()
     }
   })
 })

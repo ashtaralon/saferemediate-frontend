@@ -38,6 +38,10 @@ export const LIFECYCLE_HELD_EXPLANATION =
   "Held paths start from a source whose current state could not be established from the inventory snapshot this " +
   "analysis used, so they are not listed and not counted in any total."
 
+/** (AP187) Why an answer's aggregate totals are not shown while its lifecycle evidence is incomplete or unreadable. */
+export const LIFECYCLE_TOTALS_WITHHELD =
+  "Not shown: this answer's lifecycle coverage is incomplete or could not be read, so no complete total is known."
+
 // ── per target (the target catalog) ─────────────────────────────────────────────────────────────────────────────
 
 /** A target's held paths as served: a well-formed count, or held with the count not reported. */
@@ -99,6 +103,34 @@ export function targetEvidenceUnreadable(cause: TargetCoverageCause): boolean {
  *  and the path list also show. Any other state, or no recorded cause, is shown as served. The raw state is unchanged. */
 export function displayedTargetState<S extends string>(state: S, cause: TargetCoverageCause): S | "coverage_incomplete" {
   return state === "no_modeled_route" && cause.kind !== "none" ? "coverage_incomplete" : state
+}
+
+/** (AP187) The per-state target counts as the rail SHOWS them: the served counts, with every listed target whose shown
+ *  state (displayedTargetState) differs from its served state moved to the shown one, so a summary agrees with the
+ *  rows. The served counts are not modified. Null when they cannot account for a moved target (a state would go below
+ *  zero, or its count is not a number): served counts and rows then disagree, and no count is shown. */
+export function displayedTargetStateCounts(
+  served: Readonly<Partial<Record<string, number>>>,
+  rows: ReadonlyArray<{ state: string | undefined; cause: TargetCoverageCause }>,
+): Partial<Record<string, number>> | null {
+  const shown: Partial<Record<string, number>> = { ...served }
+  for (const { state, cause } of rows) {
+    if (state === undefined) continue
+    const to = displayedTargetState(state, cause)
+    if (to === state) continue
+    const from = shown[state]
+    if (typeof from !== "number" || !(from >= 1)) return null
+    shown[state] = from - 1
+    shown[to] = (shown[to] ?? 0) + 1
+  }
+  return shown
+}
+
+/** (AP187) What a selected target's path count needs beside it when that count is not the whole count: the row's own
+ *  note when a cause is recorded (held, withheld, unreadable), else "coverage incomplete" for a target served as
+ *  coverage incomplete. Null otherwise: nothing served says the count is partial. */
+export function targetIncompleteCoverageNote(state: string | undefined, cause: TargetCoverageCause): string | null {
+  return targetCoverageNote(cause) ?? (state === "coverage_incomplete" ? "coverage incomplete" : null)
 }
 
 /** The well-formed held count of a cause, or null (none held, count not reported, or unreadable). */
