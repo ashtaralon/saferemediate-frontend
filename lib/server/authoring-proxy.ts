@@ -3,11 +3,11 @@ import { accountAdminIdentityHeaders, accountAdminWriteFromOwnOrigin } from "@/l
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 /**
- * The System Boundary authoring proxy (Phase 2 F1): a NAMED proxy for exactly twenty-two backend routes, never a relay --
+ * The System Boundary authoring proxy (Phase 2 F1): a NAMED proxy for exactly twenty-three backend routes, never a relay --
  * F1's seven, (A7 rev 4) the wizard's capability read, the declarations' applied status and one system's result, (onboarding
  * G2) the eight routes of the resumable System setup (create, list, read, status, update, finish, cancel, amend), (S1a)
  * the read-only draft preview of one setup, and (S2 intake I2b) a Terraform workspace binding's create (a browser-REDUCED
- * state, contract S2-INTAKE-CONTRACT-2026-10-16), read and revoke.
+ * state, contract S2-INTAKE-CONTRACT-2026-10-16), read and revoke, and (S2 lifecycle) the list of the bindings a person can see.
  *
  * The backend verifies the person on these routes by the console transport (api/system_boundary.py::_console_person,
  * backend a3c945b0): the IdP access token alone, against the keys installed on the issuer's trust block, else its
@@ -51,7 +51,7 @@ function idPath(collection: string, suffix: string, tails: readonly string[]): b
 /** (Onboarding G2) ``setup/<uuid>`` exactly, optionally followed by one of ``tails``: nothing else under setup/. */
 const setupPath = (suffix: string, tails: readonly string[]): boolean => idPath("setup", suffix, tails)
 
-/** The twenty-two routes, by exact method and path below /api/system-boundary/, with the query each may carry. */
+/** The twenty-three routes, by exact method and path below /api/system-boundary/, with the query each may carry. */
 const ROUTES: readonly Route[] = [
   { method: "GET", matches: (s) => s === "declarations/view", query: [] },
   { method: "GET", matches: (s) => s === "declarations/head", query: [] },
@@ -84,6 +84,8 @@ const ROUTES: readonly Route[] = [
   { method: "POST", matches: (s) => s === "terraform-bindings", query: [] },
   { method: "GET", matches: (s) => idPath("terraform-bindings", s, [""]), query: [] },
   { method: "POST", matches: (s) => idPath("terraform-bindings", s, ["/revoke"]), query: [] },
+  // S2 lifecycle: the bindings this person may see, bounded (``terraform-bindings/list``, as ``setup/list``).
+  { method: "GET", matches: (s) => s === "terraform-bindings/list", query: ["account_id", "cursor"] },
 ]
 
 function refused(status: number, detail: Record<string, unknown>): NextResponse {

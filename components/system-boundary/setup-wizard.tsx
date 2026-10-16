@@ -34,6 +34,7 @@ import { FinishResult } from "@/components/system-boundary/finish-result"
 import { assess, assessmentWithheldSentence } from "@/lib/system-boundary-assessment"
 import { stackResources, type Resources } from "@/components/system-boundary/stack-binding-wizard"
 import { Button } from "@/components/ui/button"
+import { TerraformBindingsPanel } from "@/components/system-boundary/terraform-bindings-panel"
 import { TerraformStateUpload } from "@/components/system-boundary/terraform-state-upload"
 import { fetchCensusPage, rowName, type CensusFetcher, type CensusRow } from "@/lib/account-census"
 import type { DeclarationsView, ResourceDecision, StackBinding } from "@/lib/system-boundary-authoring"
@@ -957,19 +958,33 @@ function TerraformRow({ bindingId, accountId, editable, onBound }: {
   onBound: (bindingId: string) => void
 }) {
   const [replacing, setReplacing] = useState(false)
+  const [listing, setListing] = useState(false)
+  // (S2 lifecycle) every state this person uploaded for the account, to read or revoke -- an aborted upload may be stored
+  const states = (
+    <>
+      <Button type="button" size="sm" variant="ghost" onClick={() => setListing((v) => !v)}>
+        {listing ? "Hide your uploaded Terraform states" : "Your uploaded Terraform states"}
+      </Button>
+      {listing ? <TerraformBindingsPanel accountId={accountId} editable={editable} /> : null}
+    </>
+  )
   if (bindingId && !replacing) {
     return (
       <div className="mt-1 text-xs" data-testid="setup-terraform-bound">
         <p>Uses the uploaded Terraform state binding {bindingId}.</p>
         {editable ? <Button type="button" size="sm" variant="outline" onClick={() => setReplacing(true)}>Upload a different state</Button> : null}
+        {states}
       </div>
     )
   }
   return (
-    <TerraformStateUpload accountId={accountId} editable={editable} onBound={(created) => {
-      setReplacing(false)
-      onBound(created.binding_id)
-    }} />
+    <>
+      <TerraformStateUpload accountId={accountId} editable={editable} onBound={(created) => {
+        setReplacing(false)
+        onBound(created.binding_id)
+      }} />
+      {states}
+    </>
   )
 }
 

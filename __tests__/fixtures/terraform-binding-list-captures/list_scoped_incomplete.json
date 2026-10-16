@@ -1,0 +1,19 @@
+{
+  "_provenance": {
+    "harness": "tests/test_system_boundary_terraform_captures.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/system-boundary/terraform-bindings/list",
+      "body": null
+    }
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "content_type": "application/json",
+  "body": {
+    "bindings": [],
+    "complete": false,
+    "next_cursor": null,
+    "contract": "terraform_workspace_binding_list/v1"
+  }
+}

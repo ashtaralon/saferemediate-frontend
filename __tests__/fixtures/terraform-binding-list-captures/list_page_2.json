@@ -1,0 +1,31 @@
+{
+  "_provenance": {
+    "harness": "tests/test_system_boundary_terraform_captures.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/system-boundary/terraform-bindings/list",
+      "body": null
+    }
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "content_type": "application/json",
+  "body": {
+    "bindings": [
+      {
+        "binding_id": "7fb10000-0000-4000-8000-000000000003",
+        "revision": 1,
+        "status": "ACTIVE",
+        "account_id": "178254216844",
+        "workspace_identity": "s3://platform-tfstate/platform.tfstate#default",
+        "created_by": "https://acme.okta.test/oauth2/default#00u-alice",
+        "created_at": "2026-10-16T06:00:00.000000+00:00",
+        "instances": 3,
+        "reference_in_your_setups": "none_found"
+      }
+    ],
+    "complete": false,
+    "next_cursor": "eyJhY2NvdW50X2lkIjpudWxsLCJhZnRlciI6IjdmYjEwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMyIsInRlbmFudCI6ImN1c3QtYWNtZSIsInYiOjF9",
+    "contract": "terraform_workspace_binding_list/v1"
+  }
+}

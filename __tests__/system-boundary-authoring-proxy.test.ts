@@ -201,6 +201,26 @@ describe("authoring proxy -- (S2 intake I2b) the three Terraform binding routes,
     expect(upstream).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ["terraform-bindings/list", "terraform-bindings/list"],
+    // the proxy rebuilds the query in its own order (forwardedQuery): cursor, then account_id
+    ["terraform-bindings/list?account_id=111111111111&cursor=abc", "terraform-bindings/list?cursor=abc&account_id=111111111111"],
+  ])("(S2 lifecycle) GET %s reaches exactly the list route", async (path, target) => {
+    resident()
+    const upstream = backendAnswers()
+    expect((await send("GET", path)).status).toBe(200)
+    expect(upstreamCall(upstream).url).toBe(`${UPSTREAM}/${target}`)
+  })
+
+  it.each(["terraform-bindings/list?limit=5", "terraform-bindings/list?account_id=12", "terraform-bindings/list?cursor="])(
+    "(S2 lifecycle) refuses a list query it does not take (%s) and forwards nothing", async (path) => {
+      resident()
+      const upstream = vi.spyOn(globalThis, "fetch")
+      const response = await send("GET", path)
+      expect([response.status, await response.json()]).toEqual([400, { detail: { code: "AUTHORING_QUERY_INVALID" } }])
+      expect(upstream).not.toHaveBeenCalled()
+    })
+
   it.each([`terraform-bindings/${RID}?account_id=111111111111`, `terraform-bindings/${RID}?cursor=x`])(
     "refuses a query on a binding route (%s) and forwards nothing", async (path) => {
       resident()

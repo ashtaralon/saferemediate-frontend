@@ -1,0 +1,18 @@
+{
+  "_provenance": {
+    "harness": "tests/test_system_boundary_terraform_captures.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/system-boundary/terraform-bindings/list",
+      "body": null
+    }
+  },
+  "status": 400,
+  "cache_control": null,
+  "content_type": "application/json",
+  "body": {
+    "detail": {
+      "code": "CURSOR_INVALID"
+    }
+  }
+}

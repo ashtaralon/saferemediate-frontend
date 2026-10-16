@@ -207,7 +207,8 @@ export function TerraformStateUpload({ accountId, editable, onBound, create = cr
             <>
               <p role="alert" className="text-amber-800">
                 Whether the upload was stored is not known ({phase.code}). Sending the same upload again is safe: it can only ever
-                be stored once.
+                be stored once. If you start over instead, an earlier upload may already be stored: &quot;Your uploaded Terraform
+                states&quot; lists it, to revoke.
               </p>
               <Button type="button" size="sm" disabled={!editable} onClick={() => void send(phase.reduction, { body: phase.body, label: phase.label })}>
                 Send the same upload again

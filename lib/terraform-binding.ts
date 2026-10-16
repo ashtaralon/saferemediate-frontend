@@ -199,13 +199,13 @@ async function call(path: string, init: RequestInit): Promise<Raw> {
   }
 }
 
-function answer<T>(raw: Raw, ok: readonly number[], parse: (json: J) => T | null): BindingAnswer<T> {
+function answer<T>(raw: Raw, ok: readonly number[], parse: (json: J) => T | null, contract: string = BINDING_CONTRACT): BindingAnswer<T> {
   if (raw.kind === "session") return { kind: "SIGN_IN_AGAIN", status: raw.status }
   if (raw.kind === "none") return { kind: "UNKNOWN", status: raw.status, code: raw.code }
   const { status, json } = raw
   if (status === 401) return { kind: "SIGN_IN_AGAIN", status }
   if (ok.includes(status)) {
-    if (!isRecord(json) || json.contract !== BINDING_CONTRACT) return { kind: "UNKNOWN", status, code: "CONTRACT_UNKNOWN" }
+    if (!isRecord(json) || json.contract !== contract) return { kind: "UNKNOWN", status, code: "CONTRACT_UNKNOWN" }
     const value = parse(json)
     return value === null ? { kind: "UNKNOWN", status, code: "MALFORMED_RESPONSE" } : { kind: "OK", status, value }
   }
@@ -234,4 +234,69 @@ export async function revokeTerraformBinding(bindingId: string, requestId: strin
   const body = JSON.stringify({ request_id: requestId, base_revision: baseRevision })
   return answer(await call(bindingPath(bindingId, "/revoke"), { method: "POST", headers: JSON_HEADERS, body }), [200],
                 revokedFor(bindingId, baseRevision))
+}
+
+
+// ── (S2 lifecycle) the bindings a person can see: GET terraform-bindings/list ──────────────────────────────────────────────
+
+export const LIST_CONTRACT = "terraform_workspace_binding_list/v1"
+/** The backend's LIST_PAGE: a page never shows more rows. */
+export const LIST_PAGE = 50
+/** Whether a setup the person can see names the binding -- "none_found" is never "unused" (another person's setup may name
+ *  it); null: that coverage was past its bound. */
+export type ReferenceInYourSetups = "found" | "none_found" | null
+export type BindingListRow = {
+  bindingId: string
+  revision: number
+  status: "ACTIVE" | "REVOKED"
+  accountId: string
+  workspaceIdentity: string
+  createdBy: string
+  createdAt: string
+  revokedAt: string | null
+  instances: number
+  referenceInYourSetups: ReferenceInYourSetups
+}
+/** One page. ``complete``: the read reached the end. Not complete with no cursor: the read bound was reached before the next
+ *  visible binding -- the list is NOT known to end here. */
+export type BindingList = { rows: BindingListRow[]; complete: boolean; nextCursor: string | null }
+
+const LIST_ROW = ["binding_id", "revision", "status", "account_id", "workspace_identity", "created_by", "created_at", "instances",
+                  "reference_in_your_setups"]
+
+const listFor = (accountId: string | null) => (json: J): BindingList | null => {
+  if (!exactly(json, ["bindings", "complete", "next_cursor", "contract"]) || !Array.isArray(json.bindings)
+      || typeof json.complete !== "boolean" || !(json.next_cursor === null || (text(json.next_cursor) && json.next_cursor.length <= 1024))
+      || json.bindings.length > LIST_PAGE) return null
+  // a complete list has no next page; an incomplete one MAY have none (the read bound), and a cursor follows a shown row
+  if (json.complete && json.next_cursor !== null) return null
+  if (json.next_cursor !== null && json.bindings.length === 0) return null
+  const rows: BindingListRow[] = []
+  for (const r of json.bindings) {
+    if (!isRecord(r) || !exactly(r, r.status === "REVOKED" ? [...LIST_ROW, "revoked_at"] : LIST_ROW)) return null
+    if (typeof r.binding_id !== "string" || !UUID.test(r.binding_id) || !revision(r.revision)) return null
+    if ((r.status !== "ACTIVE" && r.status !== "REVOKED") || typeof r.account_id !== "string" || !ACCOUNT.test(r.account_id)) return null
+    if (accountId !== null && r.account_id !== accountId) return null                   // the filter asked for, exactly
+    if (!text(r.workspace_identity) || r.workspace_identity.length > MAX_WORKSPACE_IDENTITY || !printable(r.workspace_identity)) return null
+    if (!actor(r.created_by) || !stamp(r.created_at) || !count(r.instances)) return null
+    if (r.status === "REVOKED" && !stamp(r.revoked_at)) return null
+    const ref = r.reference_in_your_setups
+    if (!(ref === null || ref === "found" || ref === "none_found")) return null
+    rows.push({ bindingId: r.binding_id, revision: r.revision, status: r.status, accountId: r.account_id,
+                workspaceIdentity: r.workspace_identity, createdBy: r.created_by, createdAt: r.created_at,
+                revokedAt: r.status === "REVOKED" ? (r.revoked_at as string) : null, instances: r.instances,
+                referenceInYourSetups: ref })
+  }
+  if (new Set(rows.map((r) => r.bindingId)).size !== rows.length) return null
+  return { rows, complete: json.complete, nextCursor: json.next_cursor as string | null }
+}
+
+/** One page of the bindings this person may see (of ``accountId`` when given), from ``cursor`` (a previous page's). */
+export async function listTerraformBindings(accountId: string | null, cursor: string | null = null): Promise<BindingAnswer<BindingList>> {
+  const query = new URLSearchParams()
+  if (accountId !== null) query.set("account_id", accountId)
+  if (cursor !== null) query.set("cursor", cursor)
+  const suffix = query.toString() ? `?${query.toString()}` : ""
+  return answer(await call(`terraform-bindings/list${suffix}`, { method: "GET", headers: { Accept: "application/json" } }), [200],
+                listFor(accountId), LIST_CONTRACT)
 }
