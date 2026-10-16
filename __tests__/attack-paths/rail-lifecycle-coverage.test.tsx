@@ -196,4 +196,33 @@ describe("the rail names each target's own lifecycle / withheld cause", () => {
     expect(screen.queryByTestId("target-zero-states")).toBeNull()
     expect(screen.queryAllByText(/no modeled route/).filter((el) => !el.hasAttribute("data-target-state"))).toEqual([])
   })
+
+  // AP188: the counts arrive from the catalog response unvalidated; malformed present evidence is never coerced.
+  const UNREADABLE_DB_US_ONLY = SECTION.targets.map((t) =>
+    t.name === "db-us-only" ? { ...t, state: "no_modeled_route" as const, held_path_count: "bad" as never } : t)
+  const withCounts = (counts: unknown): TargetCatalog =>
+    ({ ...SECTION, targets: UNREADABLE_DB_US_ONLY, counts } as unknown as TargetCatalog)
+
+  it.each([
+    ["a string destination", { no_modeled_route: 1, coverage_incomplete: "7", observed: 2 }],
+    ["a negative destination", { no_modeled_route: 1, coverage_incomplete: -2, observed: 2 }],
+    ["a fractional source", { no_modeled_route: 1.5, coverage_incomplete: 7, observed: 2 }],
+    ["an explicit null destination", { no_modeled_route: 1, coverage_incomplete: null, observed: 2 }],
+    ["a malformed untouched bucket", { no_modeled_route: 1, coverage_incomplete: 7, observed: "2" }],
+    ["a non-object counts body", [1, 7]],
+  ])("AP188 CONSTRUCTED %s: no summary line at all, so no coerced count", (_label, counts) => {
+    renderRail(withCounts(counts))
+    expect(screen.queryByTestId("target-zero-states")).toBeNull()
+    // the rows themselves still say what they are
+    expect(within(row("db-us-only")).getByText("coverage incomplete")).toHaveAttribute("data-displayed-state", "coverage_incomplete")
+  })
+
+  it("AP188 controls: the same rows over VALID counts, and over counts with an ABSENT bucket", () => {
+    renderRail(withCounts({ no_modeled_route: 1, coverage_incomplete: 7, observed: 2 }))
+    expect(screen.getByTestId("target-zero-states")).toHaveTextContent(/^8 coverage incomplete$/)
+    cleanup()
+    // coverage_incomplete absent: the documented "no target", so the moved row is its only one
+    renderRail(withCounts({ no_modeled_route: 1, observed: 2 }))
+    expect(screen.getByTestId("target-zero-states")).toHaveTextContent(/^1 coverage incomplete$/)
+  })
 })

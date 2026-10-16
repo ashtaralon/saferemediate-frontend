@@ -63,6 +63,12 @@ import {
   targetIncompleteCoverageNote,
   targetZeroCoverageSubtitle,
 } from "@/lib/attack-paths/lifecycle-coverage"
+import {
+  readConvergencePaths,
+  selectedPathCount,
+  selectedPathCountLines,
+  type SelectedPathCount,
+} from "@/lib/attack-paths/convergence-readiness"
 import { ConvergenceMapLoader } from "./convergence-map-loader"
 import { CrownJewelUnionViewLink } from "./crown-jewel-union-view-link"
 import { JewelExposurePanel } from "./jewel-exposure-panel"
@@ -661,6 +667,24 @@ export function AttackPathsV2({
     !pathsHardError &&
     jewelRail.source === "none" &&
     (jewelSummaryLoading || jewelSummaryRetrying || Boolean(jewelSummaryError))
+
+  // AP188: the header's count for the selected target, from the rail's own read state. A pending, failed, held or
+  // not-ready read is never a zero, and the catalog's count is said as the catalog's, never as loaded detail.
+  const selectedCount: SelectedPathCount | null = selectedJewel
+    ? selectedPathCount({
+        jewel: selectedJewel,
+        coverageNote: selectedCoverageNote,
+        railSource: jewelRail.source,
+        listedCount: jewelPaths.length,
+        serve: jewelSummaryConvergence,
+        loading: pathsPending || pathsWarming,
+        failed: pathsHardError,
+        error: jewelSummaryError,
+      })
+    : null
+  // AP189: a NOT_READY serve answer makes the path list's empty state "not ready", never "no attack paths today".
+  const selectedAnswerNotReady =
+    jewelRail.source === "serve" && readConvergencePaths(jewelSummaryConvergence).kind === "not_ready"
 
   // ─── Exfil-paths fetch (parent-owned) ────────────────────────────
   // Single source of truth for both the center-column rail
@@ -1314,6 +1338,7 @@ export function AttackPathsV2({
             jewel={jewels.find((j) => j.id === selectedJewelId) ?? null}
             selectedPathId={selectedPathId}
             onSelectPath={handleSelectPath}
+            answerNotReady={selectedAnswerNotReady}
           />
         )}
           </>
@@ -1340,8 +1365,7 @@ export function AttackPathsV2({
               mode={viewMode}
               onChange={handleSetMode}
               jewelName={jewels.find((j) => j.id === selectedJewelId)?.name ?? null}
-              pathCount={jewelPaths.length}
-              coverageNote={selectedCoverageNote}
+              count={selectedCount}
               isExpanded={isPathExpanded}
               onToggleExpand={handleToggleExpand}
               showBeta={showBeta}
@@ -1367,7 +1391,6 @@ export function AttackPathsV2({
               mode={viewMode}
               onChange={handleSetMode}
               jewelName={null}
-              pathCount={0}
               isExpanded={isPathExpanded}
               onToggleExpand={handleToggleExpand}
               showBeta={showBeta}
@@ -1383,8 +1406,7 @@ export function AttackPathsV2({
               mode={viewMode}
               onChange={handleSetMode}
               jewelName={jewels.find((j) => j.id === selectedJewelId)?.name ?? null}
-              pathCount={jewelPaths.length}
-              coverageNote={selectedCoverageNote}
+              count={selectedCount}
               isExpanded={isPathExpanded}
               onToggleExpand={handleToggleExpand}
               showBeta={showBeta}
@@ -1640,8 +1662,7 @@ function ModeToggle({
   mode,
   onChange,
   jewelName,
-  pathCount,
-  coverageNote = null,
+  count = null,
   isExpanded,
   onToggleExpand,
   showBeta = false,
@@ -1649,9 +1670,8 @@ function ModeToggle({
   mode: AttackPathsMode
   onChange: (next: AttackPathsMode) => void
   jewelName: string | null
-  pathCount: number
-  /** AP187: the selected target's coverage is not complete; `pathCount` is its listed paths only. */
-  coverageNote?: string | null
+  /** AP187/AP188: the selected target's path count as the page's read state supports it (convergence-readiness). */
+  count?: SelectedPathCount | null
   isExpanded: boolean
   onToggleExpand: () => void
   /** Gate for beta engineering canvases (?beta=1). */
@@ -1695,28 +1715,34 @@ function ModeToggle({
          path count is suppressed in topology mode because the canvas
          displays its own count from /by-crown-jewel (different endpoint,
          different number). Showing both invites confusion. */}
-      {/* AP187: when the selected target's coverage is not complete, the count is said to be listed paths and the
-          target's note follows on its own line. That line takes the count line's width and never widens the block
-          (w-0 min-w-full): the tab strip beside it is already clipped at desktop widths and must not lose more. The
-          full note is in its title. */}
-      {jewelName && mode !== "topology" && coverageNote ? (
-        <div className="text-[10px] min-w-0 hidden md:block max-w-[220px] shrink" data-testid="mode-bar-target-count">
-          <div className="truncate text-muted-foreground" title={`${jewelName} · ${pathCount} listed path${pathCount === 1 ? "" : "s"}`}>
-            {`${jewelName} · ${pathCount} listed path${pathCount === 1 ? "" : "s"}`}
+      {/* AP187/AP188: the selected target's count in the words its read state supports (convergence-readiness): a
+          whole count keeps "<name> · N paths", a partial one says "listed", and loading / unavailable / not ready say
+          so, never a zero. A note line takes the first line's width and never widens the block (w-0 min-w-full): the
+          tab strip beside it is already clipped at desktop widths and must not lose more. Full text in the titles. */}
+      {(() => {
+        const lines = jewelName && mode !== "topology" && count ? selectedPathCountLines(jewelName, count) : null
+        if (lines?.secondary) {
+          return (
+            <div className="text-[10px] min-w-0 hidden md:block max-w-[220px] shrink" data-testid="mode-bar-target-count">
+              <div className="truncate text-muted-foreground" title={lines.title ? `${lines.primary} — ${lines.title}` : lines.primary}>
+                {lines.primary}
+              </div>
+              <div className="w-0 min-w-full truncate text-amber-700 dark:text-amber-400" title={lines.secondary} data-testid="mode-bar-coverage-note">
+                {lines.secondary}
+              </div>
+            </div>
+          )
+        }
+        return (
+          <div
+            className="text-[10px] text-muted-foreground min-w-0 truncate hidden md:block max-w-[220px] shrink"
+            data-testid="mode-bar-target-count"
+            title={lines?.title ?? undefined}
+          >
+            {jewelName ? (lines ? lines.primary : jewelName) : null}
           </div>
-          <div className="w-0 min-w-full truncate text-amber-700 dark:text-amber-400" title={coverageNote} data-testid="mode-bar-coverage-note">
-            {coverageNote}
-          </div>
-        </div>
-      ) : (
-        <div className="text-[10px] text-muted-foreground min-w-0 truncate hidden md:block max-w-[220px] shrink" data-testid="mode-bar-target-count">
-          {jewelName
-            ? mode === "topology"
-              ? jewelName
-              : `${jewelName} · ${pathCount} path${pathCount === 1 ? "" : "s"}`
-            : null}
-        </div>
-      )}
+        )
+      })()}
       <button
         onClick={onToggleExpand}
         title={isExpanded ? "Collapse — restore jewels + paths columns" : "Expand canvas — hide jewels + paths columns"}

@@ -16,6 +16,7 @@ import type {
 } from "@/components/identity-attack-paths/types"
 import type { ActivePathList } from "@/lib/active-filters"
 import { initialAccessCategoryFromBackend } from "@/lib/attack-paths/initial-access-from-backend"
+import { CONVERGENCE_NOT_READY_MESSAGE } from "@/lib/attack-paths/convergence-readiness"
 import { NO_TARGET_COVERAGE_CAUSE, targetZeroCoverageSubtitle } from "@/lib/attack-paths/lifecycle-coverage"
 import { getServiceMeta, ServiceTypeBadge } from "@/lib/service-type"
 import type { PathListRow } from "./attack-path-report-types"
@@ -28,6 +29,9 @@ interface PathListGroupedProps {
   jewel: CrownJewelSummary | null
   selectedPathId: string | null
   onSelectPath: (pathId: string) => void
+  /** AP189: the by-crown-jewel answer behind these paths says its projection is not ready, so an empty list is
+   *  unknown, never "no attack paths today". */
+  answerNotReady?: boolean
 }
 
 function endpointLabel(row: PathListRow, side: "from" | "to"): string {
@@ -73,6 +77,7 @@ export function PathListGrouped({
   jewel,
   selectedPathId,
   onSelectPath,
+  answerNotReady = false,
 }: PathListGroupedProps) {
   const rows = useMemo<PathListRow[]>(() => {
     return paths
@@ -94,6 +99,14 @@ export function PathListGrouped({
       jewel?.target_state === "no_modeled_route" || jewel?.target_state === "coverage_incomplete"
         ? targetZeroCoverageSubtitle(jewel.coverage_cause ?? NO_TARGET_COVERAGE_CAUSE)
         : null
+    if (recordedCause === null && answerNotReady) {
+      return (
+        <div className="px-4 py-6" data-testid="paths-not-ready-state">
+          <div className="text-xs font-medium text-amber-700 dark:text-amber-300">Paths not ready</div>
+          <div className="mt-1.5 text-[11px] text-muted-foreground">{CONVERGENCE_NOT_READY_MESSAGE}</div>
+        </div>
+      )
+    }
     if (recordedCause !== null) {
       return (
         <div

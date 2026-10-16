@@ -16,6 +16,7 @@ import {
   pathIdsNeedingDetail,
   type PathDetailRecord,
 } from "./convergence-path-details"
+import { readConvergencePaths } from "./convergence-readiness"
 import { matchConvergencePathId } from "./iap-to-convergence"
 import type {
   CrownJewelConvergence,
@@ -176,7 +177,17 @@ export function useCrownJewelConvergence(
             `Backend busy (${summaryRes.status})`
           throw new Error(msg)
         }
-        setSummary(summaryBody as CrownJewelConvergenceSummary)
+        // AP188: a 200 hold (semantic_status not_recorded / unavailable), a typed refusal, or a body with no path
+        // list is not a summary. It goes the failure way, never "a summary with no paths" (which also made
+        // mergeSummaryWithPathDetails throw on the missing list).
+        const reading = readConvergencePaths(summaryBody)
+        if (reading.kind === "unavailable") {
+          throw new Error(reading.reason ?? "Attack-path summary unavailable")
+        }
+        // AP189: a NOT_READY answer is kept as one -- its state is what every reader shows ("unknown, not absent") --
+        // and a pathless one gets an empty list, so no caller maps a missing list. It is never read as a zero.
+        const body = summaryBody as CrownJewelConvergenceSummary
+        setSummary(Array.isArray(body.paths) ? body : { ...body, paths: [] })
         setError(null)
         setRetrying(false)
         setLoading(false)

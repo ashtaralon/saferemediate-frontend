@@ -40,9 +40,13 @@ function setUrl(params: Record<string, string>) {
   for (const [k, v] of Object.entries(params)) nav.params.set(k, v)
 }
 
-function serve(section: unknown) {
+function serve(section: unknown, summary?: { status: number; body: unknown }) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input instanceof Request ? input.url : input)
+    // AP188: the selected jewel's by-crown-jewel summary, when a case supplies one (CONSTRUCTED, labelled per case)
+    if (summary && url.startsWith(`/api/proxy/attack-paths/${encodeURIComponent(SYSTEM)}/by-crown-jewel/summary`)) {
+      return respond(summary.status, summary.body)
+    }
     // The app shell's scope + systems catalog for the section's own tenant (infrastructure, not under test).
     if (url === "/api/proxy/admin/customers") {
       return respond(200, [{ customer_id: SECTION.customer_id, display_name: SECTION.customer_id }])
@@ -209,13 +213,15 @@ describe("AttackPathsV2 whole page — lifecycle-held targets", () => {
   })
 })
 
-// AP187-F3: the graph header's count. The IAP answers 502 here, so the listed count is whatever the page lists (0); what
-// is under test is that an incomplete selection says "listed" and carries its row's own note, and a complete one is
-// exactly the established "<name> · N paths".
-describe("AttackPathsV2 header count — listed paths, and incomplete coverage said beside it (AP187-F3)", () => {
-  async function headerFor(name: string, kind: string, section: unknown = capturedSection) {
+// AP187-F3 / AP188 / AP189: the graph header's count. A catalog that lists no path for the target is the count (0, with
+// the row's note when its coverage is incomplete). A target the catalog lists paths for is counted only from a detail
+// answer: while that read runs (here it answers 502 unless a case supplies a CONSTRUCTED summary) the header says it is
+// loading, never "0"; a NOT_READY answer says not ready; a whole answer keeps the established "<name> · N paths".
+describe("AttackPathsV2 header count — what the read state supports, never a bare zero (AP187-F3, AP188, AP189)", () => {
+  async function headerFor(name: string, kind: string, section: unknown = capturedSection,
+    summary?: { status: number; body: unknown }) {
     setUrl({ system: SYSTEM, jewel: idOf(name, kind) })
-    serve(section)
+    serve(section, summary)
     await renderPage()
     return waitFor(() => {
       const el = screen.getByTestId("mode-bar-target-count")
@@ -223,16 +229,25 @@ describe("AttackPathsV2 header count — listed paths, and incomplete coverage s
       return el
     })
   }
+  const first = (header: HTMLElement) => (header.firstElementChild ?? header) as HTMLElement
+  const real = (i: number) => ({ path_id: `ap188-p${i}`, workload_arn: `arn:aws:lambda:eu-west-1:111122223333:function:f${i}`,
+    damage: [], score: 10, confidence: "observed", evidence: "observed", hop_count: 0 })
+  const withoutLifecycle = (name: string) => ({
+    ...SECTION,
+    targets: SECTION.targets.map((t) => {
+      if (t.name !== name) return t
+      const { held_path_count: _h, coverage_withheld_reason: _r, ...rest } = t
+      return rest
+    }),
+  })
 
   it.each([
-    ["bucket-1", "S3Bucket", "+2 held, not counted"],                 // mixed: 1 listed + 2 held
-    ["empty-bucket", "S3Bucket", "+1 held, not counted"],             // all held
-    ["cluster-1", "RDSCluster", "coverage withheld"],                 // receipt-withheld, no path
-    ["aurora-a", "RDSCluster", "coverage withheld"],                  // receipt-withheld beside an observed path
+    ["empty-bucket", "S3Bucket", "+1 held, not counted"],             // all held: the catalog lists none
+    ["cluster-1", "RDSCluster", "coverage withheld"],                 // receipt-withheld, no path listed
     ["db-1", "RDSInstance", "coverage incomplete"],                   // served coverage_incomplete, nothing recorded
-  ])("captured %s: the count is 'listed', the row's note beside it", async (name, kind, note) => {
+  ])("captured %s (the catalog lists no path): '0 listed paths', the row's note beside it", async (name, kind, note) => {
     const header = await headerFor(name, kind)
-    expect(header.firstElementChild).toHaveTextContent(new RegExp(`^${name} · \\d+ listed paths?$`))
+    expect(first(header)).toHaveTextContent(new RegExp(`^${name} · 0 listed paths$`))
     const noteEl = within(header).getByTestId("mode-bar-coverage-note")
     expect(noteEl).toHaveTextContent(new RegExp(`^${note.replace("+", "\\+")}$`))
     expect(noteEl).toHaveAttribute("title", note)                               // the full note, if the line truncates
@@ -241,34 +256,75 @@ describe("AttackPathsV2 header count — listed paths, and incomplete coverage s
     expect(noteEl.className.split(/\s+/)).toEqual(expect.arrayContaining(["w-0", "min-w-full", "truncate"]))
   })
 
-  it("CONSTRUCTED unreadable evidence on a no_modeled_route target: listed, 'coverage evidence unreadable'", async () => {
+  it.each([
+    ["bucket-1", "S3Bucket", "+2 held, not counted"],                 // mixed: the catalog lists 1 path, 2 held
+    ["aurora-a", "RDSCluster", "coverage withheld"],                  // receipt-withheld beside a listed path
+  ])("AP188 captured %s (the catalog lists paths, the detail read answers 502): loading, never '0'", async (name, kind, note) => {
+    const header = await headerFor(name, kind)
+    expect(first(header)).toHaveTextContent(new RegExp(`^${name} · paths loading…$`))
+    expect(within(header).getByTestId("mode-bar-coverage-note")).toHaveTextContent(new RegExp(`^${note.replace("+", "\\+")}$`))
+    expect(header.textContent).not.toMatch(/· 0 (listed )?paths/)
+  })
+
+  it("CONSTRUCTED unreadable evidence on a no_modeled_route target: '0 listed paths', 'coverage evidence unreadable'", async () => {
     const header = await headerFor("db-us-only", "RDSInstance", {
       ...SECTION,
       targets: SECTION.targets.map((t) => (t.name === "db-us-only" ? { ...t, state: "no_modeled_route", held_path_count: "bad" } : t)),
     })
-    expect(header.firstElementChild).toHaveTextContent(/^db-us-only · \d+ listed paths?$/)
+    expect(first(header)).toHaveTextContent(/^db-us-only · 0 listed paths$/)
     expect(within(header).getByTestId("mode-bar-coverage-note")).toHaveTextContent(/^coverage evidence unreadable$/)
   })
 
-  it("CONSTRUCTED controls: legacy no-route and a resolved target keep exactly '<name> · N paths', no note", async () => {
-    const legacy = await headerFor("db-x1", "RDSInstance", {
-      ...SECTION, targets: SECTION.targets.map((t) => (t.name === "db-x1" ? { ...t, state: "no_modeled_route" } : t)),
+  it("AP188 CONSTRUCTED projection_not_ready target: 'projection not ready', no number at all", async () => {
+    const header = await headerFor("db-1", "RDSInstance", {
+      ...SECTION, targets: SECTION.targets.map((t) => (t.name === "db-1" ? { ...t, state: "projection_not_ready" } : t)),
     })
-    expect(legacy).toHaveTextContent(/^db-x1 · \d+ paths?$/)
-    expect(within(legacy).queryByTestId("mode-bar-coverage-note")).toBeNull()
+    expect(header).toHaveTextContent(/^db-1 · projection not ready$/)
+    expect(header.textContent!.replace("db-1", "")).not.toMatch(/\d/)
+  })
+
+  it("AP188 CONSTRUCTED loaded detail: a whole READY answer is '<name> · N paths'; a PARTIAL one is 'listed'", async () => {
+    const card = { generation_total: 2, eligible_total: 2, returned_count: 2, drawn_count: null, excluded_count_by_reason: {}, truncated: false }
+    const whole = await headerFor("bucket-1", "S3Bucket", withoutLifecycle("bucket-1"), { status: 200, body: {
+      system: SYSTEM, serve_state: "ACTIVE", coverage_state: "READY", paths_total: 2, observed_paths: 2, choke_points: {},
+      paths: [real(1), real(2)], cardinality: card } })
+    await waitFor(() => expect(whole).toHaveTextContent(/^bucket-1 · 2 paths$/))
+    expect(within(whole).queryByTestId("mode-bar-coverage-note")).toBeNull()
     cleanup()
     vi.unstubAllGlobals()
     window.localStorage.clear()
-    // bucket-1 with its lifecycle fields REMOVED: an observed target with nothing recorded
-    const resolved = await headerFor("bucket-1", "S3Bucket", {
-      ...SECTION,
-      targets: SECTION.targets.map((t) => {
-        if (t.name !== "bucket-1") return t
-        const { held_path_count: _h, coverage_withheld_reason: _r, ...rest } = t
-        return rest
-      }),
+    // the captured held bucket-1 over an install-shaped PARTIAL answer
+    const partial = await headerFor("bucket-1", "S3Bucket", capturedSection, { status: 200, body: {
+      system: SYSTEM, serve_state: "ACTIVE", coverage_state: "PARTIAL", paths_total: 2, observed_paths: 2, choke_points: {},
+      paths: [real(1), real(2)] } })
+    await waitFor(() => expect(first(partial)).toHaveTextContent(/^bucket-1 · 2 listed paths$/))
+    expect(within(partial).getByTestId("mode-bar-coverage-note")).toHaveTextContent(/^\+2 held, not counted · coverage partial$/)
+  })
+
+  it.each([
+    ["serve_state NOT_READY, pathless", { system: SYSTEM, serve_state: "NOT_READY" }],
+    ["CONTROL: a valid NOT_READY with an empty list", { system: SYSTEM, serve_state: "NOT_READY", coverage_state: "NOT_READY", paths: [] }],
+  ])("AP189 CONSTRUCTED %s: the header and the path list say not ready; no crash, never 'no paths today'", async (_label, body) => {
+    const header = await headerFor("bucket-1", "S3Bucket", withoutLifecycle("bucket-1"), { status: 200, body })
+    await waitFor(() => expect(header).toHaveTextContent(/^bucket-1 · projection not ready$/))
+    expect(await screen.findByTestId("paths-not-ready-state")).toHaveTextContent("Paths are unknown — not absent.")
+    expect(screen.queryByText(/No attack paths to/)).toBeNull()
+    expect(consoleError.mock.calls.map((c) => String(c[0])).join("\n")).not.toMatch(/reading 'map'/)
+  })
+
+  it("AP188 CONSTRUCTED a 200 hold as the summary: no zero, no crash (the read is retried)", async () => {
+    const header = await headerFor("bucket-1", "S3Bucket", withoutLifecycle("bucket-1"), { status: 200, body: {
+      semantic_status: "not_recorded", hold_reason: "JEWEL_NOT_IN_IAP_PUBLICATION" } })
+    await waitFor(() => expect(header).toHaveTextContent(/^bucket-1 · paths loading…$/))
+    expect(screen.queryByText(/No attack paths to/)).toBeNull()
+    expect(consoleError.mock.calls.map((c) => String(c[0])).join("\n")).not.toMatch(/reading 'map'|reading 'length'/)
+  })
+
+  it("CONSTRUCTED control: legacy no-route keeps exactly '<name> · 0 paths', no note", async () => {
+    const legacy = await headerFor("db-x1", "RDSInstance", {
+      ...SECTION, targets: SECTION.targets.map((t) => (t.name === "db-x1" ? { ...t, state: "no_modeled_route" } : t)),
     })
-    expect(resolved).toHaveTextContent(/^bucket-1 · \d+ paths?$/)
-    expect(within(resolved).queryByTestId("mode-bar-coverage-note")).toBeNull()
+    expect(legacy).toHaveTextContent(/^db-x1 · 0 paths$/)
+    expect(within(legacy).queryByTestId("mode-bar-coverage-note")).toBeNull()
   })
 })

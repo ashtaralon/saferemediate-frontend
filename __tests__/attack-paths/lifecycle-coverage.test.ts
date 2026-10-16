@@ -154,6 +154,53 @@ describe("AP187: counts and header notes agree with the rows' shown states", () 
     expect(displayedTargetStateCounts({ no_modeled_route: 1 }, [row, row])).toBeNull()
   })
 
+  // AP188: Codex's independent reproduction on b2e4425c (ap187-counts-independent-reproduction.json), as cases: one
+  // no_modeled_route row with an unreadable cause moved into coverage_incomplete.
+  const MOVED = [{ state: "no_modeled_route" as State, cause: UNREADABLE }]
+
+  it("AP188 the reproduced malformed buckets are no count at all, never coerced arithmetic", () => {
+    for (const served of [
+      { no_modeled_route: 1, coverage_incomplete: "7" },             // was "71"
+      { no_modeled_route: 1, coverage_incomplete: -2 },              // was -1
+      { no_modeled_route: 1.5, coverage_incomplete: 7 },             // was 0.5 / 8
+      { no_modeled_route: 1, coverage_incomplete: null },            // was 1: an explicit null read as zero
+    ]) {
+      expect(displayedTargetStateCounts(served, MOVED), JSON.stringify(served)).toBeNull()
+    }
+    // the valid case of the same reproduction
+    expect(displayedTargetStateCounts({ no_modeled_route: 1, coverage_incomplete: 7 }, MOVED))
+      .toEqual({ no_modeled_route: 0, coverage_incomplete: 8 })
+  })
+
+  it("AP188 CONSTRUCTED: a malformed UNTOUCHED bucket, or a non-object body, also makes the whole answer unknown", () => {
+    for (const served of [
+      { no_modeled_route: 1, coverage_incomplete: 7, observed: "2" },
+      { no_modeled_route: 1, coverage_incomplete: 7, projection_not_ready: Number.NaN },
+      { no_modeled_route: 1, coverage_incomplete: 7, observed: Number.POSITIVE_INFINITY },
+      { no_modeled_route: 1, coverage_incomplete: 7, configured_only: true },
+    ]) {
+      expect(displayedTargetStateCounts(served, MOVED), JSON.stringify(served)).toBeNull()
+      expect(displayedTargetStateCounts(served, []), "no row moves: " + JSON.stringify(served)).toBeNull()
+    }
+    for (const served of [null, undefined, "8", 8, [1, 7], []]) {
+      expect(displayedTargetStateCounts(served, []), JSON.stringify(served)).toBeNull()
+    }
+  })
+
+  it("AP188 absent buckets keep their documented meaning (no target); valid counts are returned as served", () => {
+    // coverage_incomplete absent: the moved row is its only target
+    expect(displayedTargetStateCounts({ no_modeled_route: 1, observed: 2 }, MOVED))
+      .toEqual({ no_modeled_route: 0, observed: 2, coverage_incomplete: 1 })
+    expect(displayedTargetStateCounts({}, [])).toEqual({})
+    expect(displayedTargetStateCounts({ observed: 2, coverage_incomplete: 8, no_modeled_route: 0 }, []))
+      .toEqual({ observed: 2, coverage_incomplete: 8, no_modeled_route: 0 })
+    // a served key named like an Object prototype member stays a plain key and pollutes nothing
+    const polluted = JSON.parse('{"__proto__": 3, "coverage_incomplete": 1}')
+    const shown = displayedTargetStateCounts(polluted, [])
+    expect(shown && Object.prototype.hasOwnProperty.call(shown, "__proto__")).toBe(true)
+    expect(({} as Record<string, unknown>).coverage_incomplete).toBeUndefined()
+  })
+
   it("the header note: the row's own note, 'coverage incomplete' for a served incomplete target, else nothing", () => {
     expect(targetIncompleteCoverageNote("observed", { kind: "lifecycle", held: 2 })).toBe("+2 held, not counted")
     expect(targetIncompleteCoverageNote("coverage_incomplete", { kind: "lifecycle", held: 1 })).toBe("+1 held, not counted")

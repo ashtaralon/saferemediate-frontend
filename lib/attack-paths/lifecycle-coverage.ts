@@ -105,25 +105,40 @@ export function displayedTargetState<S extends string>(state: S, cause: TargetCo
   return state === "no_modeled_route" && cause.kind !== "none" ? "coverage_incomplete" : state
 }
 
+/** A served per-state target count: a finite, non-negative whole number. */
+function isTargetCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
+}
+
 /** (AP187) The per-state target counts as the rail SHOWS them: the served counts, with every listed target whose shown
  *  state (displayedTargetState) differs from its served state moved to the shown one, so a summary agrees with the
- *  rows. The served counts are not modified. Null when they cannot account for a moved target (a state would go below
- *  zero, or its count is not a number): served counts and rows then disagree, and no count is shown. */
+ *  rows. The served counts are not modified.
+ *
+ *  (AP188) The served counts arrive unvalidated from the catalog response. A state ABSENT from them has no target (the
+ *  catalog's documented shape). A state PRESENT with anything but a count -- `null`, `"7"`, `-2`, `1.5` -- makes the
+ *  whole answer unknown, untouched states included: null. So does a body that is not an object, and counts that cannot
+ *  account for a moved target (its served state has none to move). No value is ever coerced. */
 export function displayedTargetStateCounts(
-  served: Readonly<Partial<Record<string, number>>>,
+  served: unknown,
   rows: ReadonlyArray<{ state: string | undefined; cause: TargetCoverageCause }>,
 ): Partial<Record<string, number>> | null {
-  const shown: Partial<Record<string, number>> = { ...served }
+  if (served === null || typeof served !== "object" || Array.isArray(served)) return null
+  // A Map, never an object index: a served key such as "__proto__" stays a plain key (AP183-R3).
+  const shown = new Map<string, number>()
+  for (const [state, count] of Object.entries(served)) {
+    if (!isTargetCount(count)) return null
+    shown.set(state, count)
+  }
   for (const { state, cause } of rows) {
     if (state === undefined) continue
     const to = displayedTargetState(state, cause)
     if (to === state) continue
-    const from = shown[state]
-    if (typeof from !== "number" || !(from >= 1)) return null
-    shown[state] = from - 1
-    shown[to] = (shown[to] ?? 0) + 1
+    const from = shown.get(state) ?? 0
+    if (from < 1) return null
+    shown.set(state, from - 1)
+    shown.set(to, (shown.get(to) ?? 0) + 1)
   }
-  return shown
+  return Object.fromEntries(shown)
 }
 
 /** (AP187) What a selected target's path count needs beside it when that count is not the whole count: the row's own
