@@ -225,4 +225,25 @@ describe("the rail names each target's own lifecycle / withheld cause", () => {
     renderRail(withCounts({ no_modeled_route: 1, observed: 2 }))
     expect(screen.getByTestId("target-zero-states")).toHaveTextContent(/^1 coverage incomplete$/)
   })
+
+  // AP193: a row says its served path_count could not be read; the coerced value read "NaN path", or nothing at all.
+  it.each([["bad"], [-1], [null], [undefined]])("AP193 CONSTRUCTED bucket-1 path_count %j: 'path count unreadable'", (raw) => {
+    const targets = SECTION.targets.map((t) => {
+      if (t.name !== "bucket-1") return t
+      if (raw === undefined) { const { path_count: _drop, ...rest } = t; return rest as typeof t }
+      return { ...t, path_count: raw as never }
+    })
+    renderRail({ ...SECTION, targets } as TargetCatalog)
+    const r = row("bucket-1")
+    expect(within(r).getByTestId("target-path-count-unreadable")).toHaveTextContent(/^path count unreadable$/)
+    expect(r.textContent).not.toMatch(/NaN|\d+ paths?\b/)
+  })
+
+  it("AP193 CONTROL: a valid served count keeps its established text, and a valid 0 shows none", () => {
+    renderRail(SECTION)
+    expect(row("bucket-1")).toHaveTextContent("1 path")
+    expect(within(row("bucket-1")).queryByTestId("target-path-count-unreadable")).toBeNull()
+    expect(within(row("empty-bucket")).queryByTestId("target-path-count-unreadable")).toBeNull()
+    expect(row("empty-bucket").textContent).not.toMatch(/\d+ paths?\b/)
+  })
 })

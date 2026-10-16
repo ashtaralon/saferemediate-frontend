@@ -180,6 +180,32 @@ describe("targetCatalogTotals", () => {
   it("does not quote totals from a projection that is not ready", () => {
     expect(targetCatalogTotals(catalog({ serve_state: "NOT_READY" }))).toBeNull()
   })
+
+  // AP193: Codex's reproduction (ap191-child-b-review/residual-source/review.test.tsx) as cases. The backend model
+  // always serialises path_count (TargetCatalogEntry.path_count: int = 0), so absence is no supported legacy shape.
+  it("AP193 CONTROL: a served 0 is a zero, and a complete one", () => {
+    expect(targetCatalogTotals(catalog({ targets: [entry({ target_id: "a", path_count: 0 })] })))
+      .toMatchObject({ pathCount: 0, reachableTargetCount: 0, unreadableTargetCount: 0 })
+  })
+
+  it.each([["bad"], [-1], [1.5], [null], [undefined], ["3"]])(
+    "AP193 CONSTRUCTED path_count %j: flagged unreadable, in no total, never NaN",
+    (raw) => {
+      const value = catalog({ targets: [
+        entry({ target_id: "a", path_count: 2 }),
+        { ...entry({ target_id: "b" }), path_count: raw as never },
+      ] })
+      if (raw === undefined) delete (value.targets[1] as Partial<TargetCatalogEntry>).path_count
+      const totals = targetCatalogTotals(value)
+      expect(totals).toMatchObject({ pathCount: 2, reachableTargetCount: 1, unreadableTargetCount: 1 })
+      expect(Number.isFinite(totals!.pathCount)).toBe(true)
+    },
+  )
+
+  it("AP193 a target unreadable on BOTH its cause and its count is counted once", () => {
+    const value = catalog({ targets: [{ ...entry({ target_id: "a" }), path_count: "bad" as never, held_path_count: 0 }] })
+    expect(targetCatalogTotals(value)).toMatchObject({ pathCount: 0, reachableTargetCount: 0, unreadableTargetCount: 1 })
+  })
 })
 
 // ── AP182: lifecycle-held and withheld targets, over the captured section (__tests__/fixtures/ap182-lifecycle) ───

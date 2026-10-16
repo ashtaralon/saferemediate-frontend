@@ -276,7 +276,18 @@ export function CrownJewelListPanel({
                         not computed
                       </span>
                     ) : null}
-                    {!notComputed && (() => {
+                    {/* AP193: a catalog row whose served path_count is missing or malformed (catalog_path_count null)
+                        says so; its coerced path_count would read "NaN paths", or nothing at all for -1 / null. */}
+                    {!notComputed && jewel.catalog_path_count === null && (
+                      <span
+                        className="text-[10px] text-amber-700 dark:text-amber-400"
+                        title="The target catalog served a path count that could not be read, so this target's paths are unknown."
+                        data-testid="target-path-count-unreadable"
+                      >
+                        path count unreadable
+                      </span>
+                    )}
+                    {!notComputed && jewel.catalog_path_count !== null && (() => {
                       const cc = jewel.class_counts
                       const inSystem = cc != null ? (cc.in_system ?? 0) : (jewel.path_count ?? 0)
                       if (inSystem <= 0) return null
@@ -286,7 +297,7 @@ export function CrownJewelListPanel({
                         </span>
                       )
                     })()}
-                    {!notComputed && (
+                    {!notComputed && jewel.catalog_path_count !== null && (
                       <MaterializedScopeBadge
                         surfaced={jewel.path_count ?? 0}
                         graphTotal={jewel.materialized_path_count}

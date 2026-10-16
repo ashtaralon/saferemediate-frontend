@@ -184,7 +184,8 @@ export interface TargetCatalogTotals {
    *  another reason the counts are not totals. */
   withheldTargetCount: number
   /** (AP183/AP184) Targets with coverage evidence served unreadable (wholly, or a held count beside a receipt code):
-   *  their part of the counts is unknown. */
+   *  their part of the counts is unknown. (AP193) Also a target whose served `path_count` is missing or not a whole
+   *  number >= 0: its paths are in neither count above, and each target is counted once. */
   unreadableTargetCount: number
 }
 
@@ -202,12 +203,15 @@ export function targetCatalogTotals(
   let heldCounted = 0
   let heldSum = 0
   for (const target of catalog.targets) {
-    const paths = Math.max(0, Number(target.path_count ?? 0))
+    // AP193: only a served whole number >= 0 is a count. A missing / malformed one ("bad", -1, null, absent -- the
+    // backend model always serialises it) is unknown: never NaN, never a silent 0, never part of a total.
+    const countReadable = isServedCount(target.path_count)
+    const paths = countReadable ? target.path_count : 0
     totals.pathCount += paths
     if (paths > 0) totals.reachableTargetCount += 1
     const cause = targetCoverageCause(target.coverage_withheld_reason, target.held_path_count)
     if (cause.kind === "withheld") totals.withheldTargetCount += 1
-    if (targetEvidenceUnreadable(cause)) totals.unreadableTargetCount += 1
+    if (targetEvidenceUnreadable(cause) || !countReadable) totals.unreadableTargetCount += 1
     // Held: lifecycle-held, or a well-formed count beside a receipt code (AP184: never a malformed one).
     if (targetHasHeldPaths(cause)) {
       heldTargets += 1

@@ -175,6 +175,17 @@ describe("AttackPathsV2 whole page — lifecycle-held targets", () => {
     }
   })
 
+  it.each([["bad"], [-1], [null]])("AP193 CONSTRUCTED bucket-1 path_count %j: the header total is not complete and never NaN", async (raw) => {
+    serve({ ...SECTION, targets: SECTION.targets.map((t) => (t.name === "bucket-1" ? { ...t, path_count: raw } : t)) })
+    await renderPage()
+    const unreadable = await screen.findByTestId("catalog-coverage-unreadable")
+    expect(unreadable).toHaveTextContent("· coverage evidence unreadable for 1 target")
+    const header = unreadable.parentElement as HTMLElement
+    // bucket-1's paths are in neither count: aurora-a's 1 path is what is listed, and it is not called a total
+    expect(header).toHaveTextContent(/^1 active paths · 1 reachable targets · /)
+    expect(header.textContent).not.toMatch(/NaN/)
+  })
+
   it("AP184-2 CONSTRUCTED: a receipt code beside a malformed count adds no held path to the header", async () => {
     // aurora-a carries the receipt code; give it a malformed count. The held total stays bucket-1 2 + empty-bucket 1.
     serve({ ...SECTION, targets: SECTION.targets.map((t) => (t.name === "aurora-a" ? { ...t, held_path_count: "bad" } : t)) })
