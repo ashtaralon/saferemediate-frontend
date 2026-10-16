@@ -123,6 +123,12 @@ export function LeftSidebarNav({
     icon: any
     count?: number
     href: string
+    // Used only by the <Link> branch below (pages that mount the sidebar
+    // without onItemClick, e.g. the account page). HomePage deliberately
+    // ignores ?section=, so a section href there lands on the dashboard
+    // (CHROME0117-NAV1). Set only where a dedicated route renders the same
+    // view; the onItemClick button path is unchanged.
+    routeHref?: string
   }> = [
     { id: "home", label: "Home", icon: Home, href: "/" },
     { id: "change-queue", label: "Change Queue", icon: ClipboardList, href: "/change-queue" },
@@ -150,7 +156,7 @@ export function LeftSidebarNav({
     // app/page.tsx can't hold (selectedSystem, activeSection!=="home") at
     // the same time — see system-detail-dashboard.tsx tab integration.
     { id: "vulnerabilities", label: "Vulnerabilities", icon: Bug, href: "/?section=vulnerabilities" },
-    { id: "systems", label: "Systems", icon: Server, href: "/?section=systems" },
+    { id: "systems", label: "Systems", icon: Server, href: "/?section=systems", routeHref: "/systems" },
     { id: "compliance", label: "Compliance", icon: Grid3x3, href: "/?section=compliance" },
     // Identities removed from sidebar pending backend fix for /api/identities (returns
     // 404 with a 23KB HTML error body). Restore once backend ships the upstream route —
@@ -355,7 +361,7 @@ export function LeftSidebarNav({
           return (
             <Link
               key={item.id}
-              href={item.href}
+              href={item.routeHref ?? item.href}
               className={commonClass}
               style={commonStyle}
             >
