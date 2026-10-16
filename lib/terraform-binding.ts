@@ -237,7 +237,7 @@ export async function revokeTerraformBinding(bindingId: string, requestId: strin
 }
 
 
-// ── (S2 lifecycle) the bindings a person can see: GET terraform-bindings/list ──────────────────────────────────────────────
+// ── (S2 lifecycle) the bindings a person uploaded: GET terraform-bindings/list ─────────────────────────────────────────────
 
 export const LIST_CONTRACT = "terraform_workspace_binding_list/v1"
 /** The backend's LIST_PAGE: a page never shows more rows. */
@@ -257,8 +257,10 @@ export type BindingListRow = {
   instances: number
   referenceInYourSetups: ReferenceInYourSetups
 }
-/** One page. ``complete``: the read reached the end. Not complete with no cursor: the read bound was reached before the next
- *  visible binding -- the list is NOT known to end here. */
+/** One page of the person's OWN uploads (design E: their creator index; never another person's). ``complete``: the read
+ *  reached the end of that index. Not complete with a cursor: more may follow -- even after a page with no row (the window
+ *  held only uploads the person may no longer see). Not complete with no cursor: the read stopped where no cursor could
+ *  continue -- the list is NOT known to end here. */
 export type BindingList = { rows: BindingListRow[]; complete: boolean; nextCursor: string | null }
 
 const LIST_ROW = ["binding_id", "revision", "status", "account_id", "workspace_identity", "created_by", "created_at", "instances",
@@ -268,9 +270,8 @@ const listFor = (accountId: string | null) => (json: J): BindingList | null => {
   if (!exactly(json, ["bindings", "complete", "next_cursor", "contract"]) || !Array.isArray(json.bindings)
       || typeof json.complete !== "boolean" || !(json.next_cursor === null || (text(json.next_cursor) && json.next_cursor.length <= 1024))
       || json.bindings.length > LIST_PAGE) return null
-  // a complete list has no next page; an incomplete one MAY have none (the read bound), and a cursor follows a shown row
+  // a complete list has no next page; an incomplete one may have one -- after no row, too -- or none (the read bound)
   if (json.complete && json.next_cursor !== null) return null
-  if (json.next_cursor !== null && json.bindings.length === 0) return null
   const rows: BindingListRow[] = []
   for (const r of json.bindings) {
     if (!isRecord(r) || !exactly(r, r.status === "REVOKED" ? [...LIST_ROW, "revoked_at"] : LIST_ROW)) return null
@@ -291,7 +292,7 @@ const listFor = (accountId: string | null) => (json: J): BindingList | null => {
   return { rows, complete: json.complete, nextCursor: json.next_cursor as string | null }
 }
 
-/** One page of the bindings this person may see (of ``accountId`` when given), from ``cursor`` (a previous page's). */
+/** One page of the bindings this person uploaded and may still see (of ``accountId`` when given), from ``cursor``. */
 export async function listTerraformBindings(accountId: string | null, cursor: string | null = null): Promise<BindingAnswer<BindingList>> {
   const query = new URLSearchParams()
   if (accountId !== null) query.set("account_id", accountId)

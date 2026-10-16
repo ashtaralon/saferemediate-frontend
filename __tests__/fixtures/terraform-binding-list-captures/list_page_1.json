@@ -13,7 +13,7 @@
   "body": {
     "bindings": [
       {
-        "binding_id": "7fb10000-0000-4000-8000-000000000005",
+        "binding_id": "7fb10000-0000-4000-8000-000000000001",
         "revision": 1,
         "status": "ACTIVE",
         "account_id": "178254216844",
@@ -25,7 +25,7 @@
       }
     ],
     "complete": false,
-    "next_cursor": "eyJhY2NvdW50X2lkIjpudWxsLCJhZnRlciI6IjdmYjEwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwNSIsInRlbmFudCI6ImN1c3QtYWNtZSIsInYiOjF9",
+    "next_cursor": "eyJhY2NvdW50X2lkIjpudWxsLCJhY3RvciI6ImI2YWY4OWUzYTk3Y2ExMmY4YzgzYzk2Y2RiNWY5OWY2IiwiYWZ0ZXIiOiJjNDM5ODg2NWM2ZWM2N2E2N2E4ZGEyNTBhMmQ5ODAwNyIsInRlbmFudCI6ImN1c3QtYWNtZSIsInYiOjJ9",
     "contract": "terraform_workspace_binding_list/v1"
   }
 }
