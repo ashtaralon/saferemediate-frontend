@@ -88,6 +88,27 @@ describe("the rail names each target's own lifecycle / withheld cause", () => {
     expect(mixed).toHaveAttribute("title", `Lifecycle coverage incomplete. ${LIFECYCLE_HELD_EXPLANATION}`)
   })
 
+  it("AP183-R2 CONSTRUCTED unreadable evidence (one captured row's value replaced): visibly unknown, no count", () => {
+    renderRail({
+      ...SECTION,
+      targets: SECTION.targets.map((t) =>
+        t.name === "db-1" ? { ...t, held_path_count: 0 }
+          : t.name === "db-stray" ? { ...t, coverage_withheld_reason: {} as never } : t),
+    } as TargetCatalog)
+    for (const name of ["db-1", "db-stray"]) {
+      const r = row(name)
+      const note = within(r).getByTestId("target-coverage-note")
+      expect(note, name).toHaveTextContent("coverage evidence unreadable")
+      expect(note, name).toHaveAttribute("data-coverage-cause", "unreadable")
+      expect(note.textContent, name).not.toMatch(/\d+ held/)
+      expect(within(r).getByText("PENDING").getAttribute("aria-label"), name).toMatch(/could not be read/)
+      expect(within(r).getByText("coverage incomplete").getAttribute("title"), name).not.toBe(
+        TARGET_STATE_CONFIG.coverage_incomplete.description)
+    }
+    // ... while a row with nothing recorded beside them keeps the established copy
+    expect(within(row("db-us-only")).queryByTestId("target-coverage-note")).toBeNull()
+  })
+
   it("the per-state counts line is the catalog's own, unchanged", () => {
     renderRail(SECTION)
     expect(screen.getByTestId("target-zero-states")).toHaveTextContent("8 coverage incomplete")

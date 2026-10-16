@@ -4,7 +4,7 @@ import { useState } from "react"
 import { Shield, Globe, ChevronLeft, ChevronRight, PauseCircle } from "lucide-react"
 import { iapHoldTitle, type IapHold } from "@/lib/attack-paths/path-evidence-view"
 import {
-  targetCoverageCause,
+  NO_TARGET_COVERAGE_CAUSE,
   targetCoverageDescription,
   targetCoverageNote,
 } from "@/lib/attack-paths/lifecycle-coverage"
@@ -191,8 +191,8 @@ export function CrownJewelListPanel({
             targetState === "no_modeled_route" ? "NO PATH" :
             targetState === "coverage_incomplete" ? "PENDING" :
             targetState === "projection_not_ready" ? "WAIT" : "—"
-          // AP182: the target's own recorded cause and held count, exactly as the catalog served them.
-          const coverageCause = targetCoverageCause(jewel.coverage_withheld_reason, jewel.held_path_count)
+          // AP182/AP183: the target's own recorded cause, judged by the adapter from the catalog's raw fields.
+          const coverageCause = jewel.coverage_cause ?? NO_TARGET_COVERAGE_CAUSE
           const coverageDescription = targetCoverageDescription(coverageCause)
           const coverageNote = targetCoverageNote(coverageCause)
           const zeroDescription = targetState

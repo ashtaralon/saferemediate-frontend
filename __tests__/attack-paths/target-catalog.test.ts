@@ -173,6 +173,7 @@ describe("targetCatalogTotals", () => {
       lifecycleHeld: false,
       heldPathCount: null,
       withheldTargetCount: 0,
+      unreadableTargetCount: 0,
     })
   })
 
@@ -187,31 +188,38 @@ describe("AP182 · the catalog's recorded causes reach the rail and the totals",
   const captured = capturedSection as unknown as TargetCatalog
   const byName = (rows: ReturnType<typeof targetCatalogToJewelSummaries>, name: string) => rows.find((r) => r.name === name)!
 
-  it("each target carries its own reason and held count, as served", () => {
+  it("each target carries its own cause, judged from its raw fields", () => {
     const rows = targetCatalogToJewelSummaries(captured)
     const mixed = byName(rows, "bucket-1")
-    expect([mixed.path_count, mixed.held_path_count, mixed.coverage_withheld_reason, mixed.target_state]).toEqual(
-      [1, 2, "lifecycle_held", "observed"])
+    expect([mixed.path_count, mixed.coverage_cause, mixed.target_state]).toEqual(
+      [1, { kind: "lifecycle", held: 2 }, "observed"])
     const allHeld = byName(rows, "empty-bucket")
-    expect([allHeld.path_count, allHeld.held_path_count, allHeld.coverage_withheld_reason, allHeld.target_state]).toEqual(
-      [0, 1, "lifecycle_held", "coverage_incomplete"])
-    const withheld = byName(rows, "aurora-a")
-    expect(withheld.coverage_withheld_reason).toBe("database_eni_binding_not_in_normalized_inventory")
-    expect("held_path_count" in withheld).toBe(false)
+    expect([allHeld.path_count, allHeld.coverage_cause, allHeld.target_state]).toEqual(
+      [0, { kind: "lifecycle", held: 1 }, "coverage_incomplete"])
+    expect(byName(rows, "aurora-a").coverage_cause).toEqual({
+      kind: "withheld", code: "database_eni_binding_not_in_normalized_inventory", held: "none" })
   })
 
   it("a target with nothing recorded maps exactly as before: no new key", () => {
     const legacy = captured.targets.find((t) => t.name === "db-1")!
     const mapped = targetEntryToJewelSummary(legacy)
-    expect("coverage_withheld_reason" in mapped).toBe(false)
-    expect("held_path_count" in mapped).toBe(false)
+    expect("coverage_cause" in mapped).toBe(false)
     expect(Object.keys(targetEntryToJewelSummary(entry())).sort()).toEqual(Object.keys(mapped).sort())
+    // the non-install route's documented null reason is nothing recorded too
+    expect("coverage_cause" in targetEntryToJewelSummary(entry({ coverage_withheld_reason: null }))).toBe(false)
   })
 
-  it("CONSTRUCTED malformed held count: carried as null (held, count not reported), never 0", () => {
-    const mapped = targetEntryToJewelSummary(entry({ coverage_withheld_reason: "lifecycle_held", held_path_count: "2" as never }))
-    expect(mapped.held_path_count).toBeNull()
-    expect(targetEntryToJewelSummary(entry({ held_path_count: 0 })).held_path_count).toBeNull()
+  it("AP183-R2 CONSTRUCTED malformed presence survives the adapter as UNREADABLE (never dropped, never 0)", () => {
+    for (const overrides of [
+      { held_path_count: "bad" as never }, { held_path_count: 0 }, { coverage_withheld_reason: {} as never },
+      { coverage_withheld_reason: null, held_path_count: null as never },
+    ]) {
+      expect(targetEntryToJewelSummary(entry(overrides)).coverage_cause, JSON.stringify(overrides))
+        .toEqual({ kind: "unreadable" })
+    }
+    // a malformed count beside a readable reason: held, the count not reported
+    expect(targetEntryToJewelSummary(entry({ coverage_withheld_reason: "lifecycle_held", held_path_count: "2" as never }))
+      .coverage_cause).toEqual({ kind: "lifecycle", held: "unreported" })
   })
 
   it("totals: listed paths only, with the held count and the withheld targets beside them", () => {
@@ -221,6 +229,7 @@ describe("AP182 · the catalog's recorded causes reach the rail and the totals",
       lifecycleHeld: true,
       heldPathCount: 3,           // bucket-1 2 + empty-bucket 1, each the target's own count
       withheldTargetCount: 3,     // the three RDS clusters the stage receipt withheld
+      unreadableTargetCount: 0,
     })
   })
 
@@ -242,8 +251,21 @@ describe("AP182 · the catalog's recorded causes reach the rail and the totals",
       pathCount: 2, reachableTargetCount: 2, lifecycleHeld: true,
       heldPathCount: null,          // target c is held but reports no well-formed count: the sum is unknown
       withheldTargetCount: 1,
+      unreadableTargetCount: 0,
     })
     expect(targetCatalogTotals(catalog({ targets: value.targets.slice(0, 2) }))).toMatchObject({ heldPathCount: 3 })
+  })
+
+  it("AP183-R2 CONSTRUCTED unreadable targets are counted apart: never held, never complete", () => {
+    const value = catalog({ targets: [
+      entry({ target_id: "a", path_count: 2 }),
+      entry({ target_id: "b", path_count: 0, held_path_count: 0 }),
+      entry({ target_id: "c", path_count: 1, coverage_withheld_reason: {} as never }),
+    ] })
+    expect(targetCatalogTotals(value)).toEqual({
+      pathCount: 3, reachableTargetCount: 2, lifecycleHeld: false, heldPathCount: null, withheldTargetCount: 0,
+      unreadableTargetCount: 2,
+    })
   })
 
   it("a captured section keeps its cache rule: READY with targets", () => {

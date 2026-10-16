@@ -46,42 +46,56 @@ describe("heldCountOrNull: a count only when the backend supplied a well-formed 
 
 describe("targetCoverageCause over the captured catalog section", () => {
   it("names each target's recorded cause from its own fields", () => {
-    expect(causeOf(target("bucket-1"))).toEqual({ kind: "lifecycle", heldCount: 2 })            // mixed
-    expect(causeOf(target("empty-bucket"))).toEqual({ kind: "lifecycle", heldCount: 1 })        // all-held
+    expect(causeOf(target("bucket-1"))).toEqual({ kind: "lifecycle", held: 2 })                 // mixed
+    expect(causeOf(target("empty-bucket"))).toEqual({ kind: "lifecycle", held: 1 })             // all-held
     expect(causeOf(target("aurora-a"))).toEqual({                                                 // receipt-withheld
-      kind: "withheld", code: "database_eni_binding_not_in_normalized_inventory", heldCount: null,
+      kind: "withheld", code: "database_eni_binding_not_in_normalized_inventory", held: "none",
     })
     expect(causeOf(target("db-1"))).toEqual({ kind: "none" })                                    // legacy: no reason
   })
 
   it("non-install shape (derived by REMOVING held_path_count): still lifecycle, count not reported", () => {
     const { held_path_count: _drop, ...nonInstall } = target("bucket-1")
-    expect(causeOf(nonInstall)).toEqual({ kind: "lifecycle", heldCount: null })
+    expect(causeOf(nonInstall)).toEqual({ kind: "lifecycle", held: "unreported" })
   })
 
-  it("CONSTRUCTED edge values: a malformed count is unreported, a count without a reason is still held", () => {
-    expect(targetCoverageCause(LIFECYCLE_HELD_REASON, "2")).toEqual({ kind: "lifecycle", heldCount: null })
-    expect(targetCoverageCause(undefined, 4)).toEqual({ kind: "lifecycle", heldCount: 4 })
-    expect(targetCoverageCause("some_receipt_code", 2)).toEqual({ kind: "withheld", code: "some_receipt_code", heldCount: 2 })
-    expect(targetCoverageCause("   ", undefined)).toEqual({ kind: "none" })
-    expect(targetCoverageCause(null, 0)).toEqual({ kind: "none" })
+  it("the non-install route's documented null reason is nothing recorded", () => {
+    expect(targetCoverageCause(null, undefined)).toEqual({ kind: "none" })
+  })
+
+  it("CONSTRUCTED well-formed edges: a count without a reason is held, a receipt code keeps its own held state", () => {
+    expect(targetCoverageCause(undefined, 4)).toEqual({ kind: "lifecycle", held: 4 })
+    expect(targetCoverageCause(null, 4)).toEqual({ kind: "lifecycle", held: 4 })
+    expect(targetCoverageCause("some_receipt_code", 2)).toEqual({ kind: "withheld", code: "some_receipt_code", held: 2 })
+    expect(targetCoverageCause(LIFECYCLE_HELD_REASON, "2")).toEqual({ kind: "lifecycle", held: "unreported" })
+    expect(targetCoverageCause("some_receipt_code", "x")).toEqual({ kind: "withheld", code: "some_receipt_code", held: "unreported" })
+  })
+
+  it("AP183-R2 CONSTRUCTED present-but-malformed evidence is UNREADABLE, never nothing recorded", () => {
+    for (const [reason, count] of [
+      [undefined, "bad"], [undefined, 0], [{}, undefined],          // the three cases of the review
+      [null, 0], [null, null], [undefined, -1], [undefined, 1.5], [undefined, true],
+      ["   ", undefined], ["", undefined], [7, undefined], [[], 2],
+    ] as Array<[unknown, unknown]>) {
+      expect(targetCoverageCause(reason, count), JSON.stringify([reason, count])).toEqual({ kind: "unreadable" })
+    }
   })
 })
 
 describe("target wording ties to the recorded cause and nothing else", () => {
   it("lifecycle: the row note and the explanation carry the count only when supplied", () => {
-    expect(targetCoverageNote({ kind: "lifecycle", heldCount: 2 })).toBe("+2 held, not counted")
-    expect(targetCoverageNote({ kind: "lifecycle", heldCount: null })).toBe("more paths held, not counted")
-    expect(targetCoverageDescription({ kind: "lifecycle", heldCount: 1 })).toBe(
+    expect(targetCoverageNote({ kind: "lifecycle", held: 2 })).toBe("+2 held, not counted")
+    expect(targetCoverageNote({ kind: "lifecycle", held: "unreported" })).toBe("more paths held, not counted")
+    expect(targetCoverageDescription({ kind: "lifecycle", held: 1 })).toBe(
       `Lifecycle coverage incomplete (1 path held). ${LIFECYCLE_HELD_EXPLANATION}`,
     )
-    expect(targetCoverageDescription({ kind: "lifecycle", heldCount: null })).toBe(
+    expect(targetCoverageDescription({ kind: "lifecycle", held: "unreported" })).toBe(
       `Lifecycle coverage incomplete. ${LIFECYCLE_HELD_EXPLANATION}`,
     )
   })
 
   it("a withheld receipt code is named as withheld, never as lifecycle", () => {
-    const withheld = { kind: "withheld" as const, code: "database_eni_binding_not_in_normalized_inventory", heldCount: null }
+    const withheld = { kind: "withheld" as const, code: "database_eni_binding_not_in_normalized_inventory", held: "none" as const }
     expect(targetCoverageNote(withheld)).toBe("coverage withheld")
     expect(targetCoverageDescription(withheld)).toBe(
       "The active generation withheld coverage of this target (database_eni_binding_not_in_normalized_inventory), " +
@@ -93,11 +107,25 @@ describe("target wording ties to the recorded cause and nothing else", () => {
         "so Cyntro does not claim that no route exists.",
     )
     // ... and when the same target also has held paths, both are said.
-    expect(targetCoverageNote({ ...withheld, heldCount: 2 })).toBe("coverage withheld · +2 held, not counted")
+    expect(targetCoverageNote({ ...withheld, held: 2 })).toBe("coverage withheld · +2 held, not counted")
+    expect(targetCoverageNote({ ...withheld, held: "unreported" })).toBe("coverage withheld · more paths held, not counted")
+    expect(targetCoverageDescription({ ...withheld, held: "unreported" })).toContain(
+      "Further paths are held (count not reported)")
+  })
+
+  it("AP183-R2 unreadable evidence: unknown and incomplete, no count, and never 'all held'", () => {
+    const unreadable = { kind: "unreadable" as const }
+    expect(targetCoverageNote(unreadable)).toBe("coverage evidence unreadable")
+    for (const text of [targetCoverageDescription(unreadable)!, targetZeroCoverageSubtitle(unreadable)!]) {
+      expect(text).toMatch(/could not be read/)
+      expect(text).toMatch(/No held count is reported/)
+      expect(text).not.toMatch(/\d+ paths? held|Every path|all held/i)
+    }
+    expect(targetZeroCoverageSubtitle(unreadable)).toContain("Cyntro does not claim that no route exists")
   })
 
   it("the all-held empty state explains the hold and claims no absent route", () => {
-    expect(targetZeroCoverageSubtitle({ kind: "lifecycle", heldCount: 1 })).toBe(
+    expect(targetZeroCoverageSubtitle({ kind: "lifecycle", held: 1 })).toBe(
       "Every path the active generation found to this crown jewel is held (1 path held): the current state of its " +
         "source could not be established from the inventory snapshot this analysis used. Cyntro does not claim that no " +
         "route exists.",
@@ -113,8 +141,9 @@ describe("target wording ties to the recorded cause and nothing else", () => {
   it("no wording claims a live check", () => {
     const all = [
       LIFECYCLE_HELD_EXPLANATION,
-      targetCoverageDescription({ kind: "lifecycle", heldCount: 2 })!,
-      targetZeroCoverageSubtitle({ kind: "lifecycle", heldCount: 2 })!,
+      targetCoverageDescription({ kind: "lifecycle", held: 2 })!,
+      targetZeroCoverageSubtitle({ kind: "lifecycle", held: 2 })!,
+      targetCoverageDescription({ kind: "unreadable" })!,
     ].join(" ")
     expect(all).not.toMatch(/\blive\b|verified|currently|real[- ]time/i)
   })
@@ -157,8 +186,16 @@ describe("deriveAllLifecycleCoverage over the captured /all answers", () => {
     // a v1-style label and an entry without a reason
     expect(deriveAllLifecycleCoverage({ lifecycle_unverified_systems: ["Billing: jewel_coverage_contract_not_v2", "Odd"] })
       .unverified).toEqual([{ label: "Billing", reason: "jewel_coverage_contract_not_v2" }, { label: "Odd", reason: null }])
-    // explicit nulls are absence (the legacy shape), not malformed
-    expect(deriveAllLifecycleCoverage({ lifecycle_held_systems: null, lifecycle_unverified_systems: null }).incomplete).toBe(false)
+  })
+
+  it("AP183-R1 CONSTRUCTED: an explicit null list is PRESENT and unreadable; only an absent field is no evidence", () => {
+    for (const field of ["lifecycle_held_systems", "lifecycle_unverified_systems"]) {
+      expect(deriveAllLifecycleCoverage({ [field]: null }), field).toEqual({
+        held: [], unverified: [], unreadable: true, heldTotal: null, incomplete: true,
+      })
+    }
+    expect(deriveAllLifecycleCoverage({}).incomplete).toBe(false)
+    expect(deriveAllLifecycleCoverage({ lifecycle_held_systems: undefined }).incomplete).toBe(false)
   })
 
   it("each backend reason has its own wording; an unknown or absent one is the generic wording", () => {
@@ -170,5 +207,13 @@ describe("deriveAllLifecycleCoverage over the captured /all answers", () => {
     )
     expect(unverifiedReasonText("something_new")).toBe("its lifecycle coverage could not be verified")
     expect(unverifiedReasonText(null)).toBe("its lifecycle coverage could not be verified")
+  })
+
+  it("AP183-R3: a code that names an Object prototype member is unknown, and its wording is a string", () => {
+    for (const code of ["constructor", "toString", "__proto__", "hasOwnProperty", "valueOf", "__defineGetter__"]) {
+      const text = unverifiedReasonText(code)
+      expect(typeof text, code).toBe("string")
+      expect(text, code).toBe("its lifecycle coverage could not be verified")
+    }
   })
 })

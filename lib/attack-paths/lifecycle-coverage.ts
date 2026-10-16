@@ -11,10 +11,11 @@
  * - `/api/attack-paths/{system}/targets`: per target, `coverage_withheld_reason` (`lifecycle_held`, or a stage-receipt
  *   code) and, on an install only, `held_path_count`.
  *
- * Rules: a held count is shown only where the backend supplies one, as a whole number of at least 1. Absent or
- * malformed means "count not reported", never zero. A lifecycle field present in a shape this contract does not
- * describe is unreadable, never "none held". The wording says what the analysis could not establish; it claims no
- * live check.
+ * Rules: a held count is shown only where the backend supplies one, as a whole number of at least 1, never zero. ABSENT
+ * evidence is no evidence: the row or answer reads as before. PRESENT evidence in a shape this contract does not
+ * describe (a `null` list, a `0` or `"2"` count, a non-string reason) is unreadable: incomplete, count not reported,
+ * never "none held", never "all held". The one documented exception is the non-install route's `null` reason, which
+ * means nothing recorded. The wording says what the analysis could not establish; it claims no live check.
  */
 
 /** The target-catalog reason for a target some of whose paths are lifecycle-held. */
@@ -39,49 +40,97 @@ export const LIFECYCLE_HELD_EXPLANATION =
 
 // ── per target (the target catalog) ─────────────────────────────────────────────────────────────────────────────
 
+/** A target's held paths as served: a well-formed count, or held with the count not reported. */
+export type HeldPaths = number | "unreported"
+
 export type TargetCoverageCause =
   /** Some (or all) of this target's paths are lifecycle-held. */
-  | { kind: "lifecycle"; heldCount: number | null }
-  /** The active generation withheld this target's coverage for another recorded reason (a stage-receipt code). */
-  | { kind: "withheld"; code: string; heldCount: number | null }
+  | { kind: "lifecycle"; held: HeldPaths }
+  /** The active generation withheld this target's coverage for another recorded reason (a stage-receipt code);
+   *  `held` says whether paths are also held. */
+  | { kind: "withheld"; code: string; held: HeldPaths | "none" }
+  /** (AP183) Coverage evidence was served for this target in a shape the contract does not describe: unknown. The
+   *  target is not complete, no held count is reported, and nothing says its paths are all held. */
+  | { kind: "unreadable" }
   /** Nothing recorded: the target reads exactly as before. */
   | { kind: "none" }
 
+/** The "nothing recorded" cause, for rows that carry none (legacy /jewels rows, resolved targets). */
+export const NO_TARGET_COVERAGE_CAUSE: TargetCoverageCause = { kind: "none" }
+
 /** The recorded cause of a target's incomplete coverage, from its own `coverage_withheld_reason` and
- *  `held_path_count`. A receipt code takes precedence (the backend sets `lifecycle_held` only when there is none); a
- *  held count the backend reported without a reason is still held. */
+ *  `held_path_count` as served.
+ *
+ *  `undefined` means not served (a JSON body cannot carry it). A `null` reason is the documented "nothing recorded" of
+ *  the non-install route, whose model serialises an absent reason as null. Any other value that is not the documented
+ *  shape is present but unreadable: a reason that is not a non-empty string, or a count that is not a whole number of
+ *  at least 1 (`0`, `null`, `"2"`, `1.5`). A receipt code takes precedence (the backend sets `lifecycle_held` only when
+ *  there is none). A well-formed held count without a reason is still held. */
 export function targetCoverageCause(reason: unknown, heldPathCount: unknown): TargetCoverageCause {
-  const heldCount = heldCountOrNull(heldPathCount)
-  if (reason === LIFECYCLE_HELD_REASON) return { kind: "lifecycle", heldCount }
-  if (typeof reason === "string" && reason.trim()) return { kind: "withheld", code: reason.trim(), heldCount }
-  if (heldCount !== null) return { kind: "lifecycle", heldCount }
-  return { kind: "none" }
+  const count = heldCountOrNull(heldPathCount)
+  const countUnreadable = heldPathCount !== undefined && count === null
+  const code = typeof reason === "string" && reason.trim() ? reason.trim() : null
+  if (reason !== undefined && reason !== null && code === null) return { kind: "unreadable" }
+  const held: HeldPaths | "none" = count !== null ? count : countUnreadable ? "unreported" : "none"
+  if (code === LIFECYCLE_HELD_REASON) return { kind: "lifecycle", held: held === "none" ? "unreported" : held }
+  if (code !== null) return { kind: "withheld", code, held }
+  if (count !== null) return { kind: "lifecycle", held: count }
+  if (countUnreadable) return { kind: "unreadable" }
+  return NO_TARGET_COVERAGE_CAUSE
 }
+
+/** True when some of the target's paths are held (lifecycle-held, or held beside a receipt code). */
+export function targetHasHeldPaths(cause: TargetCoverageCause): boolean {
+  return cause.kind === "lifecycle" || (cause.kind === "withheld" && cause.held !== "none")
+}
+
+/** The well-formed held count of a cause, or null (none held, count not reported, or unreadable). */
+export function targetHeldCount(cause: TargetCoverageCause): number | null {
+  return (cause.kind === "lifecycle" || cause.kind === "withheld") && typeof cause.held === "number" ? cause.held : null
+}
+
+function heldNote(held: HeldPaths): string {
+  return typeof held === "number" ? `+${held} held, not counted` : "more paths held, not counted"
+}
+
+const UNREADABLE_DESCRIPTION =
+  "The coverage evidence served for this target could not be read, so its paths may not be the whole picture. No held " +
+  "count is reported."
 
 /** The one-line note a target row carries beside its own path count, or null when nothing is recorded. */
 export function targetCoverageNote(cause: TargetCoverageCause): string | null {
   if (cause.kind === "none") return null
-  const held = cause.heldCount !== null ? `+${cause.heldCount} held, not counted` : null
-  if (cause.kind === "lifecycle") return held ?? "more paths held, not counted"
-  return held ? `coverage withheld · ${held}` : "coverage withheld"
+  if (cause.kind === "unreadable") return "coverage evidence unreadable"
+  if (cause.kind === "lifecycle") return heldNote(cause.held)
+  return cause.held === "none" ? "coverage withheld" : `coverage withheld · ${heldNote(cause.held)}`
 }
 
 /** The row / chip explanation for a target with a recorded cause, or null (the state's own description applies). */
 export function targetCoverageDescription(cause: TargetCoverageCause): string | null {
   if (cause.kind === "none") return null
+  if (cause.kind === "unreadable") return UNREADABLE_DESCRIPTION
   if (cause.kind === "lifecycle") {
-    const count = cause.heldCount !== null ? ` (${heldPathsPhrase(cause.heldCount)})` : ""
+    const count = typeof cause.held === "number" ? ` (${heldPathsPhrase(cause.held)})` : ""
     return `Lifecycle coverage incomplete${count}. ${LIFECYCLE_HELD_EXPLANATION}`
   }
-  const count = cause.heldCount !== null ? ` ${heldPathsPhrase(cause.heldCount)}: ${LIFECYCLE_HELD_EXPLANATION}` : ""
-  return `The active generation withheld coverage of this target (${cause.code}), so its paths are not the whole picture.${count}`
+  const held =
+    cause.held === "none" ? ""
+      : ` ${typeof cause.held === "number" ? heldPathsPhrase(cause.held) : "Further paths are held (count not reported)"}: ` +
+        LIFECYCLE_HELD_EXPLANATION
+  return `The active generation withheld coverage of this target (${cause.code}), so its paths are not the whole picture.${held}`
 }
 
 /** The current-access empty state of a selected target that has no listed path and a recorded cause. */
 export function targetZeroCoverageSubtitle(cause: TargetCoverageCause): string | null {
   if (cause.kind === "none") return null
+  if (cause.kind === "unreadable") {
+    return (
+      "The coverage evidence served for this crown jewel could not be read, so Cyntro does not claim that no route " +
+      "exists. No held count is reported."
+    )
+  }
   if (cause.kind === "lifecycle") {
-    const count = cause.heldCount !== null ? ` (${heldPathsPhrase(cause.heldCount)})` : ""
+    const count = typeof cause.held === "number" ? ` (${heldPathsPhrase(cause.held)})` : ""
     return (
       `Every path the active generation found to this crown jewel is held${count}: the current state of its source ` +
       "could not be established from the inventory snapshot this analysis used. Cyntro does not claim that no route exists."
@@ -120,30 +169,34 @@ export interface AllLifecycleCoverage {
   incomplete: boolean
 }
 
-const UNVERIFIED_REASON_TEXT: Record<string, string> = {
-  jewel_coverage_record_missing: "no lifecycle coverage record was published for it",
-  jewel_coverage_contract_not_v2: "its coverage record predates lifecycle checks",
-  jewel_coverage_lifecycle_invalid: "its coverage record could not be read",
-  jewel_coverage_applicability_unknown: "whether lifecycle checks apply to it could not be established",
-}
+// A Map, never an object index: a code like "constructor", "toString" or "__proto__" must miss, not hit a prototype
+// member (AP183-R3).
+const UNVERIFIED_REASON_TEXT: ReadonlyMap<string, string> = new Map([
+  ["jewel_coverage_record_missing", "no lifecycle coverage record was published for it"],
+  ["jewel_coverage_contract_not_v2", "its coverage record predates lifecycle checks"],
+  ["jewel_coverage_lifecycle_invalid", "its coverage record could not be read"],
+  ["jewel_coverage_applicability_unknown", "whether lifecycle checks apply to it could not be established"],
+])
 
 /** Customer wording for an unverified system's reason code; an unknown or absent code is the generic wording. */
 export function unverifiedReasonText(reason: string | null): string {
-  return (reason && UNVERIFIED_REASON_TEXT[reason]) || "its lifecycle coverage could not be verified"
+  return (reason !== null && UNVERIFIED_REASON_TEXT.get(reason)) || "its lifecycle coverage could not be verified"
 }
 
 function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null
 }
 
-/** The lifecycle evidence of one `/all` answer. Absent fields are no evidence (the legacy and resolved shapes). */
+/** The lifecycle evidence of one `/all` answer. An ABSENT field is no evidence (the legacy and resolved shapes); the
+ *  backend writes either list only when it is non-empty, so a present field that is not an array -- `null` included --
+ *  is unreadable (AP183-R1). */
 export function deriveAllLifecycleCoverage(raw: unknown): AllLifecycleCoverage {
   const p = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>
   const held: LifecycleHeldSystem[] = []
   const unverified: LifecycleUnverifiedSystem[] = []
   let unreadable = false
 
-  if (p.lifecycle_held_systems !== undefined && p.lifecycle_held_systems !== null) {
+  if (p.lifecycle_held_systems !== undefined) {
     if (!Array.isArray(p.lifecycle_held_systems)) {
       unreadable = true
     } else {
@@ -159,7 +212,7 @@ export function deriveAllLifecycleCoverage(raw: unknown): AllLifecycleCoverage {
     }
   }
 
-  if (p.lifecycle_unverified_systems !== undefined && p.lifecycle_unverified_systems !== null) {
+  if (p.lifecycle_unverified_systems !== undefined) {
     if (!Array.isArray(p.lifecycle_unverified_systems)) {
       unreadable = true
     } else {

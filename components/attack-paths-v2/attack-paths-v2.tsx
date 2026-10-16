@@ -58,8 +58,8 @@ import {
 } from "@/lib/attack-paths/target-catalog"
 import {
   LIFECYCLE_HELD_EXPLANATION,
+  NO_TARGET_COVERAGE_CAUSE,
   heldPathsPhrase,
-  targetCoverageCause,
   targetZeroCoverageSubtitle,
 } from "@/lib/attack-paths/lifecycle-coverage"
 import { ConvergenceMapLoader } from "./convergence-map-loader"
@@ -558,23 +558,28 @@ export function AttackPathsV2({
     (selectedJewelZeroState === "no_modeled_route" ||
       selectedJewelZeroState === "coverage_incomplete" ||
       selectedJewelZeroState === "projection_not_ready")
+  // AP182/AP183: a cause recorded on the selected target (lifecycle-held, a withheld receipt code, unreadable evidence)
+  // means its coverage is incomplete. It replaces both a "no route" claim and the missing-manifest copy. A target with
+  // nothing recorded keeps the established copy.
+  const selectedCoverageSubtitle =
+    selectedJewelZeroState === "no_modeled_route" || selectedJewelZeroState === "coverage_incomplete"
+      ? targetZeroCoverageSubtitle(selectedJewel?.coverage_cause ?? NO_TARGET_COVERAGE_CAUSE)
+      : null
   const currentAccessZeroTitle =
-    selectedJewelZeroState === "no_modeled_route"
-      ? "No modeled current-access route"
-      : selectedJewelZeroState === "coverage_incomplete"
-        ? "Current-access coverage incomplete"
-        : "Attack-path projection not ready"
+    selectedCoverageSubtitle !== null
+      ? "Current-access coverage incomplete"
+      : selectedJewelZeroState === "no_modeled_route"
+        ? "No modeled current-access route"
+        : selectedJewelZeroState === "coverage_incomplete"
+          ? "Current-access coverage incomplete"
+          : "Attack-path projection not ready"
   const currentAccessZeroSubtitle =
-    selectedJewelZeroState === "no_modeled_route"
+    selectedCoverageSubtitle ??
+    (selectedJewelZeroState === "no_modeled_route"
       ? "The active generation evaluated this crown jewel and found no compute-to-jewel route. Lateral and Exfiltration remain separate attacker-lens analyses."
       : selectedJewelZeroState === "coverage_incomplete"
-        // AP182: the recorded cause when there is one (lifecycle-held, or a withheld receipt code); the missing
-        // manifest only when nothing else is recorded.
-        ? targetZeroCoverageSubtitle(
-            targetCoverageCause(selectedJewel?.coverage_withheld_reason, selectedJewel?.held_path_count),
-          ) ??
-          "The active generation has no evaluation manifest for this crown jewel, so Cyntro does not claim that no route exists."
-        : "No active Attack Paths generation can author a current-access conclusion yet."
+        ? "The active generation has no evaluation manifest for this crown jewel, so Cyntro does not claim that no route exists."
+        : "No active Attack Paths generation can author a current-access conclusion yet.")
 
   const iapJewelPaths: ActivePathList<IdentityAttackPath> = useMemo(() => {
     if (!selectedJewelId) return filterActivePaths([])
@@ -1174,8 +1179,8 @@ export function AttackPathsV2({
                       ? iapHoldTitle(railIapHold)
                       : `${jewels.length} targets${isLoading ? " · totals loading…" : ""}`}
                 {/* AP182: with a catalog the counts above ARE its listed paths (displayedPathCount =
-                    catalogTotals.pathCount). When some are held or a target's coverage was withheld, say so beside
-                    them, never as a total. */}
+                    catalogTotals.pathCount). When some are held, or a target's coverage was withheld or served
+                    unreadable, say so beside them, never as a total. */}
                 {catalogTotals?.lifecycleHeld ? (
                   <span title={LIFECYCLE_HELD_EXPLANATION} data-testid="catalog-held-not-counted">
                     {` · ${heldPathsPhrase(catalogTotals.heldPathCount)}, not counted`}
@@ -1185,6 +1190,13 @@ export function AttackPathsV2({
                   <span data-testid="catalog-coverage-withheld">
                     {` · coverage withheld for ${catalogTotals.withheldTargetCount} target${
                       catalogTotals.withheldTargetCount === 1 ? "" : "s"
+                    }`}
+                  </span>
+                ) : null}
+                {catalogTotals && catalogTotals.unreadableTargetCount > 0 ? (
+                  <span data-testid="catalog-coverage-unreadable">
+                    {` · coverage evidence unreadable for ${catalogTotals.unreadableTargetCount} target${
+                      catalogTotals.unreadableTargetCount === 1 ? "" : "s"
                     }`}
                   </span>
                 ) : null}

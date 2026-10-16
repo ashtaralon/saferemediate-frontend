@@ -119,9 +119,11 @@ describe("AttackPathsV2 whole page — lifecycle-held targets", () => {
     serve(capturedSection)
     await renderPage()
     await waitFor(() => expect(screen.getByText("Current-access coverage incomplete")).toBeInTheDocument())
-    expect(screen.getByText(/Every path the active generation found to this crown jewel is held \(1 path held\)/))
-      .toBeInTheDocument()
-    expect(screen.queryByText(/has no evaluation manifest for this crown jewel/)).toBeNull()
+    // Both columns: the page's empty state AND the path list (AP183: the path list had kept the manifest copy).
+    expect(screen.getAllByText(/Every path the active generation found to this crown jewel is held \(1 path held\)/))
+      .toHaveLength(2)
+    expect(screen.getByTestId("coverage-incomplete-state")).toHaveAttribute("data-coverage-cause", "lifecycle")
+    expect(screen.queryByText(/has no evaluation manifest for/)).toBeNull()
   })
 
   it("a target with nothing recorded keeps the established empty-state copy", async () => {
@@ -132,6 +134,55 @@ describe("AttackPathsV2 whole page — lifecycle-held targets", () => {
     expect(screen.getByText(
       "The active generation has no evaluation manifest for this crown jewel, so Cyntro does not claim that no route exists.",
     )).toBeInTheDocument()
+    // ... and the path list keeps its own established copy, with no recorded cause on it.
+    const pathList = screen.getByTestId("coverage-incomplete-state")
+    expect(pathList).not.toHaveAttribute("data-coverage-cause")
+    expect(pathList).toHaveTextContent("The active generation has no evaluation manifest for db-1. No zero-path conclusion is claimed.")
+  })
+
+  it("AP183-R2 CONSTRUCTED unreadable evidence on the selected target (a captured row's value replaced)", async () => {
+    // db-1 is a no-manifest coverage_incomplete row; db-us-only is turned into a no_modeled_route row. Both carry a
+    // held count no producer writes (0, "bad"): unreadable, so neither empty state may claim a complete answer.
+    const unreadable = {
+      ...SECTION,
+      targets: SECTION.targets.map((t) =>
+        t.name === "db-1" ? { ...t, held_path_count: 0 }
+          : t.name === "db-us-only" ? { ...t, state: "no_modeled_route", held_path_count: "bad" } : t),
+    }
+    for (const name of ["db-1", "db-us-only"]) {
+      setUrl({ system: SYSTEM, jewel: idOf(name, "RDSInstance") })
+      serve(unreadable)
+      await renderPage()
+      await waitFor(() => expect(screen.getByText("Current-access coverage incomplete")).toBeInTheDocument())
+      const subtitles = screen.getAllByText(/The coverage evidence served for this crown jewel could not be read/)
+      expect(subtitles, name).toHaveLength(2)                                   // the page and the path list
+      for (const subtitle of subtitles) {
+        expect(subtitle).toHaveTextContent("No held count is reported.")
+        expect(subtitle.textContent).not.toMatch(/Every path|\d+ paths? held/)
+      }
+      expect(screen.getByTestId("coverage-incomplete-state")).toHaveAttribute("data-coverage-cause", "unreadable")
+      expect(screen.queryByText("No modeled current-access route")).toBeNull()
+      expect(screen.queryByText(/has no evaluation manifest for/)).toBeNull()
+      expect(screen.getByTestId("catalog-coverage-unreadable")).toHaveTextContent(
+        "· coverage evidence unreadable for 2 targets")
+      cleanup()
+      vi.unstubAllGlobals()
+      window.localStorage.clear()
+    }
+  })
+
+  it("CONSTRUCTED control: a no_modeled_route target with nothing recorded keeps its established copy", async () => {
+    setUrl({ system: SYSTEM, jewel: idOf("db-us-only", "RDSInstance") })
+    serve({
+      ...SECTION,
+      targets: SECTION.targets.map((t) => (t.name === "db-us-only" ? { ...t, state: "no_modeled_route" } : t)),
+    })
+    await renderPage()
+    // Both columns keep the established copy: the page's empty state and the path list.
+    await waitFor(() => expect(screen.getAllByText("No modeled current-access route")).toHaveLength(2))
+    expect(screen.getByTestId("no-modeled-route-state")).toBeInTheDocument()
+    expect(screen.queryByTestId("coverage-incomplete-state")).toBeNull()
+    expect(screen.queryByTestId("catalog-coverage-unreadable")).toBeNull()
   })
 
   it("a withheld crown jewel is named withheld with its code, never lifecycle", async () => {
@@ -139,8 +190,12 @@ describe("AttackPathsV2 whole page — lifecycle-held targets", () => {
     serve(capturedSection)
     await renderPage()
     await waitFor(() => expect(screen.getByText("Current-access coverage incomplete")).toBeInTheDocument())
-    const subtitle = screen.getByText(/withheld coverage of this crown jewel/)
-    expect(subtitle).toHaveTextContent("database_eni_binding_not_in_normalized_inventory")
-    expect(subtitle.textContent).not.toMatch(/lifecycle|held \(/i)
+    const subtitles = screen.getAllByText(/withheld coverage of this crown jewel/)
+    expect(subtitles).toHaveLength(2)                                           // the page and the path list
+    for (const subtitle of subtitles) {
+      expect(subtitle).toHaveTextContent("database_eni_binding_not_in_normalized_inventory")
+      expect(subtitle.textContent).not.toMatch(/lifecycle|held \(/i)
+    }
+    expect(screen.getByTestId("coverage-incomplete-state")).toHaveAttribute("data-coverage-cause", "withheld")
   })
 })

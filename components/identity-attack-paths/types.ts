@@ -1,3 +1,4 @@
+import type { TargetCoverageCause } from "@/lib/attack-paths/lifecycle-coverage"
 import type { TargetState } from "@/lib/types"
 
 export interface SeverityBreakdown {
@@ -771,12 +772,10 @@ export interface CrownJewelSummary {
   /** false = reachable_only target that is not in this system's inventory. */
   inventory_present?: boolean
   data_classification_source?: "tag" | "unknown"
-  /** AP182: the catalog's recorded cause of incomplete coverage — `lifecycle_held` or a stage-receipt code
-   *  (lib/attack-paths/lifecycle-coverage.ts). Absent when nothing is recorded. */
-  coverage_withheld_reason?: string
-  /** AP182: lifecycle-held paths to this target, not in `path_count`. null = served but malformed (held, count not
-   *  reported). Absent when not served. */
-  held_path_count?: number | null
+  /** AP182/AP183: the catalog's recorded cause of incomplete coverage (lifecycle-held, a withheld receipt code, or
+   *  unreadable evidence), judged from the row's raw `coverage_withheld_reason` / `held_path_count` by
+   *  lib/attack-paths/lifecycle-coverage.ts. Absent when nothing is recorded. */
+  coverage_cause?: TargetCoverageCause
   // "reachable_only" = jewel isn't tagged to this system but the system's
   // IAM roles reach it via observed edges (shared-bucket-across-systems
   // pattern). Absent/null for in-system jewels.

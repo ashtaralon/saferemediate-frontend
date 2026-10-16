@@ -34,6 +34,8 @@ hand. The inputs behind them are the harness's labelled synthetic rows (X5 / S1 
 
 A test may derive a variant of these bodies ONLY by removing fields, saying which. For example, it may drop
 `held_path_count` to get the non-install shape: the live route's `TargetCatalogEntry` model does not declare it.
-Nothing is added to a body. The malformed-input cases (a non-integer count, an unknown reason, a wrong-shaped list)
-are not fixture bodies. They are constructed values in the unit tests of `lib/attack-paths/lifecycle-coverage.ts` and
-are labelled there.
+Nothing is added to a body. The malformed-input cases (a non-integer or `0` count, a non-string reason, an unknown or
+prototype-named reason code, a `null` or wrong-shaped list) are not fixture bodies, because no producer writes them.
+They are constructed values, labelled `CONSTRUCTED` where they appear: in the unit tests of
+`lib/attack-paths/lifecycle-coverage.ts`, and in the rail / page / card tests (AP183). The rail and page tests build
+theirs from one captured row by replacing one field's value, and say which.

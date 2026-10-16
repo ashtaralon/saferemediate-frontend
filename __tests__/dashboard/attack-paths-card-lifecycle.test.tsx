@@ -59,6 +59,18 @@ describe("derivePathsIntegrity / isCacheablePaths with lifecycle evidence", () =
     expect([i.state, i.canRenderNoneFound, i.listIsPartial]).toEqual(["PARTIAL", false, true])
     expect(isCacheablePaths(contradictory)).toBe(false)
   })
+
+  it.each(["lifecycle_held_systems", "lifecycle_unverified_systems"])(
+    "AP183-R1 CONSTRUCTED: READY + analysis_complete with %s: null is never READY, cached or an all-clear",
+    (field) => {
+      const contradictory = { ...allResolved, [field]: null }
+      const i = derivePathsIntegrity(contradictory)
+      expect([i.state, i.canRenderNoneFound, i.listIsPartial, i.lifecycle.unreadable]).toEqual(["PARTIAL", false, true, true])
+      expect(isCacheablePaths(contradictory)).toBe(false)
+      // the resolved body without the field stays READY and cacheable (the control)
+      expect(isCacheablePaths(allResolved)).toBe(true)
+    },
+  )
 })
 
 describe("AttackPathsCard: lifecycle-held paths are explained, never totalled", () => {
@@ -138,6 +150,34 @@ describe("AttackPathsCard: lifecycle-held paths are explained, never totalled", 
     expect(screen.getByText("Not computed yet — this is not an all-clear")).toBeInTheDocument()
     expect(screen.getByTestId("paths-lifecycle-coverage")).toHaveTextContent("Payments (authored_system:pay)")
     expect(screen.queryByText(/None surfaced reachable jewels/)).toBeNull()
+  })
+
+  it.each(["lifecycle_held_systems", "lifecycle_unverified_systems"])(
+    "AP183-R1 CONSTRUCTED: a READY answer with %s: null renders as unreadable, never the complete card",
+    (field) => {
+      renderCard({ ...allResolved, [field]: null })
+      const note = screen.getByTestId("paths-lifecycle-coverage")
+      expect(note).toHaveTextContent("Part of this answer's lifecycle coverage evidence could not be read.")
+      expect(note.textContent).not.toMatch(/\d+ paths? held/)
+      expect(screen.queryByText(
+        "Crown jewels ranked by priority_score across all inbound paths · click to open the path graph",
+      )).toBeNull()
+      expect(screen.getByText(/Ranked by priority_score/)).toHaveTextContent("lifecycle coverage incomplete")
+    },
+  )
+
+  it("AP183-R3 CONSTRUCTED: reason codes that name Object prototype members render the generic wording", () => {
+    renderCard({
+      ...allMissing,
+      lifecycle_unverified_systems: [
+        "Alpha (k:a): constructor", "Beta (k:b): toString", "Gamma (k:c): __proto__", "Delta (k:d): hasOwnProperty",
+      ],
+    })
+    const note = screen.getByTestId("paths-lifecycle-coverage")
+    for (const label of ["Alpha (k:a)", "Beta (k:b)", "Gamma (k:c)", "Delta (k:d)"]) {
+      expect(note).toHaveTextContent(`${label}: its lifecycle coverage could not be verified`)
+    }
+    expect(note.textContent).not.toMatch(/function|\[object|native code/)
   })
 
   it("a cached reading keeps its stale marker beside the lifecycle note", () => {

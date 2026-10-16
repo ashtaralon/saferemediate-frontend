@@ -16,6 +16,7 @@ import type {
 } from "@/components/identity-attack-paths/types"
 import type { ActivePathList } from "@/lib/active-filters"
 import { initialAccessCategoryFromBackend } from "@/lib/attack-paths/initial-access-from-backend"
+import { NO_TARGET_COVERAGE_CAUSE, targetZeroCoverageSubtitle } from "@/lib/attack-paths/lifecycle-coverage"
 import { getServiceMeta, ServiceTypeBadge } from "@/lib/service-type"
 import type { PathListRow } from "./attack-path-report-types"
 import { compilePathListRow } from "./compile-path-list-row"
@@ -86,6 +87,27 @@ export function PathListGrouped({
   }, [paths, jewel])
 
   if (rows.length === 0) {
+    // AP183: a cause recorded on the target (lifecycle-held, a withheld receipt code, unreadable evidence) means its
+    // coverage is incomplete. It replaces both the "no route" claim and the missing-manifest copy, exactly as the
+    // page's own empty state does. A target with nothing recorded keeps the established copy below.
+    const recordedCause =
+      jewel?.target_state === "no_modeled_route" || jewel?.target_state === "coverage_incomplete"
+        ? targetZeroCoverageSubtitle(jewel.coverage_cause ?? NO_TARGET_COVERAGE_CAUSE)
+        : null
+    if (recordedCause !== null) {
+      return (
+        <div
+          className="px-4 py-6"
+          data-testid="coverage-incomplete-state"
+          data-coverage-cause={jewel?.coverage_cause?.kind}
+        >
+          <div className="text-xs font-medium text-amber-700 dark:text-amber-300">
+            Coverage incomplete
+          </div>
+          <div className="mt-1.5 text-[11px] text-muted-foreground">{recordedCause}</div>
+        </div>
+      )
+    }
     if (jewel?.target_state === "no_modeled_route") {
       return (
         <div className="px-4 py-6" data-testid="no-modeled-route-state">

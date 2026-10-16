@@ -14,7 +14,7 @@
  */
 
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
-import { heldCountOrNull, targetCoverageCause } from "@/lib/attack-paths/lifecycle-coverage"
+import { targetCoverageCause, targetHasHeldPaths, targetHeldCount } from "@/lib/attack-paths/lifecycle-coverage"
 import { TARGET_STATE_CONFIG, type TargetState } from "@/lib/types"
 
 export type TargetSeverityLabel = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
@@ -42,8 +42,10 @@ export interface TargetCatalogEntry {
   manifest_path_count: number | null
   state: TargetState
   crown_jewel_source: string | null
-  /** AP105 / AP177: why this target's coverage is not complete — `lifecycle_held`, or a stage-receipt code. Absent
-   *  when nothing is recorded. */
+  /** AP105 / AP177: why this target's coverage is not complete — `lifecycle_held`, or a stage-receipt code. Absent,
+   *  or null on the non-install route, when nothing is recorded. A value outside this type at runtime is judged
+   *  unreadable, never dropped (lib/attack-paths/lifecycle-coverage.ts targetCoverageCause); so is a malformed
+   *  `held_path_count`. */
   coverage_withheld_reason?: string | null
   /** AP177: lifecycle-held paths to this target, not in `path_count`. Served only on an install, and only when > 0. */
   held_path_count?: number
@@ -112,6 +114,7 @@ function severityOf(entry: TargetCatalogEntry): CrownJewelSummary["severity"] {
 export function targetEntryToJewelSummary(entry: TargetCatalogEntry): CrownJewelSummary {
   const state = isTargetState(entry.state) ? entry.state : undefined
   const hasPaths = Number(entry.path_count ?? 0) > 0
+  const cause = targetCoverageCause(entry.coverage_withheld_reason, entry.held_path_count)
   return {
     id: entry.target_id,
     canonical_id: entry.arn ?? entry.target_id,
@@ -137,14 +140,9 @@ export function targetEntryToJewelSummary(entry: TargetCatalogEntry): CrownJewel
     inventory_present: entry.inventory_present !== false,
     data_classification_source:
       entry.data_classification_source === "tag" ? "tag" : "unknown",
-    // AP182: the recorded cause, carried as served (the row reads exactly as before when neither is present). A held
-    // count that is present but malformed is carried as null: held, count not reported -- never 0.
-    ...(typeof entry.coverage_withheld_reason === "string" && entry.coverage_withheld_reason.trim()
-      ? { coverage_withheld_reason: entry.coverage_withheld_reason.trim() }
-      : {}),
-    ...(entry.held_path_count !== undefined && entry.held_path_count !== null
-      ? { held_path_count: heldCountOrNull(entry.held_path_count) }
-      : {}),
+    // AP182/AP183: the recorded cause, judged HERE from the raw fields, where absence and malformed presence still
+    // differ (lib/attack-paths/lifecycle-coverage.ts). A row with nothing recorded carries no key and reads as before.
+    ...(cause.kind !== "none" ? { coverage_cause: cause } : {}),
   }
 }
 
@@ -173,6 +171,8 @@ export interface TargetCatalogTotals {
   /** Targets whose coverage the active generation withheld for a recorded non-lifecycle reason (a stage-receipt code):
    *  another reason the counts are not totals. */
   withheldTargetCount: number
+  /** (AP183) Targets whose coverage evidence was served unreadable: their part of the counts is unknown. */
+  unreadableTargetCount: number
 }
 
 export function targetCatalogTotals(
@@ -183,6 +183,7 @@ export function targetCatalogTotals(
   }
   const totals: TargetCatalogTotals = {
     pathCount: 0, reachableTargetCount: 0, lifecycleHeld: false, heldPathCount: null, withheldTargetCount: 0,
+    unreadableTargetCount: 0,
   }
   let heldTargets = 0
   let heldCounted = 0
@@ -193,12 +194,14 @@ export function targetCatalogTotals(
     if (paths > 0) totals.reachableTargetCount += 1
     const cause = targetCoverageCause(target.coverage_withheld_reason, target.held_path_count)
     if (cause.kind === "withheld") totals.withheldTargetCount += 1
-    // Held: the lifecycle reason, or a held count served beside a receipt code (well formed or not).
-    if (cause.kind === "lifecycle" || (cause.kind === "withheld" && target.held_path_count != null)) {
+    if (cause.kind === "unreadable") totals.unreadableTargetCount += 1
+    // Held: lifecycle-held, or held beside a receipt code (its count well formed or not reported).
+    if (targetHasHeldPaths(cause)) {
       heldTargets += 1
-      if (cause.heldCount !== null) {
+      const count = targetHeldCount(cause)
+      if (count !== null) {
         heldCounted += 1
-        heldSum += cause.heldCount
+        heldSum += count
       }
     }
   }
