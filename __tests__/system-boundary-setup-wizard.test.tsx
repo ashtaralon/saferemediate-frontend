@@ -136,6 +136,52 @@ describe("the setup wizard", () => {
     expect((screen.getByLabelText("System name") as HTMLInputElement).value).toBe("Typed")
   })
 
+  // (PC1 S0-D) A request identifier already recorded for another person's request, or for a different request of this person,
+  // is a definite refusal: the kept request is settled (resending it can never succeed), the words say what happened, the
+  // typing stays, and the next save is a NEW request.
+  for (const code of ["REQUEST_ID_CONFLICT", "REQUEST_ID_REUSED"] as const) {
+    it(`(PC1 S0-D) a save refused ${code} is settled, said plainly, keeps the typing, and the next save is a new request`, async () => {
+      const store = freshStore()
+      let first = true
+      const c = client({ updateSetup: vi.fn(async (id: string, rid: string, base: number, steps: SetupIntent): Promise<SetupWrite> => {
+        c.updates.push([id, rid, base, steps])
+        if (first) {
+          first = false
+          return { kind: "REFUSED", status: 409, code, detail: {} }
+        }
+        return { kind: "SAVED", status: 200, view: { ...structuredClone(DRAFT), state_version: base + 1, intent: steps } }
+      }) })
+      mount(c, [], store)
+      await settle()
+      fireEvent.click(screen.getByRole("button", { name: "1. System details" }))
+      fireEvent.change(screen.getByLabelText("System name"), { target: { value: "Typed" } })
+      fireEvent.click(screen.getByRole("button", { name: "Save and continue" }))
+      await settle()
+      const alert = screen.getByRole("alert").textContent ?? ""
+      expect(alert).toContain(code)
+      expect(alert).toContain(code === "REQUEST_ID_CONFLICT" ? "another person's request" : "a different request")
+      expect(alert).not.toContain("the same request is resent")
+      expect((screen.getByLabelText("System name") as HTMLInputElement).value).toBe("Typed")
+      expect(store.read().filter((op) => op.kind !== "create")).toHaveLength(0)        // settled: nothing kept to resend
+      fireEvent.click(screen.getByRole("button", { name: "Save and continue" }))
+      await settle()
+      expect(c.updates).toHaveLength(2)
+      expect(c.updates[1][1]).not.toBe(c.updates[0][1])                              // a NEW request id, never the refused one
+    })
+
+    it(`(PC1 S0-D) a Finish refused ${code} is settled and said plainly; nothing is kept to resend`, async () => {
+      const store = freshStore()
+      const c = client({ finishSetup: vi.fn(async (): Promise<SetupWrite> => ({ kind: "REFUSED", status: 409, code, detail: {} })) })
+      mount(c, [], store)
+      await settle()
+      fireEvent.click(screen.getByTestId("setup-finish"))
+      await settle()
+      expect(screen.getByRole("alert").textContent).toContain(`(${code})`)
+      expect(store.read().filter((op) => op.kind === "finish")).toHaveLength(0)
+      expect(screen.queryByRole("button", { name: "Check the save again" })).toBeNull()
+    })
+  }
+
   it("names the step a Finish refusal points at, from the server's answer", async () => {
     const incomplete = capture("incomplete").body.detail
     const c = client({ finishSetup: vi.fn(async (): Promise<SetupWrite> => ({ kind: "REFUSED", status: 409, code: "SETUP_INCOMPLETE",

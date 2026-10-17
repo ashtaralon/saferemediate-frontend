@@ -166,6 +166,14 @@ describe("a Finish names the preview reviewed; its receipt pins it", () => {
     expect(after.kind === "OK" && after.value.outcome?.code).toBe("PREVIEW_INPUT_CHANGED")
   })
 
+  it("(PC1 S0-D) the backend's own REQUEST_ID_REUSED / REQUEST_ID_CONFLICT answers are REFUSED by name, never resent", () => {
+    for (const [name, code] of [["request_id_reused", "REQUEST_ID_REUSED"], ["request_id_conflict", "REQUEST_ID_CONFLICT"]]) {
+      const answer = capture(name, "system-boundary-setup-captures-v5")
+      expect(answer.status, name).toBe(409)
+      expect(writeAnswer({ status: answer.status, json: answer.body }), name).toEqual({ kind: "REFUSED", status: 409, code, detail: {} })
+    }
+  })
+
   it("(S1A-UI-LIFECYCLE-01) a refusal the backend did NOT record is unresolved -- resent, never settled; recorded and pre-attempt ones are definitive", () => {
     const unrecorded = capture("finish_input_changed_unrecorded")
     expect(unrecorded.body.detail.setup).toEqual({ attempt: 1, recorded: false, status: "FINISHING", not_recorded_because: "GRANT_REVOKED" })

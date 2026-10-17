@@ -276,6 +276,12 @@ function explain(answer: Exclude<SetupWrite, { kind: "SAVED" }>, saved: Local | 
   }
   if (answer.kind === "RESEND_SAME") return `Not confirmed yet (${answer.code}). Try again: the same request is resent, unchanged.`
   if (answer.code === "VERSION_CONFLICT") return "This setup changed elsewhere. It was reloaded; your typing is kept, save again."
+  // (PC1 S0-D) The request's identifier is already recorded for ANOTHER person's request (CONFLICT) or for a different request
+  // of this person (REUSED). Resending it can never succeed, so it is settled; what the person typed stays on screen.
+  if (answer.code === "REQUEST_ID_CONFLICT" || answer.code === "REQUEST_ID_REUSED") {
+    return `Not saved: this request's identifier was already used for ${answer.code === "REQUEST_ID_CONFLICT"
+      ? "another person's request" : "a different request"} (${answer.code}). Your typing is kept; saving again sends it as a new request.`
+  }
   const preview = previewRefusalSentence(answer.code)
   if (preview) {
     const held = Array.isArray(answer.detail.accounts)
