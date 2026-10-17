@@ -3,7 +3,7 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_terraform.py",
     "request": {
       "method": "GET",
-      "path": "/api/system-boundary/setup/a89bd47b-53d2-4e5c-a34f-90134b7d2ca4/preview",
+      "path": "/api/system-boundary/setup/4afde81c-6af8-4fec-8ae3-cc0a834a1cff/preview",
       "params": {
         "state_version": 2,
         "account_id": "111122223333",
@@ -17,11 +17,11 @@
   "body": {
     "contract": "system_boundary_setup_preview/v3",
     "state": "COMPUTED",
-    "preview_digest": "v1:0cfaf92f5c239d15b7367c2f8ec0f73afde6c299eeaa621f8c6ea2ba33116de6",
-    "basis_digest": "v1:7aa14315c84dfc59782398c7b25afa4702bfd497a8fb5c2cd2edfc177660f507",
-    "result_digest": "v1:c4760446eecd1a83b82132d4eccb68dcef380487e3ec744cfe44ecb90eecde35",
+    "preview_digest": "v1:7b77e29eb891e7b6a019aa6893dc31410af2b36993609be474565a1440cef49c",
+    "basis_digest": "v1:40d4246a3a5af2e552d08f52912c93fde368877f394ea110f821cb31e33ce2a1",
+    "result_digest": "v1:8d71193e275feb5072af650e693e4cc9706308bae6d959c41d7b0dab84f5b5b0",
     "setup": {
-      "setup_id": "a89bd47b-53d2-4e5c-a34f-90134b7d2ca4",
+      "setup_id": "4afde81c-6af8-4fec-8ae3-cc0a834a1cff",
       "intent_revision": 2,
       "state_version": 2
     },
@@ -73,8 +73,8 @@
               "census_status": "served",
               "census_pin": {
                 "generation": 1,
-                "source_identity": "v1:30e146e0a6143e8883f839774fffa3e7864f440e95a402b69a02afe0d244d9a3",
-                "attempt": "4fcb2dd4ef0f4df58cf1c0c35c0c6d07",
+                "source_identity": "v1:7228a5a14d5b3ca180717720d8d150b98a03cb011e37159fa6f19e82ad31f253",
+                "attempt": "932f33d4624c4435b4e4a1dbb189f08e",
                 "inventory_generation": 1
               },
               "stacks": [
@@ -87,7 +87,7 @@
                   ""
                 ]
               ],
-              "hash": "v1:a444cac76001140fcbb9fe5e6b595de11dcd231f1aff66df404e77983451e0b4"
+              "hash": "v1:56ab1ffa1690b31cc9188a9947112cd048bbcb8f52829c810c7f89067c5efbc8"
             },
             "counts": {
               "stacks": 1,
@@ -206,7 +206,7 @@
             "region": null,
             "deployment": null
           },
-          "binding_id": "f53444f0-fbfd-40d3-bbd8-bb6e50f2d124",
+          "binding_id": "cbc60068-508d-4556-b73f-73b1e7b433e0",
           "state": "JOINED",
           "reason": null,
           "assessment": "assessed",
@@ -245,7 +245,7 @@
             "region": "eu-west-1",
             "deployment": null
           },
-          "binding_id": "9bd66c29-fc82-42ce-894e-e1e41dc8eeb0",
+          "binding_id": "871c7e6c-550e-407f-b4ff-b6940afdd359",
           "state": "HELD",
           "reason": "BINDING_REVOKED",
           "assessment": null,
@@ -262,7 +262,7 @@
             "region": "us-east-1",
             "deployment": null
           },
-          "binding_id": "870cd68f-9302-4857-b1e3-92041f3e97f3",
+          "binding_id": "0b15dcb4-680e-4028-b9db-42d8e832371a",
           "state": "HELD",
           "reason": "BINDING_NOT_FOUND",
           "assessment": null,
@@ -277,7 +277,7 @@
     },
     "page": {
       "contract": "system_boundary_setup_preview/v3",
-      "preview_digest": "v1:0cfaf92f5c239d15b7367c2f8ec0f73afde6c299eeaa621f8c6ea2ba33116de6",
+      "preview_digest": "v1:7b77e29eb891e7b6a019aa6893dc31410af2b36993609be474565a1440cef49c",
       "account_id": "111122223333",
       "bucket": "members",
       "entries": [

@@ -3,7 +3,7 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
     "request": {
       "method": "GET",
-      "path": "/api/system-boundary/setup/3661d938-550e-458b-94c0-599ad34c1893/preview",
+      "path": "/api/system-boundary/setup/b988a134-f825-403e-8e4e-1fdcbeecad57/preview",
       "params": {
         "state_version": "2",
         "account_id": "111122223333",
@@ -17,11 +17,11 @@
   "body": {
     "contract": "system_boundary_setup_preview/v2",
     "state": "COMPUTED",
-    "preview_digest": "v1:6c5e243f0d51ed9208a5866695c492c80222c6b1214342571dfc1fa38d2aa6f1",
-    "basis_digest": "v1:5cb3586a3fa7a352d3ffccf0a7ede26e6865a27eb497aaa5c5845fa85e354814",
-    "result_digest": "v1:a6ec45145925774511a1c5bcdc3b2ef175bde917c0c6d2d0faed009c54f6e59f",
+    "preview_digest": "v1:23a4676035cee83e07edb8030f08641db49c7b60f9a8a38f60e3cfdf24e7a397",
+    "basis_digest": "v1:94b7b7e8441d943c94c904f6c8eaeae69208d9563cd200ea26001533620619db",
+    "result_digest": "v1:f76d172e8426cbf431468a4b594e8681018684cf5c587e04b58deacddae1665c",
     "setup": {
-      "setup_id": "3661d938-550e-458b-94c0-599ad34c1893",
+      "setup_id": "b988a134-f825-403e-8e4e-1fdcbeecad57",
       "intent_revision": 2,
       "state_version": 2
     },
@@ -76,8 +76,8 @@
               "census_status": "served",
               "census_pin": {
                 "generation": 1,
-                "source_identity": "v1:779263faeef6b9755da4a4ebac18d4b7e11a887bd5966c50f019a859bc54089f",
-                "attempt": "894851b5dd9848be88806949f88717b6",
+                "source_identity": "v1:d26f12c762d711c097d9bfb00489af78ddd3529a1932ee3dad6c4982f95e35ef",
+                "attempt": "5b52a233ee214615816d5873369824dd",
                 "inventory_generation": 1
               },
               "stacks": [
@@ -98,7 +98,7 @@
                   ""
                 ]
               ],
-              "hash": "v1:3e660d2b88b8e4441980172cff872926e451fa11f69a0c2e31884a678ab38ffd"
+              "hash": "v1:f9f439942d098596ef005163d286374d2e34fd411dd53e3bef89687c197560d5"
             },
             "counts": {
               "stacks": 2,
@@ -268,7 +268,7 @@
     },
     "page": {
       "contract": "system_boundary_setup_preview/v2",
-      "preview_digest": "v1:6c5e243f0d51ed9208a5866695c492c80222c6b1214342571dfc1fa38d2aa6f1",
+      "preview_digest": "v1:23a4676035cee83e07edb8030f08641db49c7b60f9a8a38f60e3cfdf24e7a397",
       "account_id": "111122223333",
       "bucket": "members",
       "entries": [

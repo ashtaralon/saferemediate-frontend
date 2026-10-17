@@ -3,7 +3,7 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_terraform.py",
     "request": {
       "method": "GET",
-      "path": "/api/system-boundary/setup/a89bd47b-53d2-4e5c-a34f-90134b7d2ca4/preview",
+      "path": "/api/system-boundary/setup/4afde81c-6af8-4fec-8ae3-cc0a834a1cff/preview",
       "params": {
         "state_version": 2
       },
@@ -15,11 +15,11 @@
   "body": {
     "contract": "system_boundary_setup_preview/v3",
     "state": "HELD",
-    "preview_digest": "v1:e2f55f2fc8fde874f962b1852ece0f49faa91a435fb850d0fc77c2074c31b250",
-    "basis_digest": "v1:b098abcf30861d62ad258ca485d125f93596545ff34ce12906b0150f13621099",
-    "result_digest": "v1:7bba93d6dd5bae5e6c5514d3e85aa4d9ba5d5dc3041cb240939818134cd6c522",
+    "preview_digest": "v1:89184840c0c7955f355f48cb2b20d2366d9c4fb048dfc276596133126dbaf16d",
+    "basis_digest": "v1:23dd2fae84914b8398c82e994c9758c9dd80d704682b7271ac336b74c1fd8401",
+    "result_digest": "v1:8a2338b5d7606a16266ecb64dc0240ba6f10fca364a5090b53c742be55f59f4a",
     "setup": {
-      "setup_id": "a89bd47b-53d2-4e5c-a34f-90134b7d2ca4",
+      "setup_id": "4afde81c-6af8-4fec-8ae3-cc0a834a1cff",
       "intent_revision": 2,
       "state_version": 2
     },
@@ -167,7 +167,7 @@
             "region": null,
             "deployment": null
           },
-          "binding_id": "f53444f0-fbfd-40d3-bbd8-bb6e50f2d124",
+          "binding_id": "cbc60068-508d-4556-b73f-73b1e7b433e0",
           "state": "HELD",
           "reason": "ACCOUNT_NOT_JOINED:HELD",
           "assessment": null,
@@ -184,7 +184,7 @@
             "region": "eu-west-1",
             "deployment": null
           },
-          "binding_id": "9bd66c29-fc82-42ce-894e-e1e41dc8eeb0",
+          "binding_id": "871c7e6c-550e-407f-b4ff-b6940afdd359",
           "state": "HELD",
           "reason": "BINDING_REVOKED",
           "assessment": null,
@@ -201,7 +201,7 @@
             "region": "us-east-1",
             "deployment": null
           },
-          "binding_id": "870cd68f-9302-4857-b1e3-92041f3e97f3",
+          "binding_id": "0b15dcb4-680e-4028-b9db-42d8e832371a",
           "state": "HELD",
           "reason": "BINDING_NOT_FOUND",
           "assessment": null,

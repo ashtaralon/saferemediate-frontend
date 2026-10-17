@@ -3,7 +3,7 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
     "request": {
       "method": "PUT",
-      "path": "/api/system-boundary/setup/81a566d6-4c59-423b-a96c-83ad53504320",
+      "path": "/api/system-boundary/setup/6ec773c9-e34f-4945-b73c-f116a64a4ddc",
       "params": null,
       "body": {
         "request_id": "00000000-0000-4000-8000-000000005112",
@@ -35,7 +35,7 @@
                 "selection": {
                   "census": {
                     "generation": 1,
-                    "source_identity": "v1:547867d8216866258ea7dc1a4d17581a3fb33aa2365ce0968f4ef4b784f32080"
+                    "source_identity": "v1:187d78c9555ed903820689bde23e2128d83331cd929070528f2a792ed47ccdd7"
                   },
                   "stack_status": "UPDATE_COMPLETE"
                 }
@@ -65,7 +65,7 @@
   "status": 200,
   "cache_control": "no-store",
   "body": {
-    "setup_id": "81a566d6-4c59-423b-a96c-83ad53504320",
+    "setup_id": "6ec773c9-e34f-4945-b73c-f116a64a4ddc",
     "status": "DRAFT",
     "mode": "create",
     "owner": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
@@ -75,8 +75,8 @@
     "accounts_seen": [
       "111122223333"
     ],
-    "created_at": "2026-10-17T14:29:44.706543+00:00",
-    "updated_at": "2026-10-17T14:29:44.714142+00:00",
+    "created_at": "2026-10-17T15:17:07.776296+00:00",
+    "updated_at": "2026-10-17T15:17:07.784694+00:00",
     "predecessor": null,
     "successor": null,
     "association": null,
@@ -94,7 +94,7 @@
             "selection": {
               "census": {
                 "generation": 1,
-                "source_identity": "v1:547867d8216866258ea7dc1a4d17581a3fb33aa2365ce0968f4ef4b784f32080"
+                "source_identity": "v1:187d78c9555ed903820689bde23e2128d83331cd929070528f2a792ed47ccdd7"
               },
               "stack_status": "UPDATE_COMPLETE"
             },
@@ -151,9 +151,9 @@
             "registration_id": "0123456789abcdef0123456789abcdef",
             "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
             "publication": {
-              "attempt": "7b1e3fac074d480ba3036fddf5a7e432",
+              "attempt": "cba54c4f6b104d40a7ec21c56a661b34",
               "generation": 1,
-              "source_identity": "v1:547867d8216866258ea7dc1a4d17581a3fb33aa2365ce0968f4ef4b784f32080",
+              "source_identity": "v1:187d78c9555ed903820689bde23e2128d83331cd929070528f2a792ed47ccdd7",
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7"
             },
             "stack_status": "UPDATE_COMPLETE",

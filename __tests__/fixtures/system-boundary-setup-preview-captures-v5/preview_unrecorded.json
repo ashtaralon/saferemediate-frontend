@@ -3,7 +3,7 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
     "request": {
       "method": "GET",
-      "path": "/api/system-boundary/setup/dfa6a332-60eb-4265-be17-8918a0bb634b/preview",
+      "path": "/api/system-boundary/setup/5ea898df-97eb-4650-ad6c-949d1374d7e6/preview",
       "params": {
         "state_version": "2"
       },
@@ -15,11 +15,11 @@
   "body": {
     "contract": "system_boundary_setup_preview/v1",
     "state": "COMPUTED",
-    "preview_digest": "v1:6ed49af4c5bddc474b14634da2b0e303b43d6e61a0bd7d5b0d42801b786f01d8",
-    "basis_digest": "v1:66c091af1a6866c3565120c400f4501f94901512658a99fd6130244f5bcd2250",
-    "result_digest": "v1:2a498a4fbb3cdc031b53bb54dd48d3b0eeac18b07b1159cbb23babe1ec7e342b",
+    "preview_digest": "v1:c2f01f63adc7dca153e9fff1bdce38f2d8482897e88ced94eeeebb00d1c12a42",
+    "basis_digest": "v1:0ee7998c31498ade8efa28405fcc51d589345338200474ffbf866dc519fbcf44",
+    "result_digest": "v1:4fa8f9779fba15800a76d619b1b6144387114fb6de425d4e1b729e0f282bc15c",
     "setup": {
-      "setup_id": "dfa6a332-60eb-4265-be17-8918a0bb634b",
+      "setup_id": "5ea898df-97eb-4650-ad6c-949d1374d7e6",
       "intent_revision": 2,
       "state_version": 2
     },
@@ -71,8 +71,8 @@
               "census_status": "served",
               "census_pin": {
                 "generation": 1,
-                "source_identity": "v1:89dfb65624ab830a5e8bdafabc1775a19b30efd4b0a6a44ba1349fcfff2b20dc",
-                "attempt": "9b84a266c3164a0a8a718ba2fd8aabc1",
+                "source_identity": "v1:975de5620d17bee52d8e79c720cd9a158bb3d6f88586c986bc3f4c4176717241",
+                "attempt": "a70cab84aaad406ab307481eaa64f7c9",
                 "inventory_generation": 1
               },
               "stacks": [
@@ -85,7 +85,7 @@
                   ""
                 ]
               ],
-              "hash": "v1:66157a9844ddf774d6a5db73663af015485c5ebdebce68130a9c2ff6878dcb48"
+              "hash": "v1:2496667178ab90493a328dee155b1965c686cc91a6455bc85cd0f4b8bab5ecb3"
             },
             "counts": {
               "stacks": 1,

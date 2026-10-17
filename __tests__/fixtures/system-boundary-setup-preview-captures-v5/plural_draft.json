@@ -3,7 +3,7 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
     "request": {
       "method": "PUT",
-      "path": "/api/system-boundary/setup/61072223-4cad-4dd4-8c09-6d271745a9b8",
+      "path": "/api/system-boundary/setup/b988a134-f825-403e-8e4e-1fdcbeecad57",
       "params": null,
       "body": {
         "request_id": "00000000-0000-4000-8000-000000005142",
@@ -48,7 +48,7 @@
                 "selection": {
                   "census": {
                     "generation": 1,
-                    "source_identity": "v1:e64c1384cd375bf572a95a81e4402c748b7492d49da436215e2c3349ae7dc0eb"
+                    "source_identity": "v1:d26f12c762d711c097d9bfb00489af78ddd3529a1932ee3dad6c4982f95e35ef"
                   },
                   "stack_status": "UPDATE_COMPLETE"
                 },
@@ -62,7 +62,7 @@
                 "selection": {
                   "census": {
                     "generation": 1,
-                    "source_identity": "v1:e64c1384cd375bf572a95a81e4402c748b7492d49da436215e2c3349ae7dc0eb"
+                    "source_identity": "v1:d26f12c762d711c097d9bfb00489af78ddd3529a1932ee3dad6c4982f95e35ef"
                   },
                   "stack_status": "UPDATE_COMPLETE"
                 },
@@ -108,7 +108,7 @@
   "status": 200,
   "cache_control": "no-store",
   "body": {
-    "setup_id": "61072223-4cad-4dd4-8c09-6d271745a9b8",
+    "setup_id": "b988a134-f825-403e-8e4e-1fdcbeecad57",
     "status": "DRAFT",
     "mode": "create",
     "owner": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
@@ -118,8 +118,8 @@
     "accounts_seen": [
       "111122223333"
     ],
-    "created_at": "2026-10-17T14:29:47.208256+00:00",
-    "updated_at": "2026-10-17T14:29:47.215709+00:00",
+    "created_at": "2026-10-17T15:17:10.383793+00:00",
+    "updated_at": "2026-10-17T15:17:10.393221+00:00",
     "predecessor": null,
     "successor": null,
     "association": null,
@@ -138,7 +138,7 @@
             "selection": {
               "census": {
                 "generation": 1,
-                "source_identity": "v1:e64c1384cd375bf572a95a81e4402c748b7492d49da436215e2c3349ae7dc0eb"
+                "source_identity": "v1:d26f12c762d711c097d9bfb00489af78ddd3529a1932ee3dad6c4982f95e35ef"
               },
               "stack_status": "UPDATE_COMPLETE"
             },
@@ -152,7 +152,7 @@
             "selection": {
               "census": {
                 "generation": 1,
-                "source_identity": "v1:e64c1384cd375bf572a95a81e4402c748b7492d49da436215e2c3349ae7dc0eb"
+                "source_identity": "v1:d26f12c762d711c097d9bfb00489af78ddd3529a1932ee3dad6c4982f95e35ef"
               },
               "stack_status": "UPDATE_COMPLETE"
             },
@@ -238,9 +238,9 @@
             "registration_id": "0123456789abcdef0123456789abcdef",
             "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
             "publication": {
-              "attempt": "bcf18993bbf6419c84d24bb0fe69ae86",
+              "attempt": "5b52a233ee214615816d5873369824dd",
               "generation": 1,
-              "source_identity": "v1:e64c1384cd375bf572a95a81e4402c748b7492d49da436215e2c3349ae7dc0eb",
+              "source_identity": "v1:d26f12c762d711c097d9bfb00489af78ddd3529a1932ee3dad6c4982f95e35ef",
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7"
             },
             "stack_status": "UPDATE_COMPLETE",
@@ -276,9 +276,9 @@
             "registration_id": "0123456789abcdef0123456789abcdef",
             "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
             "publication": {
-              "attempt": "bcf18993bbf6419c84d24bb0fe69ae86",
+              "attempt": "5b52a233ee214615816d5873369824dd",
               "generation": 1,
-              "source_identity": "v1:e64c1384cd375bf572a95a81e4402c748b7492d49da436215e2c3349ae7dc0eb",
+              "source_identity": "v1:d26f12c762d711c097d9bfb00489af78ddd3529a1932ee3dad6c4982f95e35ef",
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7"
             },
             "stack_status": "UPDATE_COMPLETE",

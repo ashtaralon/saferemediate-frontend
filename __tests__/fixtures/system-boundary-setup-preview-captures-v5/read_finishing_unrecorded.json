@@ -3,7 +3,7 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
     "request": {
       "method": "GET",
-      "path": "/api/system-boundary/setup/9a6fd839-435b-46e1-b1d4-cd6e2171d698",
+      "path": "/api/system-boundary/setup/5ea898df-97eb-4650-ad6c-949d1374d7e6",
       "params": null,
       "body": null
     }
@@ -11,7 +11,7 @@
   "status": 200,
   "cache_control": "no-store",
   "body": {
-    "setup_id": "9a6fd839-435b-46e1-b1d4-cd6e2171d698",
+    "setup_id": "5ea898df-97eb-4650-ad6c-949d1374d7e6",
     "status": "FINISHING",
     "mode": "create",
     "owner": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
@@ -21,8 +21,8 @@
     "accounts_seen": [
       "111122223333"
     ],
-    "created_at": "2026-10-17T14:29:46.207632+00:00",
-    "updated_at": "2026-10-17T14:29:46.302458+00:00",
+    "created_at": "2026-10-17T15:17:09.276423+00:00",
+    "updated_at": "2026-10-17T15:17:09.377137+00:00",
     "predecessor": null,
     "successor": null,
     "association": null,
@@ -40,7 +40,7 @@
             "selection": {
               "census": {
                 "generation": 1,
-                "source_identity": "v1:dfeede863cf00fb18c91600e0ea31832cd992b692bce9e2ddaf56429b7f7b1c5"
+                "source_identity": "v1:975de5620d17bee52d8e79c720cd9a158bb3d6f88586c986bc3f4c4176717241"
               },
               "stack_status": "UPDATE_COMPLETE"
             },
@@ -97,9 +97,9 @@
             "registration_id": "0123456789abcdef0123456789abcdef",
             "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
             "publication": {
-              "attempt": "4dda80d7cfe4437bba3faa916cd0cc61",
+              "attempt": "3d1d81b1386d497c86daba96e07c4fcd",
               "generation": 2,
-              "source_identity": "v1:17c3c580308301827bd06feadba4ce1285816c11cd01779d01ad76c66bc2fad5",
+              "source_identity": "v1:d4999cde71b0040e6b6ef1ef020e0c2d836166af4be6cac90ec21ba5d83f362d",
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7"
             },
             "stack_status": "UPDATE_COMPLETE",
@@ -200,18 +200,18 @@
     "attempt": {
       "attempt": 1,
       "actor": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
-      "created_at": "2026-10-17T14:29:46.302458+00:00",
-      "recover_after": "2026-10-17T14:44:46.302458+00:00",
+      "created_at": "2026-10-17T15:17:09.377137+00:00",
+      "recover_after": "2026-10-17T15:32:09.377137+00:00",
       "intent_revision": 2,
       "base_revision": 1,
       "expected_versions": {},
-      "save_request_id": "56ac1987-0498-42a7-9304-5f07cb4f66b7"
+      "save_request_id": "82ee0b49-edc7-4ae0-8092-f1b77cb9215e"
     },
     "outcome": null,
     "receipt": null,
     "reconciliation": {
       "attempt": 1,
-      "recover_after": "2026-10-17T14:44:46.302458+00:00",
+      "recover_after": "2026-10-17T15:32:09.377137+00:00",
       "state": "OPEN"
     },
     "result_scope": null,

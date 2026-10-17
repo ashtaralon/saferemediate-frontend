@@ -3,10 +3,10 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_terraform.py",
     "request": {
       "method": "PUT",
-      "path": "/api/system-boundary/setup/5347dad8-d99e-48e4-b233-5a9cc78b3fb7",
+      "path": "/api/system-boundary/setup/4afde81c-6af8-4fec-8ae3-cc0a834a1cff",
       "params": null,
       "body": {
-        "request_id": "9d3db705-2760-4cdb-b620-d7f14b780316",
+        "request_id": "73834a88-5a6a-428b-bc0c-1eafdfc236e5",
         "base_state_version": 1,
         "steps": {
           "declaration": {
@@ -35,7 +35,7 @@
                 "selection": {
                   "census": {
                     "generation": 1,
-                    "source_identity": "v1:c24f8768fca2480e360183cbe84598abbd56acaef52d0d05aa33016b81524f1a"
+                    "source_identity": "v1:7228a5a14d5b3ca180717720d8d150b98a03cb011e37159fa6f19e82ad31f253"
                   },
                   "stack_status": "UPDATE_COMPLETE"
                 }
@@ -52,7 +52,7 @@
               "reason_code": "USE_EXISTING",
               "ref": {
                 "kind": "terraform_state",
-                "key": "7b290ac9-82a7-40c7-bcef-8396166c5d78"
+                "key": "cbc60068-508d-4556-b73f-73b1e7b433e0"
               }
             },
             {
@@ -65,7 +65,7 @@
               "reason_code": "USE_EXISTING",
               "ref": {
                 "kind": "terraform_state",
-                "key": "18758599-1528-42da-897e-f7fe52934ecc"
+                "key": "871c7e6c-550e-407f-b4ff-b6940afdd359"
               }
             },
             {
@@ -78,7 +78,7 @@
               "reason_code": "USE_EXISTING",
               "ref": {
                 "kind": "terraform_state",
-                "key": "85222e3f-ba6d-4e01-a356-e57a166928ac"
+                "key": "0b15dcb4-680e-4028-b9db-42d8e832371a"
               }
             }
           ],
@@ -90,7 +90,7 @@
   "status": 200,
   "cache_control": "no-store",
   "body": {
-    "setup_id": "5347dad8-d99e-48e4-b233-5a9cc78b3fb7",
+    "setup_id": "4afde81c-6af8-4fec-8ae3-cc0a834a1cff",
     "status": "DRAFT",
     "mode": "create",
     "owner": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
@@ -100,8 +100,8 @@
     "accounts_seen": [
       "111122223333"
     ],
-    "created_at": "2026-10-17T14:29:56.845074+00:00",
-    "updated_at": "2026-10-17T14:29:56.852357+00:00",
+    "created_at": "2026-10-17T15:17:20.212277+00:00",
+    "updated_at": "2026-10-17T15:17:20.223826+00:00",
     "predecessor": null,
     "successor": null,
     "association": null,
@@ -119,7 +119,7 @@
             "selection": {
               "census": {
                 "generation": 1,
-                "source_identity": "v1:c24f8768fca2480e360183cbe84598abbd56acaef52d0d05aa33016b81524f1a"
+                "source_identity": "v1:7228a5a14d5b3ca180717720d8d150b98a03cb011e37159fa6f19e82ad31f253"
               },
               "stack_status": "UPDATE_COMPLETE"
             },
@@ -148,7 +148,7 @@
           "choice": "use_existing",
           "reason_code": "USE_EXISTING",
           "ref": {
-            "key": "7b290ac9-82a7-40c7-bcef-8396166c5d78",
+            "key": "cbc60068-508d-4556-b73f-73b1e7b433e0",
             "kind": "terraform_state"
           },
           "scope": {
@@ -160,7 +160,7 @@
           "choice": "use_existing",
           "reason_code": "USE_EXISTING",
           "ref": {
-            "key": "18758599-1528-42da-897e-f7fe52934ecc",
+            "key": "871c7e6c-550e-407f-b4ff-b6940afdd359",
             "kind": "terraform_state"
           },
           "scope": {
@@ -173,7 +173,7 @@
           "choice": "use_existing",
           "reason_code": "USE_EXISTING",
           "ref": {
-            "key": "85222e3f-ba6d-4e01-a356-e57a166928ac",
+            "key": "0b15dcb4-680e-4028-b9db-42d8e832371a",
             "kind": "terraform_state"
           },
           "scope": {
@@ -197,7 +197,7 @@
           "reason": "SNAPSHOT_UPLOADED",
           "registration_id": "0123456789abcdef0123456789abcdef",
           "proof": {
-            "binding_id": "7b290ac9-82a7-40c7-bcef-8396166c5d78",
+            "binding_id": "cbc60068-508d-4556-b73f-73b1e7b433e0",
             "binding_revision": 1,
             "registration_id": "0123456789abcdef0123456789abcdef",
             "content_digest": "sha256:1878f34f87a7d24f421ded1bf4360684824c46d39005b6d851cab697502f28a1",
@@ -220,7 +220,7 @@
                 "resolved": 3
               }
             },
-            "record_digest": "sha256:ec4d1e17d4399e73a8e1ebda2b97e6f41ded2f9a5b9ffccfb8e04d4f2154e29b"
+            "record_digest": "sha256:c739df45c87d81f39d6111c66c724593ac9c49af5d52c0962434bf818b054abe"
           }
         },
         "status_axes": {
@@ -250,7 +250,7 @@
           "reason": "BINDING_REVOKED",
           "registration_id": "0123456789abcdef0123456789abcdef",
           "proof": {
-            "binding_id": "18758599-1528-42da-897e-f7fe52934ecc",
+            "binding_id": "871c7e6c-550e-407f-b4ff-b6940afdd359",
             "binding_revision": 1,
             "registration_id": "0123456789abcdef0123456789abcdef"
           }
