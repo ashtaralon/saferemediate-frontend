@@ -91,6 +91,25 @@ describe("S10 · the convergence summary names a typed refusal", () => {
   })
 })
 
+describe("S10 (T-3) · a 503 INVENTORY_SCOPE_UNAVAILABLE settles the summary once with its reason", () => {
+  it.each([
+    ["NO_DATA_ACCOUNTS (a defined install state)", "NO_DATA_ACCOUNTS",
+      "Attack-path summary: No workload account is connected yet — connect one in Settings › Accounts"],
+    ["an unlisted reason (CONSTRUCTED)", "INVENTORY_SCOPE_UNAVAILABLE",
+      "Attack-path summary: Not available for this scope — INVENTORY_SCOPE_UNAVAILABLE: INVENTORY_SCOPE_UNAVAILABLE"],
+  ])("%s: settled, one summary read, never 'backend may be cold'", async (_n, reason, words) => {
+    const f = serve({ status: 503, body: { detail: { code: "INVENTORY_SCOPE_UNAVAILABLE", reason } } })
+    const { result, unmount } = renderHook(() => useCrownJewelConvergence(SYSTEM, JEWEL as never))
+    await waitFor(() => expect(result.current.settled).toBe(true))
+    expect(result.current.error).toBe(words)
+    expect(result.current.retrying).toBe(false)
+    expect(result.current.attempts).toBe(1)
+    // the browser's own summary reads (the proxy's backend call is not one)
+    expect(f.mock.calls.filter(([u]) => String(u).startsWith(`/api/proxy/attack-paths/${SYSTEM}/by-crown-jewel/summary`))).toHaveLength(1)
+    unmount()
+  })
+})
+
 describe("S10 · lateral reach names a typed refusal", () => {
   const target = { systemName: SYSTEM, jewelRef: "arn:aws:s3:::bucket-1", jewelType: "S3Bucket" }
 

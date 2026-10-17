@@ -38,7 +38,12 @@ import type {
  * be cold".
  */
 class SettledAnswer extends Error {}
-const SETTLED_HOLD_KINDS: ReadonlySet<SemanticHoldKind> = new Set(["not_recorded", "unavailable", "refused", "route_held"])
+/** Review S10: the server's scope answers (503 INVENTORY_SCOPE_UNAVAILABLE, 422 ACCOUNT_SCOPE_REQUIRED, 403
+ *  INVENTORY_SCOPE_MISMATCH / REVIEW_SCOPE_MISMATCH) settle the read for this scope; a 503 one is not a cold backend. */
+const SCOPE_HOLD_KINDS: ReadonlySet<SemanticHoldKind> = new Set(["scope_unavailable", "scope_required", "scope_denied"])
+const SETTLED_HOLD_KINDS: ReadonlySet<SemanticHoldKind> = new Set([
+  "not_recorded", "unavailable", "refused", "route_held", ...SCOPE_HOLD_KINDS,
+])
 
 interface UseCrownJewelConvergenceResult {
   data: CrownJewelConvergence | null
@@ -215,7 +220,12 @@ export function useCrownJewelConvergence(
         // typed 503 reader failure (transient there: 503 is retried). Only the 200 form settles here.
         const settledHold =
           hold != null && SETTLED_HOLD_KINDS.has(hold.kind) && (hold.kind !== "unavailable" || summaryRes.ok)
-        if (settledHold) throw new SettledAnswer(semanticHoldMessage(hold))
+        if (settledHold) {
+          // A scope answer is worded by the held-route formatter, as the 4xx arm below words it (account selection too).
+          throw new SettledAnswer(SCOPE_HOLD_KINDS.has(hold.kind)
+            ? heldRouteMessage(summaryBody, summaryRes.status, "Attack-path summary", heldRouteAccountSelection(claims))
+            : semanticHoldMessage(hold))
+        }
         if (!summaryRes.ok || !summaryBody || "error" in summaryBody) {
           // Review S10: a typed detail (a scope refusal, a reader failure) is the server's words and wins over a
           // proxy's generic `error`, worded by the shared held-route formatter.
