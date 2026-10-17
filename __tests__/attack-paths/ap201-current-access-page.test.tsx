@@ -106,7 +106,7 @@ describe("Current Access by source on the mounted page (captured acme-data summa
     expect(screen.getAllByTestId("current-access-source").length).toBe(rows.length)
   })
 
-  it("AP201 (R11): with an account selected, every per-jewel read names the tenant AND the account; with 'all', the tenant only", async () => {
+  it("AP201 (R11): with an account selected, every per-jewel read names the tenant AND the account; with 'all', no claim (byte-identical)", async () => {
     // the selection the scope provider persists (lib/account-scope-context.tsx), healed against the served options
     window.localStorage.setItem("cyntro-product-scope",
       JSON.stringify({ customerId: SECTION.customer_id, groupId: "all", accountId: SECTION.account_id, region: "all" }))
@@ -135,10 +135,40 @@ describe("Current Access by source on the mounted page (captured acme-data summa
     expect(all.length).toBeGreaterThan(0)
     for (const u of all) {
       const qs = new URL(u, "http://fe.local").searchParams
-      expect(qs.get("customer_id"), u).toBe(SECTION.customer_id)
+      expect(qs.has("customer_id"), u).toBe(false)
       expect(qs.has("account_id"), u).toBe(false)
     }
   })
+
+  it("merged rule: a system key's own account scopes the reads over a different selected account, and the page says so", async () => {
+    // The keyed systems catalogue: the captured two-identities list (one "Payments" is key `payments`, account 416651950952).
+    const systems = (await import("@/__tests__/fixtures/systems-list-captures/systems_list_v2_two_identities_one_name.json")).default as { body: unknown }
+    window.localStorage.setItem("cyntro-product-scope",
+      JSON.stringify({ customerId: SECTION.customer_id, groupId: "all", accountId: SECTION.account_id, region: "all" }))
+    const urls: string[] = []
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input instanceof Request ? input.url : input)
+      urls.push(url)
+      if (url === "/api/proxy/admin/customers") return respond(200, [{ customer_id: SECTION.customer_id, display_name: SECTION.customer_id }])
+      if (url.includes("/api/proxy/admin/accounts/scope/options/all")) {
+        return respond(200, { customer_id: SECTION.customer_id, groups: [],
+          accounts: [{ account_id: SECTION.account_id, display_name: SECTION.customer_id, regions: [], group_ids: [], status: "active" }] })
+      }
+      if (url.startsWith("/api/proxy/systems")) return respond(200, systems.body)
+      if (url.includes("/targets")) return respond(200, { ...SECTION, system_name: "Payments" })
+      return respond(502, { detail: "bad gateway" })
+    }))
+    nav.params.set("system", "Payments")
+    await act(async () => {
+      render(<AccountScopeProvider><AttackPathsV2 systemName="Payments" systemKey="payments" systemAccountId="416651950952" /></AccountScopeProvider>)
+    })
+    await waitFor(() => expect(screen.getByTestId("ap-read-account-override")).toBeInTheDocument(), { timeout: 5000 })
+    expect(screen.getByTestId("ap-read-account-override").textContent).toMatch(
+      new RegExp(`Reads scoped to account 416651950952 \\(this system's own account\\), not the selected\\s+account ${SECTION.account_id}\\.`))
+    const targets = urls.find((u) => u.includes("/targets"))!
+    const qs = new URL(targets, "http://fe.local").searchParams
+    expect([qs.get("system_key"), qs.getAll("account_id")]).toEqual(["payments", ["416651950952"]])
+  }, 30_000)
 
   it("a NOT_READY answer shows no source list (unknown, not absent) — the path list's not-ready state speaks", async () => {
     nav.params.set("jewel", JEWEL)

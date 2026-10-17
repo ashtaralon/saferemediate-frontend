@@ -2,7 +2,8 @@
  * (AP201 / CP-C-1, R11) The claims the Attack Paths page puts on its per-jewel reads.
  *
  * On a control plane with several registered workload accounts the backend refuses an unnamed read by name
- * (422 ACCOUNT_SCOPE_REQUIRED); the page's selected account is the name. The rule for what counts as a selected
+ * (422 ACCOUNT_SCOPE_REQUIRED); the page's selected account is the name. account_id is sent when a system key names an
+ * account (the key's account wins) or when the page has a selected 12-digit account; neither, nothing is sent. The rule for what counts as a selected
  * account is the one blast-radius already applies to `useAccountScope` ("all" and anything that is not a 12-digit
  * account id mean no account) — `normalizeBlastRadiusScope`, not a second reading of the same scope.
  */
@@ -25,8 +26,13 @@ export function scopeClaimsFrom(
 ): ScopeClaims {
   if (!scope) return NO_SCOPE_CLAIMS
   const normalized = normalizeBlastRadiusScope(scope)
+  // Merged rule (Alon, 2026-10-17, R11 over A7 B5): the claims ride only when the page has a SELECTED 12-digit account.
+  // With none ("all", no provider, malformed) no claim is sent at all, so a by-name read stays byte-identical; a system
+  // key's own account still names the read (appendScopeClaims).
+  const accountId = normalized.accountId ?? null
+  if (!accountId) return NO_SCOPE_CLAIMS
   const customerId = normalized.customerId && normalized.customerId !== "all" ? normalized.customerId : null
-  return { customerId, accountId: normalized.accountId ?? null }
+  return { customerId, accountId }
 }
 
 /** Put the claims on a query (nothing when a claim is absent). With a system key (A7 B5) the key goes on, and the key's

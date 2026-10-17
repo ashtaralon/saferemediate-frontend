@@ -26,8 +26,9 @@ const ACME = { customerId: "acme", accountId: "111111111111" }
 describe("scopeClaimsFrom: the selected account, by blast-radius's rule", () => {
   it("a 12-digit selected account and the tenant are the claims; 'all', a malformed account or no provider are none", () => {
     expect(scopeClaimsFrom(ACME)).toEqual({ customerId: "acme", accountId: "111111111111" })
-    expect(scopeClaimsFrom({ customerId: "acme", accountId: "all" })).toEqual({ customerId: "acme", accountId: null })
-    expect(scopeClaimsFrom({ customerId: "acme", accountId: "11111" })).toEqual({ customerId: "acme", accountId: null })
+    // Merged rule (2026-10-17): no selected 12-digit account means no claim at all (a by-name read stays byte-identical).
+    expect(scopeClaimsFrom({ customerId: "acme", accountId: "all" })).toEqual({ customerId: null, accountId: null })
+    expect(scopeClaimsFrom({ customerId: "acme", accountId: "11111" })).toEqual({ customerId: null, accountId: null })
     expect(scopeClaimsFrom({ customerId: "all", accountId: "111111111111" })).toEqual({ customerId: null, accountId: "111111111111" })
     expect(scopeClaimsFrom(null)).toEqual(NO_SCOPE_CLAIMS)
     expect(scopeClaimsFrom(undefined)).toEqual(NO_SCOPE_CLAIMS)
@@ -35,7 +36,7 @@ describe("scopeClaimsFrom: the selected account, by blast-radius's rule", () => 
 
   it("appendScopeClaims and scopeClaimsKey carry only the present claims, in a stable order", () => {
     expect(appendScopeClaims(new URLSearchParams({ x: "1" }), scopeClaimsFrom(ACME)).toString()).toBe("x=1&customer_id=acme&account_id=111111111111")
-    expect(scopeClaimsKey(scopeClaimsFrom({ customerId: "acme", accountId: "all" }))).toBe("customer_id=acme")
+    expect(scopeClaimsKey(scopeClaimsFrom({ customerId: "acme", accountId: "all" }))).toBe("")
     expect(scopeClaimsKey(NO_SCOPE_CLAIMS)).toBe("")
     expect(scopeClaimsKey(null)).toBe("")
   })

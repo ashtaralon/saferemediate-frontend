@@ -451,11 +451,18 @@ export function AttackPathsV2({
   // account is never painted for another. A7 B5: a page opened by key also names ONE system (key + its account).
   // The same account scope feeds the blast-radius read below.
   const accountScope = useAccountScope()
+  const selectedClaims = scopeClaimsFrom(accountScope)
   const scopeClaims = {
-    ...scopeClaimsFrom(accountScope),
+    ...selectedClaims,
     systemKey: identityKey ?? null,
     systemAccountId: identityKey ? (identityAccount ?? null) : null,
   }
+  // When the system key's own account overrides a different selected account, the reads are scoped to the KEY's
+  // account (appendScopeClaims) -- the page says so instead of silently ignoring the selection.
+  const accountOverride = scopeClaims.systemAccountId && selectedClaims.accountId
+    && scopeClaims.systemAccountId !== selectedClaims.accountId
+    ? { readAccount: scopeClaims.systemAccountId, selectedAccount: selectedClaims.accountId }
+    : null
   const scopeClaimsCacheKey = scopeClaimsKey(scopeClaims)
   const jewelsUrl = systemName ? buildTargetCatalogUrl(systemName, scopeClaims) : null
   const {
@@ -466,7 +473,7 @@ export function AttackPathsV2({
     isStale: jewelsIsStale,
     retry: retryJewels,
   } = useCachedFetch<TargetCatalog>(jewelsUrl, {
-    cacheKey: `ap-targets:${systemName}:${scopeClaimsCacheKey}`,
+    cacheKey: `ap-targets:${systemName}${scopeClaimsCacheKey ? `:${scopeClaimsCacheKey}` : ""}`,
     maxStaleMs: 10 * 60 * 1000,
     // Never SWR-paint a cached NOT_READY / empty catalog — that is how the
     // rail stuck on "No crown jewels · showing cached" after SERVE recovered.
@@ -1253,6 +1260,12 @@ export function AttackPathsV2({
                   the system is fixed by the dashboard's selection (the prop
                   wins over ?system), so we render a static label instead of
                   a switcher that would desync from the dashboard. */}
+              {accountOverride ? (
+                <div className="text-[10px] text-amber-800 dark:text-amber-300" data-testid="ap-read-account-override">
+                  Reads scoped to account {accountOverride.readAccount} (this system&apos;s own account), not the selected
+                  account {accountOverride.selectedAccount}.
+                </div>
+              ) : null}
               {embedded ? (
                 <div className="text-sm font-semibold text-foreground truncate">
                   {systemName}
