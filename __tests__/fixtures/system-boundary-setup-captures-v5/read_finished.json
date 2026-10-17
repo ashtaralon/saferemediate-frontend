@@ -37,6 +37,11 @@
         "version": 1
       }
     },
+    "system": {
+      "mode": "ref",
+      "system_id": "authored_system:75ae4021b39e496d88151e78c2a7ee67646b70af92fff4c1c72e7a13001f1632",
+      "declared_name": "Payments"
+    },
     "intent": {
       "declaration": {
         "deployment": {

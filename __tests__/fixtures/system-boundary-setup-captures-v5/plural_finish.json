@@ -44,6 +44,11 @@
         "version": 1
       }
     },
+    "system": {
+      "mode": "ref",
+      "system_id": "authored_system:af67c3c06045a06080645102717962772648d161b173a0fc7aaf4a80ba169382",
+      "declared_name": "Ledger"
+    },
     "intent": {
       "declaration": {
         "deployments": [

@@ -120,7 +120,10 @@ export function freezeOp(op: PendingSetupOp): PendingSetupOp {
 function tuple(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(tuple).join(",")}]`
   if (isRecord(value)) {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${tuple(value[key])}`).join(",")}}`
+    // (PC1 S0-E2) JSON semantics: a key whose value is undefined is not part of the stored record (JSON.stringify drops it),
+    // so it is not part of the tuple either -- else an in-memory entry carrying one never matches its own stored record.
+    return `{${Object.keys(value).filter((key) => value[key] !== undefined).sort()
+      .map((key) => `${JSON.stringify(key)}:${tuple(value[key])}`).join(",")}}`
   }
   return JSON.stringify(value) ?? "null"
 }

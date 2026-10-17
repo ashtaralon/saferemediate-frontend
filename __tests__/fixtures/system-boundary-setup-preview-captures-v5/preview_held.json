@@ -3,7 +3,7 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
     "request": {
       "method": "GET",
-      "path": "/api/system-boundary/setup/85c7427d-08fc-4201-937b-10d0803ee29d/preview",
+      "path": "/api/system-boundary/setup/6ec773c9-e34f-4945-b73c-f116a64a4ddc/preview",
       "params": {
         "state_version": "2"
       },
@@ -15,11 +15,11 @@
   "body": {
     "contract": "system_boundary_setup_preview/v1",
     "state": "HELD",
-    "preview_digest": "v1:66ebd7c655b38b32ee9ed6e4b8ab199847309da6b70c6815794e7fa69940ffb7",
-    "basis_digest": "v1:d88743778d4c7a72076f5d0ec8d7bced18595553755943eb58715d642a597e6d",
+    "preview_digest": "v1:408f201d282eb9d77be93f82c861dd59e90b1da1e17de17ce1948c6a4bf5d992",
+    "basis_digest": "v1:3d976dd1be02c09f3c43d1f9667cb8a0aa6a86d88f832534bfc00c2fdcbc1be7",
     "result_digest": "v1:d1bb224cca258031b50111a6874486f30d046fc2c5b6e33f28cdd7f852d0fd73",
     "setup": {
-      "setup_id": "85c7427d-08fc-4201-937b-10d0803ee29d",
+      "setup_id": "6ec773c9-e34f-4945-b73c-f116a64a4ddc",
       "intent_revision": 2,
       "state_version": 2
     },
@@ -138,7 +138,13 @@
             "held": 1,
             "not_members": 0
           },
-          "omitted": {}
+          "omitted": {},
+          "not_member_reasons": {
+            "SHARED_FOUNDATION": 0,
+            "SHARED_CLUSTER": 0,
+            "EXCLUDED_BY_DECISION": 0,
+            "OTHER": 0
+          }
         },
         "inventory": {
           "generation": 1,
@@ -146,6 +152,12 @@
         }
       }
     ],
+    "not_member_reasons": {
+      "SHARED_FOUNDATION": 0,
+      "SHARED_CLUSTER": 0,
+      "EXCLUDED_BY_DECISION": 0,
+      "OTHER": 0
+    },
     "setup_contract": "system_boundary_setup/v5"
   }
 }

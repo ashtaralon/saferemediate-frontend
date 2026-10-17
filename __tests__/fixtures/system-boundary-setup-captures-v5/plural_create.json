@@ -25,6 +25,7 @@
     "predecessor": null,
     "successor": null,
     "association": null,
+    "system": null,
     "intent": {
       "declaration": {},
       "dispositions": [],

@@ -27,7 +27,7 @@
  * reason as without the flag is said -- and where the declarations could not be read at all (browse only, otherwise
  * silent), the flag gets that reason in words.
  */
-import { useCallback, useEffect, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { DeclarationForm } from "@/components/system-boundary/declaration-form"
 import { DeclaredSystems } from "@/components/system-boundary/declared-systems"
 import { GuidedSetups, type GuidedSetupsProps } from "@/components/system-boundary/guided-setups"
@@ -55,7 +55,7 @@ import {
   pluralCreateOffered,
   type ParsedCapability,
 } from "@/lib/system-boundary-capability"
-import { pendingStore, type PendingStore } from "@/lib/system-boundary-pending"
+import { pendingStore, type PendingSave, type PendingStore } from "@/lib/system-boundary-pending"
 import { samePublication, type PickedRoot } from "@/lib/system-boundary-declaration"
 
 export interface DeclareFromInventoryProps {
@@ -125,15 +125,29 @@ function Declarer({ accountId, renderInventory, readDeclarations = readView, rea
     }
   }, [readCapability])
 
-  const keep = useCallback((envelope: CreateEnvelope) => {
-    if (actor) store.put({ version: 1, actor, accountId, kind: "CREATE", envelope, startedAt: new Date().toISOString() })
-    onEnvelope?.(envelope)
-  }, [actor, accountId, store, onEnvelope])
-  const keepCorrection = useCallback((envelope: CorrectionEnvelope) => {
-    if (actor) store.put({ version: 1, actor, accountId, kind: "CORRECT", envelope, startedAt: new Date().toISOString() })
+  // (PC1 S0-E) The exact entry kept for each envelope sent from here, by its request id: a definite outcome settles THAT tuple,
+  // never whatever else may sit under the request id. A resend of the same envelope keeps the entry first kept.
+  const kept = useRef(new Map<string, PendingSave>())
+  // (PC1 S0-G) A save this browser could not keep (storage blocked or full): it is still sent, but its resume after a reload is
+  // lost, and the person is told so -- as the guided setup already says for its own writes.
+  const [unkept, setUnkept] = useState(false)
+  const keepEntry = useCallback((kind: PendingSave["kind"], envelope: CreateEnvelope | CorrectionEnvelope) => {
+    if (!actor) return
+    const entry = kept.current.get(envelope.request_id)
+      ?? { version: 1 as const, actor, accountId, kind, envelope, startedAt: new Date().toISOString() }
+    kept.current.set(envelope.request_id, entry)
+    setUnkept(!store.put(entry))
   }, [actor, accountId, store])
+  const keep = useCallback((envelope: CreateEnvelope) => {
+    keepEntry("CREATE", envelope)
+    onEnvelope?.(envelope)
+  }, [keepEntry, onEnvelope])
+  const keepCorrection = useCallback((envelope: CorrectionEnvelope) => keepEntry("CORRECT", envelope), [keepEntry])
   const settled = useCallback((envelope: CreateEnvelope | CorrectionEnvelope, outcome: { kind: string }) => {
-    if (outcome.kind !== "resend") store.remove(envelope.request_id)        // definite: saved, or nothing saved
+    if (outcome.kind === "resend") return                                  // not definite: the entry stays to resend
+    const entry = kept.current.get(envelope.request_id)
+    kept.current.delete(envelope.request_id)
+    if (entry) store.remove(entry)                                        // definite: saved, or nothing saved
   }, [store])
 
   const onToggle = useCallback((row: InventoryRow, publication: PublicationIdentity) => {
@@ -216,6 +230,12 @@ function Declarer({ accountId, renderInventory, readDeclarations = readView, rea
                 for (const key of earlier) next.delete(key)
                 return next
               })}>Clear earlier picks</button>
+            </p>
+          ) : null}
+          {unkept ? (
+            <p className="text-xs text-amber-800" role="status" data-testid="declare-save-unkept">
+              This browser could not keep your last save for resuming (its storage is blocked or full). The save is still sent;
+              if its answer is lost, reopen this page and check the system before declaring it again.
             </p>
           ) : null}
           {actor ? <PendingSaves accountId={accountId} actor={actor} store={store} /> : null}

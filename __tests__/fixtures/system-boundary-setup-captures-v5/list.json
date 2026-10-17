@@ -26,10 +26,15 @@
         "updated_at": "2026-10-12T01:00:00.000000+00:00",
         "predecessor": null,
         "successor": null,
-        "association": null
+        "association": null,
+        "system": {
+          "mode": "new",
+          "display_name": "Payments"
+        }
       }
     ],
     "next_cursor": null,
+    "unreadable_rows": 0,
     "contract": "system_boundary_setup/v5"
   }
 }

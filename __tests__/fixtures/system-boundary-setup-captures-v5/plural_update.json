@@ -127,6 +127,10 @@
     "predecessor": null,
     "successor": null,
     "association": null,
+    "system": {
+      "mode": "new",
+      "display_name": "Ledger"
+    },
     "intent": {
       "declaration": {
         "deployments": [

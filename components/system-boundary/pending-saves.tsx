@@ -59,11 +59,11 @@ export function PendingSaves({ accountId, actor, store, readReceipt = readReques
     set(id, { kind: "checking" })
     const found = await readReceipt(id)
     if (found.kind === "OK") {
-      store.remove(id)
+      store.remove(entry)
       set(id, { kind: "saved", revision: found.value.revision,
                 message: `Saved as revision ${found.value.revision}. Cyntro is preparing this system's membership; nothing is applied yet.` })
     } else if (found.kind === "REFUSED" && found.code === "RECEIPT_WITHHELD") {
-      store.remove(id)
+      store.remove(entry)
       set(id, { kind: "withheld", revision: Number.isInteger(found.detail.revision) ? (found.detail.revision as number) : null })
     } else if (found.kind === "REFUSED" && found.code === "REQUEST_NOT_FOUND") {
       set(id, { kind: "not_saved" })
@@ -85,10 +85,10 @@ export function PendingSaves({ accountId, actor, store, readReceipt = readReques
     set(id, { kind: "checking" })
     const outcome = describeResult(await resend(entry))
     if (outcome.kind === "saved") {
-      store.remove(id)
+      store.remove(entry)
       set(id, { kind: "saved", revision: outcome.revision, message: outcome.message })
     } else if (outcome.kind === "refused") {
-      store.remove(id)                                          // a definite answer: this request saved nothing
+      store.remove(entry)                                          // a definite answer: this request saved nothing
       set(id, { kind: "refused", message: outcome.message, code: outcome.code })
     } else {
       set(id, { kind: "unconfirmed" })
@@ -96,7 +96,7 @@ export function PendingSaves({ accountId, actor, store, readReceipt = readReques
   }
 
   const discard = (entry: PendingSave) => {
-    store.remove(entry.envelope.request_id)
+    store.remove(entry)
     setEntries((current) => current.filter((e) => e.envelope.request_id !== entry.envelope.request_id))
   }
 

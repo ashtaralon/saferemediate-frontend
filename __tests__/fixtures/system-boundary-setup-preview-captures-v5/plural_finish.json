@@ -3,19 +3,19 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
     "request": {
       "method": "POST",
-      "path": "/api/system-boundary/setup/1ceeb0f2-49e2-484e-9f0e-cbc462cb836d/finish",
+      "path": "/api/system-boundary/setup/b988a134-f825-403e-8e4e-1fdcbeecad57/finish",
       "params": null,
       "body": {
         "request_id": "00000000-0000-4000-8000-000000005145",
         "base_state_version": 2,
-        "preview_digest": "v1:d47698a49f11c654a74c81c1a301b79d8526e440f21268c04d18ff9cfacdb8fa"
+        "preview_digest": "v1:23a4676035cee83e07edb8030f08641db49c7b60f9a8a38f60e3cfdf24e7a397"
       }
     }
   },
   "status": 201,
   "cache_control": "no-store",
   "body": {
-    "setup_id": "1ceeb0f2-49e2-484e-9f0e-cbc462cb836d",
+    "setup_id": "b988a134-f825-403e-8e4e-1fdcbeecad57",
     "status": "FINISHED",
     "mode": "create",
     "owner": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
@@ -25,8 +25,8 @@
     "accounts_seen": [
       "111122223333"
     ],
-    "created_at": "2026-10-13T22:00:37.322111+00:00",
-    "updated_at": "2026-10-13T22:00:37.635618+00:00",
+    "created_at": "2026-10-17T15:17:10.383793+00:00",
+    "updated_at": "2026-10-17T15:17:10.751043+00:00",
     "predecessor": null,
     "successor": null,
     "association": {
@@ -46,6 +46,11 @@
         "version": 1
       }
     },
+    "system": {
+      "mode": "ref",
+      "system_id": "authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f",
+      "declared_name": "Payments"
+    },
     "intent": {
       "declaration": {
         "bindings": [
@@ -57,7 +62,7 @@
             "selection": {
               "census": {
                 "generation": 1,
-                "source_identity": "v1:13e884a5762c6c52d27abcf367f96175bf98b52e461d2867b6612861f3418192"
+                "source_identity": "v1:d26f12c762d711c097d9bfb00489af78ddd3529a1932ee3dad6c4982f95e35ef"
               },
               "stack_status": "UPDATE_COMPLETE"
             },
@@ -71,7 +76,7 @@
             "selection": {
               "census": {
                 "generation": 1,
-                "source_identity": "v1:13e884a5762c6c52d27abcf367f96175bf98b52e461d2867b6612861f3418192"
+                "source_identity": "v1:d26f12c762d711c097d9bfb00489af78ddd3529a1932ee3dad6c4982f95e35ef"
               },
               "stack_status": "UPDATE_COMPLETE"
             },
@@ -157,9 +162,9 @@
             "registration_id": "0123456789abcdef0123456789abcdef",
             "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
             "publication": {
-              "attempt": "a249b0bc681d4b97b72a4f183763dcd6",
+              "attempt": "5b52a233ee214615816d5873369824dd",
               "generation": 1,
-              "source_identity": "v1:13e884a5762c6c52d27abcf367f96175bf98b52e461d2867b6612861f3418192",
+              "source_identity": "v1:d26f12c762d711c097d9bfb00489af78ddd3529a1932ee3dad6c4982f95e35ef",
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7"
             },
             "stack_status": "UPDATE_COMPLETE",
@@ -195,9 +200,9 @@
             "registration_id": "0123456789abcdef0123456789abcdef",
             "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
             "publication": {
-              "attempt": "a249b0bc681d4b97b72a4f183763dcd6",
+              "attempt": "5b52a233ee214615816d5873369824dd",
               "generation": 1,
-              "source_identity": "v1:13e884a5762c6c52d27abcf367f96175bf98b52e461d2867b6612861f3418192",
+              "source_identity": "v1:d26f12c762d711c097d9bfb00489af78ddd3529a1932ee3dad6c4982f95e35ef",
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7"
             },
             "stack_status": "UPDATE_COMPLETE",
@@ -298,12 +303,12 @@
     "attempt": {
       "attempt": 1,
       "actor": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
-      "created_at": "2026-10-13T22:00:37.621049+00:00",
-      "recover_after": "2026-10-13T22:15:37.621049+00:00",
+      "created_at": "2026-10-17T15:17:10.734271+00:00",
+      "recover_after": "2026-10-17T15:32:10.734271+00:00",
       "intent_revision": 2,
       "base_revision": 1,
       "expected_versions": {},
-      "save_request_id": "67e686c5-d0e8-49fa-ba39-52aa5cac9f99"
+      "save_request_id": "32c49c4f-f2f0-4c73-ad0c-496f935ae2c3"
     },
     "outcome": null,
     "receipt": {
@@ -335,10 +340,10 @@
             "proof": {
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
               "publication": {
-                "attempt": "a249b0bc681d4b97b72a4f183763dcd6",
+                "attempt": "5b52a233ee214615816d5873369824dd",
                 "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
                 "generation": 1,
-                "source_identity": "v1:13e884a5762c6c52d27abcf367f96175bf98b52e461d2867b6612861f3418192"
+                "source_identity": "v1:d26f12c762d711c097d9bfb00489af78ddd3529a1932ee3dad6c4982f95e35ef"
               },
               "read_outcome": "COMPLETE",
               "registration_id": "0123456789abcdef0123456789abcdef",
@@ -370,10 +375,10 @@
             "proof": {
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
               "publication": {
-                "attempt": "a249b0bc681d4b97b72a4f183763dcd6",
+                "attempt": "5b52a233ee214615816d5873369824dd",
                 "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
                 "generation": 1,
-                "source_identity": "v1:13e884a5762c6c52d27abcf367f96175bf98b52e461d2867b6612861f3418192"
+                "source_identity": "v1:d26f12c762d711c097d9bfb00489af78ddd3529a1932ee3dad6c4982f95e35ef"
               },
               "read_outcome": "COMPLETE",
               "registration_id": "0123456789abcdef0123456789abcdef",
@@ -410,16 +415,16 @@
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
               "contract": "account_census_stacks_read/v1",
               "publication": {
-                "attempt": "a249b0bc681d4b97b72a4f183763dcd6",
+                "attempt": "5b52a233ee214615816d5873369824dd",
                 "generation": 1,
-                "source_identity": "v1:13e884a5762c6c52d27abcf367f96175bf98b52e461d2867b6612861f3418192"
+                "source_identity": "v1:d26f12c762d711c097d9bfb00489af78ddd3529a1932ee3dad6c4982f95e35ef"
               },
               "registration_id": "0123456789abcdef0123456789abcdef"
             }
           ]
         },
         "authored_revision": 1,
-        "basis_digest": "v1:779ed17755d247acf779bc775520b617ea2b1e437f67edec5113407dcf5784e1",
+        "basis_digest": "v1:94b7b7e8441d943c94c904f6c8eaeae69208d9563cd200ea26001533620619db",
         "counts": {
           "dependencies": 0,
           "held": 0,
@@ -428,8 +433,8 @@
           "stale_members": 0,
           "unlisted": 0
         },
-        "preview_digest": "v1:d47698a49f11c654a74c81c1a301b79d8526e440f21268c04d18ff9cfacdb8fa",
-        "result_digest": "v1:70c3210729342e10c6d29494eba0725b39ac5543bcfef0eacf2648725e37391c"
+        "preview_digest": "v1:23a4676035cee83e07edb8030f08641db49c7b60f9a8a38f60e3cfdf24e7a397",
+        "result_digest": "v1:f76d172e8426cbf431468a4b594e8681018684cf5c587e04b58deacddae1665c"
       },
       "registration_pins": {
         "111122223333": "0123456789abcdef0123456789abcdef"
@@ -443,8 +448,8 @@
         ],
         "hash": "v1:12e6f1d6bab942e8d77010a3e4ffc449c40f04e32ca1b2ba863967626f32dbce"
       },
-      "setup_id": "1ceeb0f2-49e2-484e-9f0e-cbc462cb836d",
-      "written_at": "2026-10-13T22:00:37.635618+00:00"
+      "setup_id": "b988a134-f825-403e-8e4e-1fdcbeecad57",
+      "written_at": "2026-10-17T15:17:10.751043+00:00"
     },
     "reconciliation": null,
     "result_scope": {
@@ -468,7 +473,7 @@
       "outcome": "SAVED",
       "replayed": false,
       "request_kind": "CREATE",
-      "request_id": "67e686c5-d0e8-49fa-ba39-52aa5cac9f99",
+      "request_id": "32c49c4f-f2f0-4c73-ad0c-496f935ae2c3",
       "revision": 2,
       "written": [
         {
