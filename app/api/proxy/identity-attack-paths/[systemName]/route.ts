@@ -70,8 +70,13 @@ export async function GET(
   // Absent, the request -- and its cache key -- is byte-identical to before.
   const systemKey = searchParams.get("system_key")
   const accountId = searchParams.get("account_id")
-  const scope = systemKey ? `&system_key=${encodeURIComponent(systemKey)}${
-    accountId ? `&account_id=${encodeURIComponent(accountId)}` : ""}` : ""
+  // AP201 T-14 (Alon, 2026-10-17): the envelope carries the page's tenant / selected-account claims too (the backend
+  // route checks them in every mode, gate_estate_read). Additive only: with a key the key's account is the claim exactly
+  // as before, and with no claim and no key the request -- and its cache key -- is byte-identical.
+  const customerId = searchParams.get("customer_id")
+  const scope = (customerId ? `&customer_id=${encodeURIComponent(customerId)}` : "") + (systemKey
+    ? `&system_key=${encodeURIComponent(systemKey)}${accountId ? `&account_id=${encodeURIComponent(accountId)}` : ""}`
+    : accountId ? `&account_id=${encodeURIComponent(accountId)}` : "")
 
   // Server-side cache (5 min TTL — match the /all aggregator pattern).
   // Backend call costs 30–50s on alon-prod-scale systems; without a
@@ -106,6 +111,9 @@ export async function GET(
     enriched,
     // A7 B5: another key / account is another system -- never a hit for this one.
     ...(systemKey ? [`key=${systemKey}`, accountId ?? ""] : []),
+    // T-14: another claimed account (or tenant) is another answer -- never a hit for this one. Absent, unchanged.
+    ...(!systemKey && accountId ? [`account=${accountId}`] : []),
+    ...(customerId ? [`customer=${customerId}`] : []),
   ].join(":")
 
   // Per-instance in-memory cache (warm-instance path — instant on repeat).

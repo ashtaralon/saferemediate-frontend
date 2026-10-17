@@ -1,11 +1,11 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { useOptionalAccountScope } from "@/lib/account-scope-context"
 import { buildJewelFootholdsUrl } from "@/lib/attack-paths/convergence-fetch-url"
 import { semanticHoldMessage, semanticStatusHold, typedServingRefusal } from "@/lib/semantic-hold"
-import { heldRouteMessage } from "@/lib/attack-paths/held-route-message"
-import { scopeClaimsFrom } from "@/lib/attack-paths/scope-claims"
+import { heldRouteAccountSelection, heldRouteMessage } from "@/lib/attack-paths/held-route-message"
+import { useAttackPathReadClaims } from "@/lib/attack-paths/read-scope-context"
+import { scopeClaimsKey } from "@/lib/attack-paths/scope-claims"
 
 export type FootholdLikelihood =
   | "EXPOSED"
@@ -217,13 +217,15 @@ export function useAtlasLateral({
   const [emptyAnswer, setEmptyAnswer] = useState(false)
   const [nonce, setNonce] = useState(0)
   const retry = useCallback(() => setNonce((n) => n + 1), [])
-  // B5: another key / account is another system's footholds (by name: the scope key is as before).
-  const identitySuffix = systemKey ? `\u0000key=${systemKey}\u0000${systemAccountId ?? ""}` : ""
+  // AP201 (R11) + T-13: THE one claim rule (useAttackPathReadClaims): the selected account, and the system identity --
+  // the caller's explicit key when given, else the page's (<AttackPathSystemIdentity>) -- whose own account wins.
+  // No provider and no key = no claims, exactly as before.
+  const claims = useAttackPathReadClaims(systemKey ? { systemKey, systemAccountId } : null)
+  const claimsQuery = scopeClaimsKey(claims)
+  // B5: another key / account is another system's footholds (by name: the scope key is as before). The key is the
+  // RESOLVED one, so a page key the caller did not pass still separates systems.
+  const identitySuffix = claims.systemKey ? `\u0000key=${claims.systemKey}\u0000${claims.systemAccountId ?? ""}` : ""
   const scopeKey = enabled && systemName && jewelRef ? `${systemName}\u0000${jewelRef}${identitySuffix}` : null
-  // AP201 (R11): the operator's tenant / account claims travel with the read; no provider = no claims.
-  const claims = scopeClaimsFrom(useOptionalAccountScope())
-  const claimedCustomer = claims.customerId
-  const claimedAccount = claims.accountId
 
   useEffect(() => {
     if (!enabled || !systemName || !jewelRef) {
@@ -247,7 +249,7 @@ export function useAtlasLateral({
     setEvaluation(null)
     setResolvedSearchKey(null)
     setError(null)
-    const claimsArg = { customerId: claimedCustomer, accountId: claimedAccount, systemKey, systemAccountId }
+    const claimsArg = claims
     let heldNow = false
     // A 200 hold (`semantic_status: not_recorded` / `unavailable`) is not a candidate list: say it, never "no compute".
     const answerOf = (raw: unknown, capability: string): FootholdPayload => {
@@ -275,13 +277,13 @@ export function useAtlasLateral({
         if (held?.kind === "route_held") {
           if (!cancelled) setEvaluationHeld(held.reason ?? "SERVING_ROUTE_HELD")
           const published = await read(false)
-          if (!published.r.ok || !published.body) throw new Error(heldRouteMessage(published.body, published.r.status, "Published foothold reach"))
+          if (!published.r.ok || !published.body) throw new Error(heldRouteMessage(published.body, published.r.status, "Published foothold reach", heldRouteAccountSelection(claimsArg)))
           // No server ranking exists without the evaluation: nothing is "recommended", and no live search is started
           // on the operator's behalf (the install holds that search too); the panel lists them as not evaluated.
           heldNow = true
           return answerOf(published.body, "Published foothold reach")
         }
-        if (!r.ok || !body) throw new Error(heldRouteMessage(body, r.status, "Lateral footholds"))
+        if (!r.ok || !body) throw new Error(heldRouteMessage(body, r.status, "Lateral footholds", heldRouteAccountSelection(claimsArg)))
         return answerOf(body, "Lateral footholds")
       })
       .then((body) => {
@@ -313,7 +315,7 @@ export function useAtlasLateral({
     return () => {
       cancelled = true
     }
-  }, [enabled, systemName, jewelRef, nonce, scopeKey, claimedCustomer, claimedAccount])
+  }, [enabled, systemName, jewelRef, nonce, scopeKey, claimsQuery])
 
   const selectedFoothold = useMemo(
     () => candidates.find((c) => c.workload_id === selectedFootholdId) ?? null,

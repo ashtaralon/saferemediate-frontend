@@ -56,7 +56,9 @@ export function jewelPathMetaForNode(
 /** Honest path-count copy — never fabricates when materializer says not computed. */
 export function pathCountLabel(j: CrownJewelSummary): string {
   if (j.paths_not_computed) return "no paths computed"
-  const n = j.materialized_path_count ?? j.path_count ?? 0
+  const n = j.materialized_path_count ?? j.path_count
+  // S13: an absent count is not computed, never "0 attack paths".
+  if (n == null) return "attack paths not computed"
   if (n === 0) return "0 attack paths"
   return `${n} attack path${n === 1 ? "" : "s"}`
 }

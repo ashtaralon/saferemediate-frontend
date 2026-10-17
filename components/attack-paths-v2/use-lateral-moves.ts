@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { useAttackPathReadClaims } from "@/lib/attack-paths/read-scope-context"
-import { heldRouteMessage } from "@/lib/attack-paths/held-route-message"
+import { heldRouteAccountSelection, heldRouteMessage } from "@/lib/attack-paths/held-route-message"
 import { appendScopeClaims } from "@/lib/attack-paths/scope-claims"
 
 export type LateralMoveEvidence = "OBSERVED" | "CONFIGURED" | "BLOCKED" | "UNKNOWN"
@@ -79,7 +79,7 @@ export function useLateralMoves(
         if (!res.ok) {
           // Review S11: a typed hold's detail is an OBJECT ({code, reason}); `body.detail || ...` made it
           // "[object Object]". The shared message says a held route is held, and a plain detail as it is.
-          throw new Error(heldRouteMessage(body, res.status, "Lateral moves"))
+          throw new Error(heldRouteMessage(body, res.status, "Lateral moves", heldRouteAccountSelection(claims)))
         }
         // Soft failures (overall_timeout, degraded sections) arrive as 200
         // with error/degraded set — keep the payload so the UI can show a

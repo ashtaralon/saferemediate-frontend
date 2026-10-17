@@ -15,7 +15,7 @@
  *     authoritative empty network spine.
  */
 
-import { heldRouteMessage } from "@/lib/attack-paths/held-route-message"
+import { heldRouteMessage, type HeldRouteAccountSelection } from "@/lib/attack-paths/held-route-message"
 import { typedReaderUnavailable, typedServingRefusal } from "@/lib/semantic-hold"
 import type {
   ConvergencePath,
@@ -140,6 +140,8 @@ export async function fetchConvergencePathDetail(params: {
   signal?: AbortSignal
   fetchImpl?: typeof fetch
   sleep?: (ms: number) => Promise<void>
+  /** Review S10: the account the detail read named, for a true ACCOUNT_SCOPE_REQUIRED line; omitted: the default. */
+  accountSelection?: HeldRouteAccountSelection
 }): Promise<FetchConvergenceDetailResult> {
   const timeoutMs = params.timeoutMs ?? DEFAULT_DETAIL_TIMEOUT_MS
   const maxAttempts = params.maxAttempts ?? DEFAULT_DETAIL_MAX_ATTEMPTS
@@ -182,7 +184,7 @@ export async function fetchConvergencePathDetail(params: {
       // unavailable read) is said with its own reason and settles -- never the generic proxy `error`, never retried
       // as if the backend were cold.
       if (!res.ok && typedDetailAnswer(body, res.status)) {
-        return { ok: false, error: heldRouteMessage(body, res.status, "Path detail"), status: res.status }
+        return { ok: false, error: heldRouteMessage(body, res.status, "Path detail", params.accountSelection), status: res.status }
       }
       lastError = body?.error ?? `detail ${res.status}`
       if (!isRetryableDetailFailure(res.status, lastError)) {

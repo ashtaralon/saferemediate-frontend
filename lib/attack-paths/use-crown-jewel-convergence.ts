@@ -21,7 +21,7 @@ import { matchConvergencePathId } from "./iap-to-convergence"
 import { iapHold } from "./path-evidence-view"
 import { useAttackPathReadClaims } from "./read-scope-context"
 import { semanticHoldMessage, typedReaderUnavailable, typedServingRefusal, type SemanticHoldKind } from "@/lib/semantic-hold"
-import { heldRouteMessage } from "./held-route-message"
+import { heldRouteAccountSelection, heldRouteMessage } from "./held-route-message"
 import type {
   CrownJewelConvergence,
   CrownJewelConvergenceSummary,
@@ -38,7 +38,12 @@ import type {
  * be cold".
  */
 class SettledAnswer extends Error {}
-const SETTLED_HOLD_KINDS: ReadonlySet<SemanticHoldKind> = new Set(["not_recorded", "unavailable", "refused", "route_held"])
+/** Review S10: the server's scope answers (503 INVENTORY_SCOPE_UNAVAILABLE, 422 ACCOUNT_SCOPE_REQUIRED, 403
+ *  INVENTORY_SCOPE_MISMATCH / REVIEW_SCOPE_MISMATCH) settle the read for this scope; a 503 one is not a cold backend. */
+const SCOPE_HOLD_KINDS: ReadonlySet<SemanticHoldKind> = new Set(["scope_unavailable", "scope_required", "scope_denied"])
+const SETTLED_HOLD_KINDS: ReadonlySet<SemanticHoldKind> = new Set([
+  "not_recorded", "unavailable", "refused", "route_held", ...SCOPE_HOLD_KINDS,
+])
 
 interface UseCrownJewelConvergenceResult {
   data: CrownJewelConvergence | null
@@ -99,7 +104,9 @@ export function hasAuthoritativeZeroPaths(
 ): boolean {
   return Boolean(
     jewel &&
-      Number(jewel.path_count ?? 0) === 0 &&
+      // A served zero, or (AP196-R1) a count the catalog did not serve readably -- settled, and shown as unreadable,
+      // never as "no route". S13: the adapter gives a missing or malformed count as null, never a coerced 0 / NaN.
+      (jewel.path_count === 0 || jewel.path_count == null) &&
       AUTHORITATIVE_ZERO_TARGET_STATES.has(jewel.target_state ?? ""),
   )
 }
@@ -213,20 +220,25 @@ export function useCrownJewelConvergence(
         // typed 503 reader failure (transient there: 503 is retried). Only the 200 form settles here.
         const settledHold =
           hold != null && SETTLED_HOLD_KINDS.has(hold.kind) && (hold.kind !== "unavailable" || summaryRes.ok)
-        if (settledHold) throw new SettledAnswer(semanticHoldMessage(hold))
+        if (settledHold) {
+          // A scope answer is worded by the held-route formatter, as the 4xx arm below words it (account selection too).
+          throw new SettledAnswer(SCOPE_HOLD_KINDS.has(hold.kind)
+            ? heldRouteMessage(summaryBody, summaryRes.status, "Attack-path summary", heldRouteAccountSelection(claims))
+            : semanticHoldMessage(hold))
+        }
         if (!summaryRes.ok || !summaryBody || "error" in summaryBody) {
           // Review S10: a typed detail (a scope refusal, a reader failure) is the server's words and wins over a
           // proxy's generic `error`, worded by the shared held-route formatter.
           const typed = typedServingRefusal(summaryBody) ?? typedReaderUnavailable(summaryBody)
           const msg = typed
-            ? heldRouteMessage(summaryBody, summaryRes.status, "Attack-path summary")
+            ? heldRouteMessage(summaryBody, summaryRes.status, "Attack-path summary", heldRouteAccountSelection(claims))
             : (summaryBody as { error?: string })?.error ?? `Backend busy (${summaryRes.status})`
           const finalStatus =
             summaryRes.status >= 400 && summaryRes.status < 500 && summaryRes.status !== 408 && summaryRes.status !== 429
           if (finalStatus) {
             // The server's own words when it gave any (typed, then a string detail, then `error`); never "Backend
             // busy" for an answer that is final.
-            throw new SettledAnswer(heldRouteMessage(summaryBody, summaryRes.status, "Attack-path summary"))
+            throw new SettledAnswer(heldRouteMessage(summaryBody, summaryRes.status, "Attack-path summary", heldRouteAccountSelection(claims)))
           }
           throw new Error(msg)
         }
@@ -365,6 +377,7 @@ export function useCrownJewelConvergence(
       const result = await fetchConvergencePathDetail({
         url: detailUrl,
         signal: ctrl.signal,
+        accountSelection: heldRouteAccountSelection(claims),
       })
       applyResult(pathId, result)
       return pathId
@@ -437,10 +450,10 @@ export function crownJewelFromArnName(
     name: cjName || cjArn || id,
     type: "Unknown",
     severity: null,
-    path_count: 0,
+    path_count: null,
     highest_risk_score: null,
     is_internet_exposed: null,
     data_classification: null,
-    priority_score: 0,
+    priority_score: null,
   }
 }

@@ -495,6 +495,19 @@ describe("AP201 review S14 · while the catalog loads, the header says so and sh
   })
 })
 
+describe("AP201 T-14 · the IAP envelope list carries the selected account like every other read", () => {
+  it("names the selected account on the envelope URL (captured catalog; selected account in the product scope)", async () => {
+    window.localStorage.setItem("cyntro-product-scope",
+      JSON.stringify({ customerId: SECTION.customer_id, groupId: "all", accountId: SECTION.account_id, region: "all" }))
+    const f = serve()
+    await mountPage()
+    await waitFor(() => expect(calls(f, "/api/proxy/identity-attack-paths/")).toBeGreaterThan(0))
+    const list = f.mock.calls.map((c) => String(c[0])).find((u) => u.startsWith(`/api/proxy/identity-attack-paths/${encodeURIComponent(SYSTEM)}?`))!
+    const qs = new URL(list, "http://fe.local").searchParams
+    expect([qs.get("customer_id"), qs.get("account_id")]).toEqual([SECTION.customer_id, SECTION.account_id])
+  })
+})
+
 describe("M14 · a 200 catalog body that is not a catalog", () => {
   it("is unavailable, never 'No crown jewels detected' (CONSTRUCTED body {unexpected: true}; IAP answers 200 with no rows so the rail itself renders)", async () => {
     // With the IAP read failing too, the page's full-page "Could not load attack paths" would stand in front of the

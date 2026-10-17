@@ -20,7 +20,7 @@ import type {
 import { coerceProxyErrorMessage } from "@/lib/proxy-error-message"
 import { useAttackPathReadClaims } from "@/lib/attack-paths/read-scope-context"
 import { scopeClaimsKey } from "@/lib/attack-paths/scope-claims"
-import { heldRouteMessage } from "@/lib/attack-paths/held-route-message"
+import { heldRouteAccountSelection, heldRouteMessage } from "@/lib/attack-paths/held-route-message"
 import { semanticHoldMessage, semanticStatusHold, typedReaderUnavailable, typedServingRefusal } from "@/lib/semantic-hold"
 import { resolveClosurePathId } from "./derive-attack-path-id"
 import type { ClosurePreview } from "./closure-outcome-types"
@@ -96,7 +96,7 @@ export function useAttackPathReport(
         if (hold) throw new SettledReportAnswer(`Attack-path report: ${semanticHoldMessage(hold)}`)
         if (!r.ok && (typedServingRefusal(body) || typedReaderUnavailable(body)
           || (r.status < 500 && typeof (body as { detail?: { code?: unknown } } | null)?.detail?.code === "string"))) {
-          throw new SettledReportAnswer(heldRouteMessage(body, r.status, "Attack-path report"))
+          throw new SettledReportAnswer(heldRouteMessage(body, r.status, "Attack-path report", heldRouteAccountSelection(claims)))
         }
         if (r.ok && body && !body.error && Array.isArray(body.claims)) {
           return body as AttackPathReport

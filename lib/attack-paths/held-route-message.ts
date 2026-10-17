@@ -7,12 +7,38 @@
  * say the capability is NOT AVAILABLE ON THIS INSTALL, with the server's coded reason, and never read as "no damage",
  * "no excess" or "no exposure".
  */
-import { semanticHoldMessage, typedReaderUnavailable, typedServingRefusal } from "@/lib/semantic-hold"
+import { appendScopeClaims, type ScopeClaims } from "@/lib/attack-paths/scope-claims"
+import {
+  accountScopeRequiredMessage,
+  semanticHoldMessage,
+  typedReaderUnavailable,
+  typedServingRefusal,
+} from "@/lib/semantic-hold"
 
-export function heldRouteMessage(body: unknown, status: number, capability: string): string {
+/** (Review S10) The account the failed read named (null: none), so an ACCOUNT_SCOPE_REQUIRED line is true for the page
+ *  it is shown on. A caller that does not know omits it and gets the default line. */
+export interface HeldRouteAccountSelection {
+  selectedAccount: string | null
+}
+
+/** The account a read carrying these claims names: read back from `appendScopeClaims`, so it is the same rule that put
+ *  `account_id` on the query (a system key's own account wins over the selected one). */
+export function heldRouteAccountSelection(claims: ScopeClaims | null | undefined): HeldRouteAccountSelection {
+  return { selectedAccount: appendScopeClaims(new URLSearchParams(), claims).get("account_id") }
+}
+
+export function heldRouteMessage(
+  body: unknown,
+  status: number,
+  capability: string,
+  selection?: HeldRouteAccountSelection,
+): string {
   const typed = typedServingRefusal(body) ?? typedReaderUnavailable(body)
   if (typed?.kind === "route_held") {
     return `${capability} is not available on this install (${typed.reason ?? "SERVING_ROUTE_HELD"}). This is not a result.`
+  }
+  if (typed?.kind === "scope_required" && selection) {
+    return `${capability}: ${accountScopeRequiredMessage(selection.selectedAccount)}`
   }
   if (typed) return `${capability}: ${semanticHoldMessage(typed)}`
   const b = body && typeof body === "object" ? (body as Record<string, unknown>) : null

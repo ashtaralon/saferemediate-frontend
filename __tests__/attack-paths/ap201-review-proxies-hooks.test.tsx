@@ -23,10 +23,18 @@ vi.mock("@/lib/server/proxy-cache", () => {
   }
 })
 
+// Review S10 (T-2): the page's selected account, as useOptionalAccountScope holds it; null = no provider (the default).
+const scope = vi.hoisted(() => ({ value: null as { customerId: string | null; accountId: string } | null }))
+vi.mock("@/lib/account-scope-context", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/account-scope-context")>()),
+  useOptionalAccountScope: () => scope.value,
+}))
+
 import { GET as summaryProxy } from "@/app/api/proxy/attack-paths/[systemName]/by-crown-jewel/summary/route"
 import { GET as lateralProxy } from "@/app/api/proxy/attack-paths/[systemName]/jewel-lateral-reach/route"
 import { useCrownJewelConvergence } from "@/lib/attack-paths/use-crown-jewel-convergence"
 import { useLateralReach } from "@/components/attack-paths-v2/use-lateral-reach"
+import { heldRouteAccountSelection, heldRouteMessage } from "@/lib/attack-paths/held-route-message"
 
 const SYSTEM = "Orders"
 const SCOPE_REQUIRED = { detail: { code: "ACCOUNT_SCOPE_REQUIRED", reason: "several workload accounts are registered; name one with account_id" } }
@@ -62,13 +70,15 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => undefined)
 })
 afterEach(() => {
+  scope.value = null
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
 
 describe("S10 · the convergence summary names a typed refusal", () => {
   it.each([
-    ["422 ACCOUNT_SCOPE_REQUIRED", 422, SCOPE_REQUIRED, /^Attack-path summary: Several workload accounts are registered/],
+    // T-2: no account is selected here, and the line says so.
+    ["422 ACCOUNT_SCOPE_REQUIRED", 422, SCOPE_REQUIRED, /^Attack-path summary: No account is selected — several workload accounts are registered/],
     ["403 INVENTORY_SCOPE_MISMATCH", 403, MISMATCH, /^Attack-path summary: The selected account is not in this install's scope$/],
   ])("%s: the server's words, settled, never 'HTTP 4xx' or the proxy wrapper", async (_n, status, body, words) => {
     serve({ status, body })
@@ -81,11 +91,30 @@ describe("S10 · the convergence summary names a typed refusal", () => {
   })
 })
 
+describe("S10 (T-3) · a 503 INVENTORY_SCOPE_UNAVAILABLE settles the summary once with its reason", () => {
+  it.each([
+    ["NO_DATA_ACCOUNTS (a defined install state)", "NO_DATA_ACCOUNTS",
+      "Attack-path summary: No workload account is connected yet — connect one in Settings › Accounts"],
+    ["an unlisted reason (CONSTRUCTED)", "INVENTORY_SCOPE_UNAVAILABLE",
+      "Attack-path summary: Not available for this scope — INVENTORY_SCOPE_UNAVAILABLE: INVENTORY_SCOPE_UNAVAILABLE"],
+  ])("%s: settled, one summary read, never 'backend may be cold'", async (_n, reason, words) => {
+    const f = serve({ status: 503, body: { detail: { code: "INVENTORY_SCOPE_UNAVAILABLE", reason } } })
+    const { result, unmount } = renderHook(() => useCrownJewelConvergence(SYSTEM, JEWEL as never))
+    await waitFor(() => expect(result.current.settled).toBe(true))
+    expect(result.current.error).toBe(words)
+    expect(result.current.retrying).toBe(false)
+    expect(result.current.attempts).toBe(1)
+    // the browser's own summary reads (the proxy's backend call is not one)
+    expect(f.mock.calls.filter(([u]) => String(u).startsWith(`/api/proxy/attack-paths/${SYSTEM}/by-crown-jewel/summary`))).toHaveLength(1)
+    unmount()
+  })
+})
+
 describe("S10 · lateral reach names a typed refusal", () => {
   const target = { systemName: SYSTEM, jewelRef: "arn:aws:s3:::bucket-1", jewelType: "S3Bucket" }
 
   it.each([
-    ["422 ACCOUNT_SCOPE_REQUIRED", 422, SCOPE_REQUIRED, /^Lateral reach: Several workload accounts are registered/],
+    ["422 ACCOUNT_SCOPE_REQUIRED", 422, SCOPE_REQUIRED, /^Lateral reach: No account is selected — several workload accounts are registered/],
     ["503 SERVING_ROUTE_HELD", 503, ROUTE_HELD,
       /^Lateral reach is not available on this install \(SERVING_ROUTE_HELD: ROUTE_NOT_CERTIFIED\)\. This is not a result\.$/],
   ])("%s: the server's words, never 'http_4xx' or 'lateral_reach_unavailable'", async (_n, status, body, words) => {
@@ -103,5 +132,44 @@ describe("S10 · lateral reach names a typed refusal", () => {
     await waitFor(() => expect(result.current.loading).toBe(false))
     expect(result.current.error).toBe("lateral_reach_unavailable")
     unmount()
+  })
+})
+
+describe("S10 (T-2) · ACCOUNT_SCOPE_REQUIRED is worded for the page's account selection", () => {
+  const ACCOUNT = "123456789012"
+  const target = { systemName: SYSTEM, jewelRef: "arn:aws:s3:::bucket-1", jewelType: "S3Bucket" }
+
+  it("an account IS selected: the line names it and says it did not reach the read (summary and lateral reach)", async () => {
+    scope.value = { customerId: null, accountId: ACCOUNT }
+    const f = serve({ status: 422, body: SCOPE_REQUIRED })
+    const convergence = renderHook(() => useCrownJewelConvergence(SYSTEM, JEWEL as never))
+    await waitFor(() => expect(convergence.result.current.settled).toBe(true))
+    expect(convergence.result.current.error).toBe(
+      `Attack-path summary: Account ${ACCOUNT} was named for this read, but the server received no account `
+      + "(ACCOUNT_SCOPE_REQUIRED) — the account did not reach this read")
+    // the read did carry the selection (the 422 here stands for it being lost on the way)
+    expect(f.mock.calls.some(([u]) => String(u).includes(`account_id=${ACCOUNT}`))).toBe(true)
+    convergence.unmount()
+    const lateral = renderHook(() => useLateralReach(target))
+    await waitFor(() => expect(lateral.result.current.loading).toBe(false))
+    expect(lateral.result.current.error).toMatch(new RegExp(`^Lateral reach: Account ${ACCOUNT} was named for this read`))
+    lateral.unmount()
+  })
+
+  it("the formatter's default call shape is unchanged: no selection, the established line", () => {
+    expect(heldRouteMessage(SCOPE_REQUIRED, 422, "Business impact")).toBe(
+      "Business impact: Several workload accounts are registered — this view does not read one selected account, so it cannot show this")
+    expect(heldRouteMessage(SCOPE_REQUIRED, 422, "Business impact", { selectedAccount: null })).toBe(
+      "Business impact: No account is selected — several workload accounts are registered; choose one account in the scope bar to see this")
+    // only ACCOUNT_SCOPE_REQUIRED reads the selection
+    expect(heldRouteMessage(MISMATCH, 403, "Damage scope", { selectedAccount: ACCOUNT })).toBe(
+      "Damage scope: The selected account is not in this install's scope")
+  })
+
+  it("the named account is the one the read's query carries: a system key's own account wins", () => {
+    expect(heldRouteAccountSelection({ customerId: null, accountId: ACCOUNT })).toEqual({ selectedAccount: ACCOUNT })
+    expect(heldRouteAccountSelection({ customerId: null, accountId: ACCOUNT, systemKey: "k1", systemAccountId: "210987654321" }))
+      .toEqual({ selectedAccount: "210987654321" })
+    expect(heldRouteAccountSelection({ customerId: null, accountId: null })).toEqual({ selectedAccount: null })
   })
 })

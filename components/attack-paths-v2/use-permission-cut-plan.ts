@@ -16,7 +16,7 @@
  */
 
 import { useCallback, useState } from "react"
-import { heldRouteMessage } from "@/lib/attack-paths/held-route-message"
+import { heldRouteAccountSelection, heldRouteMessage } from "@/lib/attack-paths/held-route-message"
 import { useAttackPathReadClaims } from "@/lib/attack-paths/read-scope-context"
 import { appendScopeClaims } from "@/lib/attack-paths/scope-claims"
 
@@ -118,7 +118,7 @@ export function usePermissionCutPlan(systemName: string) {
           setState({
             plan: null,
             loading: false,
-            error: heldRouteMessage(body, res.status, "Permission-cut plan"),
+            error: heldRouteMessage(body, res.status, "Permission-cut plan", heldRouteAccountSelection(claims)),
           })
           return
         }

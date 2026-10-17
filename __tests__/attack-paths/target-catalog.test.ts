@@ -82,7 +82,8 @@ describe("targetEntryToJewelSummary", () => {
     expect(jewel.severity).toBeNull()
     // AP201 (I3): no path, no score -- null, never a risk score of 0.
     expect(jewel.highest_risk_score).toBeNull()
-    expect(jewel.priority_score).toBe(0)
+    // S13: likewise no ranking score -- null, never 0.
+    expect(jewel.priority_score).toBeNull()
     expect(jewel.path_count).toBe(0)
     expect(jewel.paths_not_computed).toBe(false)
   })

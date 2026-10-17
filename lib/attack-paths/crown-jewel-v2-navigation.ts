@@ -18,7 +18,8 @@ const SEVERITY_RANK: Record<string, number> = {
 export function toCrownJewelSummary(
   cj: CrownJewelSummary | { id: string; arn?: string | null; name: string; type: string },
 ): CrownJewelSummary {
-  if ("path_count" in cj && typeof cj.path_count === "number") {
+  // A full summary passes through, a not-computed (null) count included; only a lite jewel is rebuilt.
+  if ("path_count" in cj && (typeof cj.path_count === "number" || cj.path_count === null)) {
     return cj as CrownJewelSummary
   }
   return {
@@ -26,13 +27,13 @@ export function toCrownJewelSummary(
     canonical_id: ("arn" in cj ? cj.arn : null) ?? (cj.id.startsWith("arn:") ? cj.id : null),
     name: cj.name,
     type: cj.type,
-    // AP201 (I3): a lite jewel carries none of these; null, never an invented LOW / 0 / false.
+    // AP201 (I3) / S13: a lite jewel carries none of these; null, never an invented LOW / 0 / false.
     severity: null,
-    path_count: 0,
+    path_count: null,
     highest_risk_score: null,
     is_internet_exposed: null,
     data_classification: null,
-    priority_score: 0,
+    priority_score: null,
   }
 }
 

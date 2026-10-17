@@ -223,6 +223,10 @@ export function AttackPathPanel({
 
   const jewelSummary = useMemo<CrownJewelSummary | null>(() => {
     if (!payload || isFacadeError(payload)) return null
+    const score =
+      typeof payload.severity?.overall_score === "number" && Number.isFinite(payload.severity.overall_score)
+        ? payload.severity.overall_score
+        : null
     return {
       id: payload.jewel.id,
       name: payload.jewel.name,
@@ -231,13 +235,11 @@ export function AttackPathPanel({
       // null -- never an invented HIGH / 0 / false.
       severity: jewelSeverityLabel((payload.severity as { severity?: unknown } | null)?.severity),
       path_count: payload.jewel.path_count,
-      highest_risk_score:
-        typeof payload.severity?.overall_score === "number" && Number.isFinite(payload.severity.overall_score)
-          ? payload.severity.overall_score
-          : null,
+      highest_risk_score: score,
       is_internet_exposed: null,
       data_classification: null,
-      priority_score: payload.severity?.overall_score ?? 0,
+      // S13: the same served score, or null (not computed) -- never an invented 0.
+      priority_score: score,
     }
   }, [payload])
 

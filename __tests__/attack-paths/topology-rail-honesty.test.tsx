@@ -240,6 +240,8 @@ describe("the Topology view's center and right rail keep the catalog's conclusio
   it.each([
     ["a null path_count", { path_count: null }],
     ["no path_count at all", { path_count: undefined }],
+    // S13: the adapter gives a malformed count as null too (it was NaN, which read the summary), so it settles alike.
+    ["a malformed path_count (\"bad\")", { path_count: "bad" }],
   ])("CONSTRUCTED db-x1 no_modeled_route with %s, nothing recorded (AP196-R1): 'Path count unreadable' in the center, the"
     + " narrative and the right rail, never 'no route'", async (_label, count) => {
     nav.params.set("jewel", idOf("db-x1", "RDSInstance"))
@@ -251,19 +253,6 @@ describe("the Topology view's center and right rail keep the catalog's conclusio
     await expectCatalogConclusion(fetchMock, "db-x1", "Path count unreadable",
       /path count in a shape that could not be read, so Cyntro does not claim that no route exists/, null)
     expect(within(graph).getByText("Path count unreadable: no listed path to show.")).toBeInTheDocument()
-  })
-
-  it("CONTROL (not settled): CONSTRUCTED db-x1 no_modeled_route with path_count \"bad\": the hook reads the summary, so"
-    + " the view shows that read in flight, never 'no route'", async () => {
-    nav.params.set("jewel", idOf("db-x1", "RDSInstance"))
-    const fetchMock = await mountPage({
-      ...SECTION, targets: SECTION.targets.map((t) => (t.name === "db-x1" ? { ...t, state: "no_modeled_route", path_count: "bad" } : t)),
-    }, "pending")
-    const graph = await topologyGraph()
-    await waitFor(() => expect(summaryCallsFor(fetchMock, "db-x1").length).toBeGreaterThan(0))
-    expect(graph.textContent).not.toMatch(/No modeled current-access route|NO PATH/)
-    expect(within(graph).getByText("Loading topology…")).toBeInTheDocument()
-    expect(within(graph).queryByTestId("topology-catalog-conclusion")).toBeNull()
   })
 
   it("CONSTRUCTED db-x1 projection_not_ready: the not-ready conclusion, not an outage", async () => {
