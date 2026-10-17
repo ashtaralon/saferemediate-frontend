@@ -80,6 +80,7 @@ describe("crown-jewel rail panel", () => {
     const coverage = read("lib/attack-paths/lifecycle-coverage.ts")
     expect(coverage).toContain('shownState === "no_modeled_route" ? "NO PATH"')
     expect(coverage).toContain('shownState === "coverage_incomplete" ? "PENDING"')
-    expect(src).toContain("{hasSeverity ? score : zeroLabel}")
+    // AP201 (I3): a severity label without a served score shows a dash for the score, never 0.
+    expect(src).toContain('{hasScore ? score : hasSeverity ? "—" : zeroLabel}')
   })
 })

@@ -323,11 +323,18 @@ describe("AttackPathsV2 header count — what the read state supports, never a b
     expect(consoleError.mock.calls.map((c) => String(c[0])).join("\n")).not.toMatch(/reading 'map'/)
   })
 
-  it("AP188 CONSTRUCTED a 200 hold as the summary: no zero, no crash (the read is retried)", async () => {
+  it("AP188 CONSTRUCTED a 200 hold as the summary: no zero, no crash; AP201 (M4) the hold is settled — named, not retried", async () => {
     const header = await headerFor("bucket-1", "S3Bucket", withoutLifecycle("bucket-1"), { status: 200, body: {
       semantic_status: "not_recorded", hold_reason: "JEWEL_NOT_IN_IAP_PUBLICATION" } })
-    await waitFor(() => expect(header).toHaveTextContent(/^bucket-1 · paths loading…$/))
+    // AP188 asserted "paths loading…" here because the hold was retried as a cold backend. A typed hold is the
+    // server's answer about right now (M4): the read has failed with the hold as its reason, never a zero.
+    await waitFor(() => expect(first(header)).toHaveTextContent(/^bucket-1 · detail paths unavailable$/))
+    // the catalog's own count (1 for bucket-1 in this section) stays said as the catalog's, never as loaded detail
+    expect(header).toHaveTextContent(/1 listed in the catalog/)
+    // with a secondary line the full explanation is the primary line's title
+    expect(first(header).getAttribute("title")).toMatch(/Not recorded yet — JEWEL_NOT_IN_IAP_PUBLICATION/)
     expect(screen.queryByText(/No attack paths to/)).toBeNull()
+    expect(screen.queryByText(/Loading paths for this jewel/)).toBeNull()
     expect(consoleError.mock.calls.map((c) => String(c[0])).join("\n")).not.toMatch(/reading 'map'|reading 'length'/)
   })
 

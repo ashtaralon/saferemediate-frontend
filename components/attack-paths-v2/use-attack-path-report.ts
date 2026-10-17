@@ -55,6 +55,9 @@ export function useAttackPathReport(
       return
     }
     let cancelled = false
+    // AP201 (M1): the previous path's report must not stand under the new pin while this one loads (UI-24).
+    setReport(null)
+    setSource(null)
     setLoading(true)
     setError(null)
 

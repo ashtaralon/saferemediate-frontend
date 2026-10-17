@@ -80,10 +80,27 @@ describe("targetEntryToJewelSummary", () => {
     }))
     expect(jewel.target_state).toBe("no_modeled_route")
     expect(jewel.severity).toBeNull()
-    expect(jewel.highest_risk_score).toBe(0)
+    // AP201 (I3): no path, no score -- null, never a risk score of 0.
+    expect(jewel.highest_risk_score).toBeNull()
     expect(jewel.priority_score).toBe(0)
     expect(jewel.path_count).toBe(0)
     expect(jewel.paths_not_computed).toBe(false)
+  })
+
+  it("AP201 (I3): the risk score is the served number or null, never a coerced 0 beside a label", () => {
+    // a label with no numeric score (the backend omitted / nulled max_severity) is 'not reported'
+    const unscored = targetEntryToJewelSummary(
+      entry({ max_severity: undefined as unknown as number, max_severity_label: "HIGH" }),
+    )
+    expect(unscored.severity).toBe("HIGH")
+    expect(unscored.highest_risk_score).toBeNull()
+    const nulled = targetEntryToJewelSummary(entry({ max_severity: null as unknown as number }))
+    expect(nulled.highest_risk_score).toBeNull()
+    const malformed = targetEntryToJewelSummary(entry({ max_severity: "70" as unknown as number }))
+    expect(malformed.highest_risk_score).toBeNull()
+    // a served number is kept as served
+    expect(targetEntryToJewelSummary(entry({ max_severity: 0 })).highest_risk_score).toBe(0)
+    expect(targetEntryToJewelSummary(entry({ max_severity: 70 })).highest_risk_score).toBe(70)
   })
 
   it("never derives a severity label client-side", () => {

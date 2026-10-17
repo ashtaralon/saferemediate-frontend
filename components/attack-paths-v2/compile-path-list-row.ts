@@ -279,6 +279,8 @@ function compileImpactBuckets(path: IdentityAttackPath): ImpactBucket[] {
   const legacy = path.damage_types ?? []
   const mapped = new Set<ImpactBucket>()
   for (const d of legacy) {
+    // AP201 (C6): a served entry that is not a string is not a damage type; it is skipped, never dereferenced.
+    if (typeof d !== "string") continue
     const bucket = LEGACY_BUCKET_MAP[d.toLowerCase()]
     if (bucket) mapped.add(bucket)
   }

@@ -13,12 +13,15 @@ function evidenceLabel(evidence: string | undefined): string {
   switch (evidence) {
     case "observed":
       return "Observed"
+    case "configured":
+      return "Configured"
     case "unverified":
       return "Unverified"
     case "blocked":
       return "Blocked"
     default:
-      return "Configured"
+      // AP201 (I1): an absent or unrecognised evidence word is not "Configured".
+      return "Not reported"
   }
 }
 
@@ -44,21 +47,22 @@ export function Zoom0RiskHeader({
   const current = risk.current_state
   const stateEvidence = current?.evidence ?? risk.evidence
   const evidenceLive = stateEvidence === "observed"
+  // AP201 (I1): the headline and the mitigation are the server's or absent. "Configured path risk" and "Tighten
+  // least-privilege for the path identity" were invented here when the server sent none.
   const headline = refHeadline(
     top,
-    risk.impact_headline?.trim() ||
-      risk.business_sentence?.trim() ||
-      "Configured path risk",
+    risk.impact_headline?.trim() || risk.business_sentence?.trim() || "",
   )
   const mitigation =
-    top?.mitigation_hint?.trim() ||
-    risk.mitigation_hint?.trim() ||
-    "Tighten least-privilege for the path identity"
+    top?.mitigation_hint?.trim() || risk.mitigation_hint?.trim() || null
   const identityName = top?.identity_name ?? risk.identity_name
   const severity = top?.severity_label ?? risk.severity_label
-  const damage = top?.damage_types?.length
+  // AP201 (C1): a served risk_summary may carry no damage_types at all; absent is an empty list, never a throw.
+  const damage: string[] = Array.isArray(top?.damage_types) && top.damage_types.length
     ? top.damage_types
-    : risk.damage_types
+    : Array.isArray(risk.damage_types)
+      ? risk.damage_types
+      : []
   const business =
     top?.business_sentence?.trim() || risk.business_sentence?.trim() || null
   const impact = top?.impact_headline?.trim() || risk.impact_headline?.trim() || null
@@ -87,8 +91,8 @@ export function Zoom0RiskHeader({
       className="rounded-lg border border-border bg-muted/30 px-3 py-2.5"
       data-testid="zoom0-risk-header"
       data-evidence={stateEvidence}
-      data-serve-state={risk.serve_state ?? "ACTIVE"}
-      data-coverage-state={risk.coverage_state ?? "READY"}
+      data-serve-state={risk.serve_state ?? undefined}
+      data-coverage-state={risk.coverage_state ?? undefined}
       data-generation={risk.generation ?? undefined}
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-mono text-muted-foreground">
@@ -128,9 +132,15 @@ export function Zoom0RiskHeader({
         {risk.as_of ? <span title="as_of">as of {risk.as_of}</span> : null}
       </div>
 
-      <p className="mt-1.5 text-[13px] font-medium leading-snug text-foreground">
-        {headline}
-      </p>
+      {headline ? (
+        <p className="mt-1.5 text-[13px] font-medium leading-snug text-foreground">
+          {headline}
+        </p>
+      ) : (
+        <p className="mt-1.5 text-[12px] leading-snug text-muted-foreground" data-testid="zoom0-risk-headline-missing">
+          Risk headline not reported by the server.
+        </p>
+      )}
 
       {business && impact && business !== impact ? (
         <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
@@ -147,22 +157,28 @@ export function Zoom0RiskHeader({
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
         {onMitigate ? (
+          // The affordance is the page's (open LP / break-path for the identity); only the hint text is the server's.
           <button
             type="button"
             onClick={onMitigate}
             className="inline-flex items-center gap-1.5 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-medium text-rose-800 hover:bg-rose-100 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200 dark:hover:bg-rose-500/20"
             data-testid="zoom0-risk-mitigate"
+            data-hint={mitigation ? "server" : "absent"}
           >
             <Shield className="h-3 w-3" />
-            {mitigation}
+            {mitigation ?? "Open mitigation"}
           </button>
-        ) : (
+        ) : mitigation ? (
           <span
             className="inline-flex items-center gap-1.5 text-[11px] font-medium text-rose-800 dark:text-rose-200"
             data-testid="zoom0-risk-mitigate-hint"
           >
             <Shield className="h-3 w-3" />
             {mitigation}
+          </span>
+        ) : (
+          <span className="text-[11px] text-muted-foreground" data-testid="zoom0-risk-mitigate-missing">
+            No server-authored mitigation hint.
           </span>
         )}
         {identityName ? (

@@ -56,13 +56,16 @@ describe("useCrownJewelConvergence keeps NOT_READY as NOT_READY and never maps a
     expect(errors.mock.calls.map((c) => String(c[0])).join("\n")).not.toMatch(/reading 'map'/)
   })
 
-  it("a 200 hold is not a summary: no data, the failure path (retrying) with the hold named", async () => {
+  it("a 200 hold is not a summary: no data, the hold named, and (AP201 M4) not retried as a cold backend", async () => {
     serveSummary({ semantic_status: "not_recorded", hold_reason: "JEWEL_NOT_IN_IAP_PUBLICATION" })
     const { result } = renderHook(() => useCrownJewelConvergence("Orders", JEWEL))
     await waitFor(() => expect(result.current.error).not.toBeNull())
     expect(result.current.data).toBeNull()
     expect(result.current.error).toMatch(/Not recorded yet — JEWEL_NOT_IN_IAP_PUBLICATION/)
-    expect(result.current.retrying).toBe(true)
+    // AP188 asserted the failure path's retrying=true here. A typed hold is the backend's answer about right now
+    // (the rule use-cached-fetch already applies: "a typed refusal is an answer, not a blip"), so it is final.
+    expect(result.current.retrying).toBe(false)
+    expect(result.current.loading).toBe(false)
   })
 
   it("CONTROL: a READY list is stored and merged as before", async () => {

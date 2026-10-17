@@ -3,6 +3,7 @@ import type { CrownJewelSummary } from "@/components/identity-attack-paths/types
 import type { CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
 import {
   isServeJewelsAuthoritative,
+  isServeJewelsUnreadable,
   resolveJewelPickerList,
   resolveJewelRailPaths,
   shouldShowAttackPathsNotComputed,
@@ -181,10 +182,12 @@ describe("resolveJewelPickerList", () => {
 })
 
 describe("shouldShowAttackPathsNotComputed", () => {
-  it("never shows when SERVE /jewels answered empty (IAP stale must not brick)", () => {
+  it("never shows when the SERVE catalog answered empty (IAP stale must not brick)", () => {
+    // The rail reads the AP3-104 target catalog (serve_state + targets), not the legacy /jewels envelope.
+    const emptyCatalog = { serve_state: "READY", targets: [] }
     expect(
       shouldShowAttackPathsNotComputed({
-        serveJewelsRaw: { result: { crown_jewels: [] } },
+        serveJewelsRaw: emptyCatalog,
         serveJewelsError: null,
         jewelsEmpty: true,
         iapFailed: true,
@@ -192,9 +195,33 @@ describe("shouldShowAttackPathsNotComputed", () => {
         iapLoading: false,
       }),
     ).toBe(false)
-    expect(isServeJewelsAuthoritative({ result: { crown_jewels: [] } }, null)).toBe(
-      true,
-    )
+    expect(isServeJewelsAuthoritative(emptyCatalog, null)).toBe(true)
+  })
+
+  it("AP201 (M14): a 200 body that is not a catalog is not the truth about the system", () => {
+    // This case used to pass the legacy /jewels envelope as 'answered empty'; the page reads it as zero targets and
+    // showed 'No crown jewels detected'. It is unreadable, named -- neither an answer nor a hold.
+    for (const body of [{ result: { crown_jewels: [] } }, { unexpected: true }, { targets: [] }]) {
+      expect(isServeJewelsAuthoritative(body, null)).toBe(false)
+      expect(isServeJewelsUnreadable(body, null)).toBe(true)
+    }
+    // Still not 'attack paths not computed', even beside a failed IAP: the rail names the unreadable catalog, and the
+    // full-page IAP claim would hide that cause.
+    for (const iapFailed of [false, true]) {
+      expect(
+        shouldShowAttackPathsNotComputed({
+          serveJewelsRaw: { unexpected: true },
+          serveJewelsError: null,
+          jewelsEmpty: true,
+          iapFailed,
+          jewelsLoading: false,
+          iapLoading: false,
+        }),
+      ).toBe(false)
+    }
+    expect(isServeJewelsUnreadable(null, null)).toBe(false)
+    expect(isServeJewelsUnreadable({ unexpected: true }, "HTTP 502")).toBe(false)
+    expect(isServeJewelsUnreadable({ semantic_status: "not_recorded", hold_reason: "X" }, null)).toBe(false)
   })
 
   it("shows when SERVE unavailable and IAP cold/stale envelope", () => {

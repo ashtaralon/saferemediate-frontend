@@ -13,6 +13,7 @@ import type {
 import type { CrownJewelConvergence } from "./convergence-types"
 import { convergencePathsToIdentityAttackPaths } from "./convergence-to-iap"
 import { iapHold, type IapHold } from "./path-evidence-view"
+import { isTargetCatalogPayload } from "./target-catalog"
 
 export type JewelRailSource = "serve" | "iap_fallback" | "none"
 
@@ -83,7 +84,19 @@ export function isServeJewelsAuthoritative(
   serveJewelsRaw: unknown,
   serveJewelsError: string | null | undefined,
 ): boolean {
-  return serveJewelsRaw != null && !serveJewelsError
+  // AP201 (M14): a 200 body that is not a catalog (no `targets` list, no serve state) is not the truth about this
+  // system; it was shown as "No crown jewels detected".
+  return serveJewelsRaw != null && !serveJewelsError && isTargetCatalogPayload(serveJewelsRaw)
+}
+
+/** AP201 (M14): a served catalog body the reader cannot read. Neither an answer nor a hold: unavailable, named. */
+export function isServeJewelsUnreadable(
+  serveJewelsRaw: unknown,
+  serveJewelsError: string | null | undefined,
+): boolean {
+  return (
+    serveJewelsRaw != null && !serveJewelsError && !isTargetCatalogPayload(serveJewelsRaw) && !iapHold(serveJewelsRaw)
+  )
 }
 
 /**
@@ -100,6 +113,11 @@ export function shouldShowAttackPathsNotComputed(args: {
   iapLoading: boolean
 }): boolean {
   if (isServeJewelsAuthoritative(args.serveJewelsRaw, args.serveJewelsError)) {
+    return false
+  }
+  // AP201 (M14): an unreadable catalog body is named on the rail (resolveRailIapHold); the full-page "not computed"
+  // would hide that cause behind the IAP's.
+  if (isServeJewelsUnreadable(args.serveJewelsRaw, args.serveJewelsError)) {
     return false
   }
   return (
@@ -134,7 +152,12 @@ export function resolveRailIapHold(args: {
   const fromIap = args.fetchHold ?? iapHold(args.iapBody)
   if (fromIap) return fromIap
   if (args.catalogHold) return args.catalogHold
-  return args.serveJewelsError ? { kind: "error", reason: args.serveJewelsError } : null
+  if (args.serveJewelsError) return { kind: "error", reason: args.serveJewelsError }
+  // AP201 (M14): a 200 catalog body the reader cannot read is "unavailable, named", never "No crown jewels detected".
+  if (isServeJewelsUnreadable(args.serveJewelsRaw, args.serveJewelsError)) {
+    return { kind: "unavailable", reason: "TARGET_CATALOG_UNREADABLE: the served body is not a target catalog" }
+  }
+  return null
 }
 
 /** useCachedFetch `isCacheable` for the full IAP body: a hold is never a reading. */

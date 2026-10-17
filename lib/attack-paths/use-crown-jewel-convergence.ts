@@ -18,10 +18,25 @@ import {
 } from "./convergence-path-details"
 import { readConvergencePaths } from "./convergence-readiness"
 import { matchConvergencePathId } from "./iap-to-convergence"
+import { iapHold } from "./path-evidence-view"
+import { semanticHoldMessage, type SemanticHoldKind } from "@/lib/semantic-hold"
 import type {
   CrownJewelConvergence,
   CrownJewelConvergenceSummary,
 } from "./convergence-types"
+
+/**
+ * AP201 (M4): an answer that settles the question. A TYPED hold / refusal is an answer, not a cold backend, and a 4xx
+ * (other than 408 / 429) is final. Neither is retried; the message names the hold (V3-PERF-06/07).
+ *
+ * Not settled: the legacy `{error}` wrapper (`iapHold` kind "error"). The summary proxy itself answers 5xx and its
+ * own timeout with `{error: "Failed to … crown jewel summary"}`, so that wrapper is a cold backend and keeps the
+ * AP188 ladder. Today that proxy rewrites EVERY backend non-2xx into that wrapper, so the typed refused / route-held
+ * / 503-unavailable arms below are reached only by a 200 body (or once the proxy forwards typed bodies); they are
+ * kept so a forwarded typed answer is read as one rather than as "backend may be cold".
+ */
+class SettledAnswer extends Error {}
+const SETTLED_HOLD_KINDS: ReadonlySet<SemanticHoldKind> = new Set(["not_recorded", "unavailable", "refused", "route_held"])
 
 interface UseCrownJewelConvergenceResult {
   data: CrownJewelConvergence | null
@@ -37,6 +52,9 @@ interface UseCrownJewelConvergenceResult {
   /** How many summary attempts have been made for this jewel (1-based). */
   attempts: number
   error: string | null
+  /** AP201 (M4): the server settled the question (typed hold / refusal, or a final 4xx). `error` names it; there
+   *  will be no auto-retry, so a caller must not keep "warming" on `attempts`. */
+  settled: boolean
   retry: () => void
 }
 
@@ -108,6 +126,7 @@ export function useCrownJewelConvergence(
   const [retrying, setRetrying] = useState(false)
   const [attempts, setAttempts] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [settled, setSettled] = useState(false)
   const [nonce, setNonce] = useState(0)
   const attemptRef = useRef(0)
   /** Path ids whose /detail already settled ready — skip re-fetch on pin change. */
@@ -126,6 +145,7 @@ export function useCrownJewelConvergence(
       setDetailsByPathId({})
       readyDetailIdsRef.current = new Set()
       setError(null)
+      setSettled(false)
       setLoading(false)
       setRetrying(false)
       setAttempts(0)
@@ -140,6 +160,7 @@ export function useCrownJewelConvergence(
     setLoading(true)
     setRetrying(false)
     setError(null)
+    setSettled(false)
     setDetailsByPathId({})
     readyDetailIdsRef.current = new Set()
     setSummary(null)
@@ -171,10 +192,26 @@ export function useCrownJewelConvergence(
           | { error?: string }
           | null
         if (cancelled) return
+        const hold = summaryBody && typeof summaryBody === "object" ? iapHold(summaryBody) : null
+        // "unavailable" is two producers: the 200 semantic hold (settled, as use-cached-fetch fail-closes it) and the
+        // typed 503 reader failure (transient there: 503 is retried). Only the 200 form settles here.
+        const settledHold =
+          hold != null && SETTLED_HOLD_KINDS.has(hold.kind) && (hold.kind !== "unavailable" || summaryRes.ok)
+        if (settledHold) throw new SettledAnswer(semanticHoldMessage(hold))
         if (!summaryRes.ok || !summaryBody || "error" in summaryBody) {
           const msg =
             (summaryBody as { error?: string })?.error ??
             `Backend busy (${summaryRes.status})`
+          const finalStatus =
+            summaryRes.status >= 400 && summaryRes.status < 500 && summaryRes.status !== 408 && summaryRes.status !== 429
+          if (finalStatus) {
+            // The server's own words when it gave any; never "Backend busy" for an answer that is final.
+            const detail = (summaryBody as { detail?: unknown })?.detail
+            throw new SettledAnswer(
+              (summaryBody as { error?: string })?.error ??
+                (typeof detail === "string" && detail ? detail : `HTTP ${summaryRes.status}`),
+            )
+          }
           throw new Error(msg)
         }
         // AP188: a 200 hold (semantic_status not_recorded / unavailable), a typed refusal, or a body with no path
@@ -193,6 +230,14 @@ export function useCrownJewelConvergence(
         setLoading(false)
       } catch (e) {
         if (cancelled) return
+        if (e instanceof SettledAnswer) {
+          setSummary(null)
+          setError(e.message)
+          setSettled(true)
+          setRetrying(false)
+          setLoading(false)
+          return
+        }
         const m = (e as Error).message ?? String(e)
         const friendly =
           m.includes("aborted") || m.includes("Timeout")
@@ -348,11 +393,13 @@ export function useCrownJewelConvergence(
     detailFailures,
     attempts,
     error,
+    settled,
     retry,
   }
 }
 
-/** Minimal jewel for callers that only have arn/name (convergence-map-loader). */
+/** Minimal jewel for callers that only have arn/name (convergence-map-loader). Nothing is known about it beyond the
+ *  name: no severity, no score, no exposure (AP201 I3: it used to invent MEDIUM / 0 / false). */
 export function crownJewelFromArnName(
   cjArn: string | null,
   cjName: string | null,
@@ -364,10 +411,10 @@ export function crownJewelFromArnName(
     canonical_id: cjArn,
     name: cjName || cjArn || id,
     type: "Unknown",
-    severity: "MEDIUM",
+    severity: null,
     path_count: 0,
-    highest_risk_score: 0,
-    is_internet_exposed: false,
+    highest_risk_score: null,
+    is_internet_exposed: null,
     data_classification: null,
     priority_score: 0,
   }

@@ -213,7 +213,10 @@ export function CrownJewelListPanel({
           // score, never a default LOW.
           const sev = jewel.severity ?? null
           const hasSeverity = !notComputed && sev != null
-          const score = Math.round(jewel.highest_risk_score ?? 0)
+          // AP201 (I3): the score is shown only when the server reported one; a severity label alone shows "—".
+          const hasScore =
+            hasSeverity && typeof jewel.highest_risk_score === "number" && Number.isFinite(jewel.highest_risk_score)
+          const score = hasScore ? Math.round(jewel.highest_risk_score as number) : null
           const sevColor = !hasSeverity ? "#64748b" :
             sev === "CRITICAL" ? "#ef4444" :
             sev === "HIGH" ? "#f97316" :
@@ -254,9 +257,9 @@ export function CrownJewelListPanel({
                 <div
                   className={`${hasSeverity ? "w-9 text-base" : "w-12 text-[9px] tracking-wide"} shrink-0 text-right font-semibold tabular-nums leading-none pt-0.5`}
                   style={{ color: sevColor }}
-                  aria-label={hasSeverity ? `Risk score ${score}` : zeroDescription}
+                  aria-label={hasScore ? `Risk score ${score}` : hasSeverity ? "Risk score not reported" : zeroDescription}
                 >
-                  {hasSeverity ? score : zeroLabel}
+                  {hasScore ? score : hasSeverity ? "—" : zeroLabel}
                 </div>
 
                 <div className="flex min-w-0 flex-1 flex-col gap-1">

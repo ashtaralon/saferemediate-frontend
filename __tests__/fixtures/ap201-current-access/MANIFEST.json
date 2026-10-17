@@ -1,0 +1,264 @@
+{
+  "backend_commit": "ab74d2c103217cd40e26fb86ca5dcc6827d5a20d",
+  "captured_at": "2026-10-17T06:41:49Z",
+  "entries": [
+    {
+      "bytes": 1316,
+      "file": "targets.json",
+      "hold_reason": null,
+      "params": {},
+      "path": "/api/attack-paths/payments/targets",
+      "semantic_status": "populated",
+      "sha256": "99512e9b0ecab201b1227f03a063d491c53ea8000850b3aa347b82fee33800cb",
+      "status": 200,
+      "top_level_keys": [
+        "account_id",
+        "computed_at",
+        "counts",
+        "coverage",
+        "coverage_state",
+        "customer_id",
+        "endpoint",
+        "generation",
+        "graph_version",
+        "not_ready_reason",
+        "read_model",
+        "semantic_status",
+        "serve_state",
+        "snapshot_provenance",
+        "source_generation",
+        "staging_run_id",
+        "system_name",
+        "targets",
+        "total_targets"
+      ]
+    },
+    {
+      "bytes": 16762,
+      "file": "list.json",
+      "hold_reason": null,
+      "params": {
+        "include_configured": true
+      },
+      "path": "/api/attack-paths/payments",
+      "semantic_status": "populated",
+      "sha256": "2b34c91b0ab66c868b2a44c5cd33cd996eeed6826ae5826f76189590723f0963",
+      "status": 200,
+      "top_level_keys": [
+        "coverage",
+        "critical_paths",
+        "graph_version",
+        "highest_risk_score",
+        "not_applicable_fields",
+        "paths",
+        "population",
+        "read_model",
+        "semantic_status",
+        "snapshot_provenance",
+        "source_generation",
+        "summary",
+        "system_name",
+        "timestamp",
+        "total_paths",
+        "unavailable_fields"
+      ]
+    },
+    {
+      "bytes": 12847,
+      "file": "by-crown-jewel-summary.json",
+      "hold_reason": null,
+      "params": {
+        "cj_arn": "arn:aws:s3:::acme-data"
+      },
+      "path": "/api/attack-paths/payments/by-crown-jewel/summary",
+      "semantic_status": "populated",
+      "sha256": "3f8c98ee7cd94f13aeaf5d8bed94ede70df862f2dae858388898bad5b24e85fa",
+      "status": 200,
+      "top_level_keys": [
+        "as_of",
+        "cardinality",
+        "choke_points",
+        "cj_arn",
+        "cj_name",
+        "cj_type",
+        "coverage",
+        "coverage_state",
+        "endpoint",
+        "expected_path_count",
+        "generation",
+        "graph_version",
+        "integrity_detail",
+        "live_pin_path_count",
+        "observed_paths",
+        "paths",
+        "paths_total",
+        "read_model",
+        "receipt_path_count",
+        "risk_summary",
+        "semantic_status",
+        "serve_state",
+        "snapshot_provenance",
+        "source_generation",
+        "system"
+      ]
+    },
+    {
+      "bytes": 3865,
+      "file": "by-crown-jewel-detail-a9911e7a2972.json",
+      "hold_reason": null,
+      "params": {
+        "cj_arn": "arn:aws:s3:::acme-data",
+        "path_id": "path-mat-a9911e7a2972"
+      },
+      "path": "/api/attack-paths/payments/by-crown-jewel/detail",
+      "semantic_status": "populated",
+      "sha256": "f7f48f0987e2b6ef2c99f5ca9edacc4c7845becaa204620ee7c5cb6e3842ef78",
+      "status": 200,
+      "top_level_keys": [
+        "cj_arn",
+        "cj_name",
+        "coverage",
+        "coverage_state",
+        "endpoint",
+        "generation",
+        "graph_version",
+        "path",
+        "read_model",
+        "semantic_status",
+        "snapshot_provenance",
+        "source_generation",
+        "system"
+      ]
+    },
+    {
+      "bytes": 3737,
+      "file": "by-crown-jewel-detail-6a8284e0b313.json",
+      "hold_reason": null,
+      "params": {
+        "cj_arn": "arn:aws:s3:::acme-data",
+        "path_id": "path-mat-6a8284e0b313"
+      },
+      "path": "/api/attack-paths/payments/by-crown-jewel/detail",
+      "semantic_status": "populated",
+      "sha256": "9ad8f4cc2ee68eea204dd5b0f0d0a8a7f612bf37499f4b6012070d491ef8b8ac",
+      "status": 200,
+      "top_level_keys": [
+        "cj_arn",
+        "cj_name",
+        "coverage",
+        "coverage_state",
+        "endpoint",
+        "generation",
+        "graph_version",
+        "path",
+        "read_model",
+        "semantic_status",
+        "snapshot_provenance",
+        "source_generation",
+        "system"
+      ]
+    },
+    {
+      "bytes": 3546,
+      "file": "by-crown-jewel-detail-9d7603a2f892.json",
+      "hold_reason": null,
+      "params": {
+        "cj_arn": "arn:aws:s3:::acme-data",
+        "path_id": "path-mat-9d7603a2f892"
+      },
+      "path": "/api/attack-paths/payments/by-crown-jewel/detail",
+      "semantic_status": "populated",
+      "sha256": "4e5e67f2a63bbf795cd5c06702898ba2b4ea761a709ec67e7f3ba31695b616e7",
+      "status": 200,
+      "top_level_keys": [
+        "cj_arn",
+        "cj_name",
+        "coverage",
+        "coverage_state",
+        "endpoint",
+        "generation",
+        "graph_version",
+        "path",
+        "read_model",
+        "semantic_status",
+        "snapshot_provenance",
+        "source_generation",
+        "system"
+      ]
+    },
+    {
+      "bytes": 3217,
+      "file": "by-crown-jewel-detail-f62ad73bb78b.json",
+      "hold_reason": null,
+      "params": {
+        "cj_arn": "arn:aws:s3:::acme-data",
+        "path_id": "path-mat-f62ad73bb78b"
+      },
+      "path": "/api/attack-paths/payments/by-crown-jewel/detail",
+      "semantic_status": "populated",
+      "sha256": "1b9bab7be399fefd45e2f374af8d82b8c13c1bae2e0b3d6a02494e3ae0c9eaca",
+      "status": 200,
+      "top_level_keys": [
+        "cj_arn",
+        "cj_name",
+        "coverage",
+        "coverage_state",
+        "endpoint",
+        "generation",
+        "graph_version",
+        "path",
+        "read_model",
+        "semantic_status",
+        "snapshot_provenance",
+        "source_generation",
+        "system"
+      ]
+    },
+    {
+      "bytes": 3459,
+      "file": "by-crown-jewel-detail-3e6b3937fae9.json",
+      "hold_reason": null,
+      "params": {
+        "cj_arn": "arn:aws:s3:::acme-data",
+        "path_id": "path-mat-3e6b3937fae9"
+      },
+      "path": "/api/attack-paths/payments/by-crown-jewel/detail",
+      "semantic_status": "populated",
+      "sha256": "c3c09cc84d461c26738cb3c755423257028f07f3c0b4d21dd97d52f566a9e8b5",
+      "status": 200,
+      "top_level_keys": [
+        "cj_arn",
+        "cj_name",
+        "coverage",
+        "coverage_state",
+        "endpoint",
+        "generation",
+        "graph_version",
+        "path",
+        "read_model",
+        "semantic_status",
+        "snapshot_provenance",
+        "source_generation",
+        "system"
+      ]
+    }
+  ],
+  "harness": "tests/test_attack_paths_list_publication.py (real projection builder + publishers + enforce router; SUBSTITUTED graph rows)",
+  "kind": "TEST_ONLY_CAPTURE",
+  "not_a_claim": "No installed, live or customer data. Rendering/contract checks only.",
+  "published_path_ids": [
+    "path-mat-a9911e7a2972",
+    "path-mat-6a8284e0b313",
+    "path-mat-9d7603a2f892",
+    "path-mat-f62ad73bb78b",
+    "path-mat-3e6b3937fae9"
+  ],
+  "python": "3.13.4",
+  "scope": {
+    "account": "111111111111",
+    "jewel": "arn:aws:s3:::acme-data",
+    "system": "payments",
+    "tenant": "acme",
+    "version": "inventory.resource_state.v1/4/run-4"
+  }
+}

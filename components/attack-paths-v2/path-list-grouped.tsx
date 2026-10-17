@@ -36,6 +36,9 @@ interface PathListGroupedProps {
   /** AP189: the by-crown-jewel answer behind these paths says its projection is not ready, so an empty list is
    *  unknown, never "no attack paths today". */
   answerNotReady?: boolean
+  /** AP201 (M6): why the by-crown-jewel answer is not every path (coverage partial, more paths than returned, ...).
+   *  An empty list under such an answer is incomplete, never "no attack paths today". */
+  answerPartial?: string | null
 }
 
 function endpointLabel(row: PathListRow, side: "from" | "to"): string {
@@ -82,6 +85,7 @@ export function PathListGrouped({
   selectedPathId,
   onSelectPath,
   answerNotReady = false,
+  answerPartial = null,
 }: PathListGroupedProps) {
   const rows = useMemo<PathListRow[]>(() => {
     return paths
@@ -108,6 +112,17 @@ export function PathListGrouped({
         <div className="px-4 py-6" data-testid="paths-not-ready-state">
           <div className="text-xs font-medium text-amber-700 dark:text-amber-300">Paths not ready</div>
           <div className="mt-1.5 text-[11px] text-muted-foreground">{CONVERGENCE_NOT_READY_MESSAGE}</div>
+        </div>
+      )
+    }
+    if (recordedCause === null && answerPartial) {
+      return (
+        <div className="px-4 py-6" data-testid="paths-partial-state">
+          <div className="text-xs font-medium text-amber-700 dark:text-amber-300">No path listed · coverage incomplete</div>
+          <div className="mt-1.5 text-[11px] text-muted-foreground">
+            The active generation listed no path to this crown jewel, but its answer is not complete ({answerPartial}).
+            Cyntro does not claim that no route exists.
+          </div>
         </div>
       )
     }

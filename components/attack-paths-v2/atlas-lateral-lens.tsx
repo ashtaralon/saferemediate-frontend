@@ -173,6 +173,11 @@ export function AtlasLateralLensPanel({
             </p>
           ) : error ? (
             <p className="mt-2 text-[11px] text-amber-900 dark:text-amber-200">Simulation unavailable: {error}</p>
+          ) : response && !Array.isArray(response.chains) ? (
+            // AP201 (C5): a simulation body with no chains list is unreadable; it is never "No chain found".
+            <p className="mt-2 text-[11px] text-amber-900 dark:text-amber-200" data-testid="atlas-response-unreadable">
+              Simulation answer unreadable: the response carries no chains list, so no chain verdict is shown.
+            </p>
           ) : response ? (
             <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px]">
               <span className={response.chains.length > 0 ? "font-semibold text-red-700 dark:text-red-300" : "font-semibold text-emerald-700 dark:text-emerald-300"}>
@@ -180,7 +185,9 @@ export function AtlasLateralLensPanel({
                   ? `${response.chains.length} replay-validated attack chain${response.chains.length === 1 ? "" : "s"}`
                   : "No chain found within modeled scope"}
               </span>
-              <span className="text-muted-foreground">{response.dead_ends.length} dead ends explored</span>
+              <span className="text-muted-foreground">
+                {Array.isArray(response.dead_ends) ? `${response.dead_ends.length} dead ends explored` : "dead ends not reported"}
+              </span>
               {response.chains[0]?.reachable_damage ? (
                 <span className="font-semibold text-red-700 dark:text-red-300">
                   top damage {response.chains[0].reachable_damage.priority_score}/100 · {response.chains[0].reachable_damage.severity}
@@ -237,6 +244,14 @@ export function AtlasLateralChainCanvas({
   if (!response) {
     return <div className="flex h-full min-h-[360px] items-center justify-center text-[12px] text-muted-foreground">Simulation evidence unavailable.</div>
   }
+  if (!Array.isArray(response.chains)) {
+    // AP201 (C5): no chains list is an unreadable answer, not an empty one.
+    return (
+      <div className="flex h-full min-h-[360px] items-center justify-center text-[12px] text-amber-900 dark:text-amber-200" data-testid="atlas-canvas-unreadable">
+        Simulation answer unreadable: the response carries no chains list.
+      </div>
+    )
+  }
   if (response.chains.length === 0) {
     const noReachableSummary = evaluation
       && evaluation.evaluated_count === evaluation.eligible_count
@@ -255,7 +270,7 @@ export function AtlasLateralChainCanvas({
         <p className="mt-1 max-w-xl text-[11px] text-muted-foreground">
           {noReachableSummary
             ? noReachableSummary
-            : `This result applies only to the selected foothold. ATLAS explored ${response.dead_ends.length} dead ends under catalog ${response.catalog_version}.`}
+            : `This result applies only to the selected foothold. ATLAS explored ${Array.isArray(response.dead_ends) ? `${response.dead_ends.length} dead ends` : "an unreported number of dead ends"} under catalog ${response.catalog_version}.`}
         </p>
         {evaluation && evaluation.reachable_count > 0 && recommendedFoothold ? (
           <button

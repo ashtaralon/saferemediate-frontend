@@ -98,6 +98,7 @@ import { Zoom0FanInPanel } from "./zoom0-fan-in-panel"
 import { PathCVEAssessmentPanel } from "./path-cve-assessment-panel"
 import { pathCVEsForMode } from "./path-cve-model"
 import { useAttackPathReport } from "./use-attack-path-report"
+import { useBoundedAutoRetry } from "./use-bounded-auto-retry"
 import { buildConvergenceFetchUrl } from "@/lib/attack-paths/convergence-fetch-url"
 import type { CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
 import { matchConvergencePathId } from "@/lib/attack-paths/iap-to-convergence"
@@ -113,6 +114,13 @@ import {
   buildBlastRadiusUrl,
   normalizeBlastRadiusScope,
 } from "./blast-radius-scope"
+
+/** AP201: soft background-IAP auto-retries per outage (8 s apart) before only the manual Retry remains. */
+const IAP_AUTO_RETRY_LIMIT = 3
+const IAP_AUTO_RETRY_DELAY_MS = 8000
+/** Transport only (a cold backend). A 4xx or a typed hold is an answer and is never auto-retried. */
+const isIapTransportError = (error: unknown): boolean =>
+  String(error).includes("502") || String(error).includes("504")
 
 function isTrustEnvelope(x: any): x is { provenance: any; result: any } {
   return x && typeof x === "object" && "result" in x && "provenance" in x
@@ -464,18 +472,19 @@ export function AttackPathsV2({
   const serveJewelsOk = isServeJewelsAuthoritative(jewelsRaw, jewelsError)
 
   // Soft auto-retry of background IAP only — never surfaces in the path rail.
-  useEffect(() => {
-    if (!_iapBackgroundError || rawData || isLoading) return
-    if (
-      !String(_iapBackgroundError).includes("502") &&
-      !String(_iapBackgroundError).includes("504")
-    )
-      return
-    const t = setTimeout(() => {
-      retryFullIap()
-    }, 8000)
-    return () => clearTimeout(t)
-  }, [_iapBackgroundError, rawData, isLoading, retryFullIap])
+  // AP201: bounded (use-bounded-auto-retry.ts). Unbounded, a failed backend was re-read every 8 s for as long as the
+  // page stayed open (measured: 4 reads in 25 s, 25 in a session); after the limit the manual Retry remains.
+  useBoundedAutoRetry({
+    error: _iapBackgroundError,
+    data: rawData,
+    loading: isLoading,
+    retry: retryFullIap,
+    limit: IAP_AUTO_RETRY_LIMIT,
+    delayMs: IAP_AUTO_RETRY_DELAY_MS,
+    isTransient: isIapTransportError,
+    // a new system is a new read with its own budget
+    resetKey: fetchUrl,
+  })
 
   const fromProxyStale =
     Boolean((rawData as { fromStaleCache?: boolean } | null)?.fromStaleCache) ||
@@ -489,11 +498,13 @@ export function AttackPathsV2({
   const jewels: CrownJewelSummary[] = useMemo(
     () =>
       resolveJewelPickerList({
-        serveJewels: jewelsRaw != null ? liteJewels : null,
+        // AP201 (M14): one authority predicate. An unreadable 200 body is a failed catalog here too, so the IAP
+        // jewels may stand in exactly as they do after an HTTP failure.
+        serveJewels: serveJewelsOk ? liteJewels : null,
         serveJewelsError: jewelsError,
         iapJewels: data?.crown_jewels ?? null,
       }),
-    [jewelsRaw, liteJewels, jewelsError, data?.crown_jewels],
+    [serveJewelsOk, liteJewels, jewelsError, data?.crown_jewels],
   )
 
   // Trust gate: distinguish a real "0 crown jewels" from a cold/failed
@@ -540,9 +551,12 @@ export function AttackPathsV2({
 
   const blastRadiusPathCount = blastRadiusData?.verdict?.attack_paths
   const reachableJewelCount = blastRadiusData?.verdict?.reachable_crown_jewels
-  const displayedPathCount = catalogTotals?.pathCount ?? blastRadiusPathCount
+  // AP201 (M13): the blast-radius totals are another model over another population (target-catalog.ts). They stand
+  // in only while the catalog has not answered at all; a NOT_READY, failed or unreadable catalog shows no count.
+  const catalogAnswered = jewelsRaw != null || Boolean(jewelsError)
+  const displayedPathCount = catalogTotals?.pathCount ?? (catalogAnswered ? undefined : blastRadiusPathCount)
   const displayedReachableJewelCount =
-    catalogTotals?.reachableTargetCount ?? reachableJewelCount
+    catalogTotals?.reachableTargetCount ?? (catalogAnswered ? undefined : reachableJewelCount)
 
 
   // Paths for the currently-selected jewel. Empty list = no jewel
@@ -598,6 +612,7 @@ export function AttackPathsV2({
     retrying: jewelSummaryRetrying,
     attempts: jewelSummaryAttempts,
     error: jewelSummaryError,
+    settled: jewelSummarySettled,
     retry: retryJewelSummary,
   } = useCrownJewelConvergence(
     selectedJewelHasPaths && selectedJewel ? systemName : null,
@@ -641,7 +656,9 @@ export function AttackPathsV2({
     !pathsPending &&
     jewelRail.source === "none" &&
     Boolean(jewelSummaryError) &&
-    jewelSummaryAttempts >= 3
+    // AP201 (M4): a settled answer (typed hold, final 4xx) ends at attempt 1 and is never retried; waiting for
+    // attempt 3 left the rail on "Loading paths…" with no Retry.
+    (jewelSummaryAttempts >= 3 || jewelSummarySettled)
 
   // IAP only when SERVE unreachable — label as non-authoritative.
   const pathsFromIapFallback = jewelRail.source === "iap_fallback"
@@ -669,8 +686,11 @@ export function AttackPathsV2({
       })
     : null
   // AP189: a NOT_READY serve answer makes the path list's empty state "not ready", never "no attack paths today".
-  const selectedAnswerNotReady =
-    jewelRail.source === "serve" && readConvergencePaths(jewelSummaryConvergence).kind === "not_ready"
+  const selectedAnswerReading = jewelRail.source === "serve" ? readConvergencePaths(jewelSummaryConvergence) : null
+  const selectedAnswerNotReady = selectedAnswerReading?.kind === "not_ready"
+  // AP201 (M6): a listed answer that is not every path (coverage partial, truncated, ...) makes an empty list
+  // "incomplete", never "no attack paths today".
+  const selectedAnswerPartial = selectedAnswerReading?.kind === "paths" ? selectedAnswerReading.partial : null
 
   // ─── Exfil-paths fetch (parent-owned) ────────────────────────────
   // Single source of truth for both the center-column rail
@@ -1272,9 +1292,9 @@ export function AttackPathsV2({
           <div className="m-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4">
             <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300 mb-2 text-sm font-semibold">
               <AlertTriangle className="h-4 w-4" />
-              Paths still warming
+              {jewelSummarySettled ? "Paths not served for this target" : "Paths still warming"}
             </div>
-            <div className="text-xs text-muted-foreground mb-3">
+            <div className="text-xs text-muted-foreground mb-3" data-testid="paths-hard-error-reason">
               {jewelSummaryError ||
                 "Backend was cold and didn’t answer in time. Retry — the next try is usually fast."}
             </div>
@@ -1329,6 +1349,7 @@ export function AttackPathsV2({
             selectedPathId={selectedPathId}
             onSelectPath={handleSelectPath}
             answerNotReady={selectedAnswerNotReady}
+            answerPartial={selectedAnswerPartial}
           />
         )}
           </>

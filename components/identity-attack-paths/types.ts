@@ -759,7 +759,9 @@ export interface CrownJewelSummary {
    *  severity exists (AP3-104 zero states); never default to LOW. */
   severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | null
   path_count: number
-  highest_risk_score: number
+  /** The server's maximum path severity score. null = not reported (AP201 I3: the catalog row carried a severity
+   *  label but no `max_severity`); never rendered as 0. */
+  highest_risk_score: number | null
   /** null = the collector did not record exposure; never rendered as false. */
   is_internet_exposed: boolean | null
   data_classification: string | null

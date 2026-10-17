@@ -217,18 +217,25 @@ export function AttackPathPanel({
     }
   }, [payload, pathFromPage])
 
+  // The rail's severity vocabulary, or null; "UNKNOWN" (the breakdown's own fallback) is not a severity.
+  const jewelSeverityLabel = (value: unknown): CrownJewelSummary["severity"] =>
+    value === "CRITICAL" || value === "HIGH" || value === "MEDIUM" || value === "LOW" ? value : null
+
   const jewelSummary = useMemo<CrownJewelSummary | null>(() => {
     if (!payload || isFacadeError(payload)) return null
     return {
       id: payload.jewel.id,
       name: payload.jewel.name,
       type: payload.jewel.type,
-      // The facade's lite jewel shape doesn't carry these; supply
-      // safe defaults so the header doesn't try to read undefined.
-      severity: "HIGH",
+      // The facade's lite jewel shape doesn't carry these. AP201 (I3): what the payload's severity breakdown says, or
+      // null -- never an invented HIGH / 0 / false.
+      severity: jewelSeverityLabel((payload.severity as { severity?: unknown } | null)?.severity),
       path_count: payload.jewel.path_count,
-      highest_risk_score: payload.severity?.overall_score ?? 0,
-      is_internet_exposed: false,
+      highest_risk_score:
+        typeof payload.severity?.overall_score === "number" && Number.isFinite(payload.severity.overall_score)
+          ? payload.severity.overall_score
+          : null,
+      is_internet_exposed: null,
       data_classification: null,
       priority_score: payload.severity?.overall_score ?? 0,
     }

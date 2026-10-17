@@ -25,10 +25,11 @@ export function toCrownJewelSummary(
     canonical_id: ("arn" in cj ? cj.arn : null) ?? (cj.id.startsWith("arn:") ? cj.id : null),
     name: cj.name,
     type: cj.type,
-    severity: "LOW",
+    // AP201 (I3): a lite jewel carries none of these; null, never an invented LOW / 0 / false.
+    severity: null,
     path_count: 0,
-    highest_risk_score: 0,
-    is_internet_exposed: false,
+    highest_risk_score: null,
+    is_internet_exposed: null,
     data_classification: null,
     priority_score: 0,
   }

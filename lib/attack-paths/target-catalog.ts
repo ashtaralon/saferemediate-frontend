@@ -127,8 +127,10 @@ export function targetEntryToJewelSummary(entry: TargetCatalogEntry): CrownJewel
     type: entry.kind,
     severity: severityOf(entry),
     path_count: Number(entry.path_count ?? 0),
-    // Max path severity score in the active generation; 0 only when no path.
-    highest_risk_score: hasPaths ? Number(entry.max_severity ?? 0) : 0,
+    // Max path severity score in the active generation. AP201 (I3): a served number, else null (not reported); it
+    // used to be coerced to 0 and shown as a score of 0 beside a HIGH badge.
+    highest_risk_score:
+      hasPaths && typeof entry.max_severity === "number" && Number.isFinite(entry.max_severity) ? entry.max_severity : null,
     is_internet_exposed:
       typeof entry.is_internet_exposed === "boolean" ? entry.is_internet_exposed : null,
     data_classification: entry.data_classification ?? null,

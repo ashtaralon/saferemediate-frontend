@@ -188,7 +188,9 @@ export function AllCrownJewelsView({
                       </span>
                     )}
                     <span className="text-xs font-mono text-foreground">
-                      {jewel.severity != null ? Math.round(jewel.highest_risk_score) : "—"}
+                      {jewel.severity != null && typeof jewel.highest_risk_score === "number"
+                        ? Math.round(jewel.highest_risk_score)
+                        : "—"}
                     </span>
                   </div>
                 </button>
