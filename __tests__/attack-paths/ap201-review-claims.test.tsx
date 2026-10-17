@@ -27,6 +27,9 @@ import { useLateralMoves } from "@/components/attack-paths-v2/use-lateral-moves"
 import { usePermissionCutPlan } from "@/components/attack-paths-v2/use-permission-cut-plan"
 import { AtlasLateralLensPanel } from "@/components/attack-paths-v2/atlas-lateral-lens"
 import { ExfilPathListColumn } from "@/components/attack-paths-v2/exfil-path-list-column"
+import { fetchConvergencePathDetail } from "@/lib/attack-paths/convergence-path-details"
+import { useAtlasLateral } from "@/components/attack-paths-v2/use-atlas-lateral"
+import { DamageScopeDrawer } from "@/components/attack-paths-v2/damage-scope-drawer"
 
 const SELECTED = "111111111111"
 const KEY_ACCOUNT = "222222222222"
@@ -196,5 +199,70 @@ describe("review round 2 · the convergence hook reads through the one claim rul
     const summary = urls.find((u) => u.includes("/by-crown-jewel/summary"))!
     expect(query(summary)).toMatchObject({ customer_id: "acme", account_id: SELECTED })
     expect(query(summary).system_key).toBeUndefined()
+  })
+})
+
+describe("S10 (T-2) · a held reader's ACCOUNT_SCOPE_REQUIRED names the account its read carried", () => {
+  const SCOPE_REQUIRED = { detail: { code: "ACCOUNT_SCOPE_REQUIRED", reason: "several workload accounts are registered; name one with account_id" } }
+  const named = (capability: string, account: string) =>
+    `${capability}: Account ${account} was named for this read, but the server received no account (ACCOUNT_SCOPE_REQUIRED) — the account did not reach this read`
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      urls.push(String(input))
+      return new Response(JSON.stringify(SCOPE_REQUIRED), { status: 422, headers: { "content-type": "application/json" } })
+    }))
+  })
+
+  it("closure preview, damage scope, lateral moves, the permission-cut plan and the report (opened by key: the key's account)", async () => {
+    const closure = renderHook(() => useClosurePreview({ id: PATH_ID, attack_path_id: PATH_ID, nodes: [], crown_jewel_id: "cj" } as never), { wrapper: opened })
+    const damage = renderHook(() => useDamageScope({ systemName: "shop", pathId: PATH_ID, nodeId: "n1" } as never), { wrapper: opened })
+    const moves = renderHook(() => useLateralMoves({ systemName: "shop", identityId: "role-1", jewelId: "cj" } as never), { wrapper: opened })
+    const report = renderHook(() => useAttackPathReport({ id: PATH_ID, attack_path_id: PATH_ID, nodes: [], edges: [] } as never), { wrapper: opened })
+    const cut = renderHook(() => usePermissionCutPlan("shop"), { wrapper: opened })
+    await cut.result.current.requestPlan("arn:aws:iam::1:role/r", "arn:aws:s3:::b")
+    await waitFor(() => expect(closure.result.current.error).toBe(named("Closure preview", KEY_ACCOUNT)), { timeout: 4000 })
+    await waitFor(() => expect(damage.result.current.error).toBe(named("Damage scope", KEY_ACCOUNT)))
+    await waitFor(() => expect(moves.result.current.error).toBe(named("Lateral moves", KEY_ACCOUNT)))
+    await waitFor(() => expect(report.result.current.error).toBe(named("Attack-path report", KEY_ACCOUNT)))
+    await waitFor(() => expect(cut.result.current.error).toBe(named("Permission-cut plan", KEY_ACCOUNT)))
+  })
+
+  it("the foothold read, the damage-scope drawer and the convergence hook's detail read", async () => {
+    const atlas = renderHook(() => useAtlasLateral({
+      systemName: "shop", jewelRef: "bucket-a", enabled: true, systemKey: "sk-1", systemAccountId: KEY_ACCOUNT }))
+    await waitFor(() => expect(atlas.result.current.error).toBe(named("Lateral footholds", KEY_ACCOUNT)))
+    render(<DamageScopeDrawer target={{ systemName: "shop", pathId: PATH_ID, nodeId: "n1" }} open onOpenChange={() => undefined} />,
+      { wrapper: opened })
+    expect(await screen.findByText(named("Damage scope", KEY_ACCOUNT))).toBeInTheDocument()
+    // the summary answers with one path; its detail read is refused
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      const [status, body] = url.includes("/by-crown-jewel/summary")
+        ? [200, { paths: [{ path_id: "p1", workload_arn: "arn:aws:lambda:x:1:function:f" }] }]
+        : [422, SCOPE_REQUIRED]
+      return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
+    }))
+    const { useCrownJewelConvergence } = await import("@/lib/attack-paths/use-crown-jewel-convergence")
+    const conv = renderHook(() => useCrownJewelConvergence("shop", { id: "cj", name: "db", type: "RDSInstance" } as never))
+    await waitFor(() => expect(conv.result.current.detailFailures).toEqual([{ pathId: "p1", error: named("Path detail", SELECTED) }]))
+  })
+
+  it("the published foothold read behind a held evaluation", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const evaluate = String(input).includes("evaluate=true")
+      const [status, body] = evaluate ? [503, { detail: { code: "SERVING_ROUTE_HELD", reason: "ATLAS_EVALUATION_HELD" } }] : [422, SCOPE_REQUIRED]
+      return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
+    }))
+    const atlas = renderHook(() => useAtlasLateral({
+      systemName: "shop", jewelRef: "bucket-a", enabled: true, systemKey: "sk-1", systemAccountId: KEY_ACCOUNT }))
+    await waitFor(() => expect(atlas.result.current.error).toBe(named("Published foothold reach", KEY_ACCOUNT)))
+  })
+
+  it("the path detail read: the account it was given; none given, the default line", async () => {
+    const fetchImpl = globalThis.fetch
+    const withSelection = await fetchConvergencePathDetail({ url: "/d", fetchImpl, accountSelection: { selectedAccount: SELECTED } })
+    expect(withSelection).toMatchObject({ ok: false, status: 422, error: named("Path detail", SELECTED) })
+    const bare = await fetchConvergencePathDetail({ url: "/d", fetchImpl })
+    expect(bare).toMatchObject({ ok: false, error: expect.stringMatching(/^Path detail: Several workload accounts are registered/) })
   })
 })

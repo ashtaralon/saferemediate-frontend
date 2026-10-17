@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useOptionalAccountScope } from "@/lib/account-scope-context"
 import { buildJewelFootholdsUrl } from "@/lib/attack-paths/convergence-fetch-url"
 import { semanticHoldMessage, semanticStatusHold, typedServingRefusal } from "@/lib/semantic-hold"
-import { heldRouteMessage } from "@/lib/attack-paths/held-route-message"
+import { heldRouteAccountSelection, heldRouteMessage } from "@/lib/attack-paths/held-route-message"
 import { scopeClaimsFrom } from "@/lib/attack-paths/scope-claims"
 
 export type FootholdLikelihood =
@@ -275,13 +275,13 @@ export function useAtlasLateral({
         if (held?.kind === "route_held") {
           if (!cancelled) setEvaluationHeld(held.reason ?? "SERVING_ROUTE_HELD")
           const published = await read(false)
-          if (!published.r.ok || !published.body) throw new Error(heldRouteMessage(published.body, published.r.status, "Published foothold reach"))
+          if (!published.r.ok || !published.body) throw new Error(heldRouteMessage(published.body, published.r.status, "Published foothold reach", heldRouteAccountSelection(claimsArg)))
           // No server ranking exists without the evaluation: nothing is "recommended", and no live search is started
           // on the operator's behalf (the install holds that search too); the panel lists them as not evaluated.
           heldNow = true
           return answerOf(published.body, "Published foothold reach")
         }
-        if (!r.ok || !body) throw new Error(heldRouteMessage(body, r.status, "Lateral footholds"))
+        if (!r.ok || !body) throw new Error(heldRouteMessage(body, r.status, "Lateral footholds", heldRouteAccountSelection(claimsArg)))
         return answerOf(body, "Lateral footholds")
       })
       .then((body) => {

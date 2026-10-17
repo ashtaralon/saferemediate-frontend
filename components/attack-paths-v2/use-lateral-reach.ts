@@ -9,7 +9,7 @@ import { useCallback, useEffect, useState } from "react"
 import { buildJewelLateralReachUrl } from "@/lib/attack-paths/convergence-fetch-url"
 import { useAttackPathReadClaims } from "@/lib/attack-paths/read-scope-context"
 import { scopeClaimsKey } from "@/lib/attack-paths/scope-claims"
-import { heldRouteMessage } from "@/lib/attack-paths/held-route-message"
+import { heldRouteAccountSelection, heldRouteMessage } from "@/lib/attack-paths/held-route-message"
 import { typedReaderUnavailable, typedServingRefusal } from "@/lib/semantic-hold"
 
 export type LateralBand = "USED" | "CUTTABLE" | "UNKNOWN"
@@ -118,7 +118,7 @@ export function useLateralReach(
         // Review S10: a typed refusal (scope, held route, reader failure) is named in the server's words, not as
         // the proxy's generic `error`.
         const typed = !r.ok && (typedServingRefusal(body) ?? typedReaderUnavailable(body))
-        throw new Error(typed ? heldRouteMessage(body, r.status, "Lateral reach") : body?.error ?? `http_${r.status}`)
+        throw new Error(typed ? heldRouteMessage(body, r.status, "Lateral reach", heldRouteAccountSelection(claims)) : body?.error ?? `http_${r.status}`)
       }
       return body as LateralReachPayload
     }

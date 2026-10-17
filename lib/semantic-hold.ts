@@ -140,6 +140,17 @@ const ACCOUNT_SELECTION_WORDS: Readonly<Record<AccountSelection, string>> = {
     "An account is selected, but the server still asked for one (ACCOUNT_SCOPE_REQUIRED) — the selection did not reach this read",
 }
 
+/**
+ * ACCOUNT_SCOPE_REQUIRED for a read whose caller states which account that read named (null: none). The backend
+ * (estate_read) refuses only a read that named NO account -- "several workload accounts are registered; name one with
+ * account_id" -- so with an account named the refusal means the account did not reach the server.
+ */
+export function accountScopeRequiredMessage(namedAccount: string | null): string {
+  return namedAccount
+    ? `Account ${namedAccount} was named for this read, but the server received no account (ACCOUNT_SCOPE_REQUIRED) — the account did not reach this read`
+    : `No account is selected — several workload accounts are registered; choose one account in the scope bar to see this`
+}
+
 /** A refusal of the CALLER itself, in the person's words: 401 (the session) or 403 (the permission). */
 export function callerRefusalMessage(status: 401 | 403): string {
   return status === 401 ? "Your session is no longer valid — sign in again" : "Not permitted for this account or scope"

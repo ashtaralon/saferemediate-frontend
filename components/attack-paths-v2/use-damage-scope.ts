@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import type { DamageScopePayload } from "./damage-scope-drawer"
-import { heldRouteMessage } from "@/lib/attack-paths/held-route-message"
+import { heldRouteAccountSelection, heldRouteMessage } from "@/lib/attack-paths/held-route-message"
 import { useAttackPathReadClaims } from "@/lib/attack-paths/read-scope-context"
 import { scopeClaimsKey } from "@/lib/attack-paths/scope-claims"
 
@@ -29,7 +29,7 @@ export function useDamageScope(target: DamageScopeFetchTarget | null) {
       const res = await fetch(url, { cache: "no-store" })
       if (!res.ok) {
         const errBody = await res.json().catch(() => null)
-        throw new Error(heldRouteMessage(errBody, res.status, "Damage scope"))
+        throw new Error(heldRouteMessage(errBody, res.status, "Damage scope", heldRouteAccountSelection(claims)))
       }
       setData((await res.json()) as DamageScopePayload)
     } catch (e) {

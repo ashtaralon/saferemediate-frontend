@@ -9,7 +9,7 @@ import { useCallback, useEffect, useState } from "react"
 import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
 import { resolveClosurePathId } from "./derive-attack-path-id"
 import type { ClosurePreview } from "./closure-outcome-types"
-import { heldRouteMessage } from "@/lib/attack-paths/held-route-message"
+import { heldRouteAccountSelection, heldRouteMessage } from "@/lib/attack-paths/held-route-message"
 import { useAttackPathReadClaims } from "@/lib/attack-paths/read-scope-context"
 import { scopeClaimsKey } from "@/lib/attack-paths/scope-claims"
 
@@ -54,7 +54,7 @@ export function useClosurePreview(path: ClosurePathInput): UseClosurePreview {
       )
       const body = await r.json().catch(() => null)
       if (!r.ok || !body || body.error) {
-        throw new Error(!r.ok ? heldRouteMessage(body, r.status, "Closure preview") : (body?.error ?? `http_${r.status}`))
+        throw new Error(!r.ok ? heldRouteMessage(body, r.status, "Closure preview", heldRouteAccountSelection(claims)) : (body?.error ?? `http_${r.status}`))
       }
       return body as ClosurePreview
     }

@@ -21,7 +21,7 @@ import { matchConvergencePathId } from "./iap-to-convergence"
 import { iapHold } from "./path-evidence-view"
 import { useAttackPathReadClaims } from "./read-scope-context"
 import { semanticHoldMessage, typedReaderUnavailable, typedServingRefusal, type SemanticHoldKind } from "@/lib/semantic-hold"
-import { heldRouteMessage } from "./held-route-message"
+import { heldRouteAccountSelection, heldRouteMessage } from "./held-route-message"
 import type {
   CrownJewelConvergence,
   CrownJewelConvergenceSummary,
@@ -221,14 +221,14 @@ export function useCrownJewelConvergence(
           // proxy's generic `error`, worded by the shared held-route formatter.
           const typed = typedServingRefusal(summaryBody) ?? typedReaderUnavailable(summaryBody)
           const msg = typed
-            ? heldRouteMessage(summaryBody, summaryRes.status, "Attack-path summary")
+            ? heldRouteMessage(summaryBody, summaryRes.status, "Attack-path summary", heldRouteAccountSelection(claims))
             : (summaryBody as { error?: string })?.error ?? `Backend busy (${summaryRes.status})`
           const finalStatus =
             summaryRes.status >= 400 && summaryRes.status < 500 && summaryRes.status !== 408 && summaryRes.status !== 429
           if (finalStatus) {
             // The server's own words when it gave any (typed, then a string detail, then `error`); never "Backend
             // busy" for an answer that is final.
-            throw new SettledAnswer(heldRouteMessage(summaryBody, summaryRes.status, "Attack-path summary"))
+            throw new SettledAnswer(heldRouteMessage(summaryBody, summaryRes.status, "Attack-path summary", heldRouteAccountSelection(claims)))
           }
           throw new Error(msg)
         }
@@ -367,6 +367,7 @@ export function useCrownJewelConvergence(
       const result = await fetchConvergencePathDetail({
         url: detailUrl,
         signal: ctrl.signal,
+        accountSelection: heldRouteAccountSelection(claims),
       })
       applyResult(pathId, result)
       return pathId
