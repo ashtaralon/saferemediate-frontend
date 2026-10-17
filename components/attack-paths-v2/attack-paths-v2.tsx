@@ -37,6 +37,7 @@ import type {
 } from "@/components/identity-attack-paths/types"
 import { BackToDashboard } from "@/components/back-to-dashboard"
 import { PathListGrouped } from "./path-list-grouped"
+import { CurrentAccessSourceList } from "./current-access-source-list"
 import { ExfilPathListColumn } from "./exfil-path-list-column"
 import type { ExfilPayload } from "./exfil-view-v3"
 import { useRetryFetch } from "@/lib/use-retry-fetch"
@@ -1343,14 +1344,28 @@ export function AttackPathsV2({
             loading={convergenceLoading && !effectiveConvergenceData}
           />
         ) : (
-          <PathListGrouped
-            paths={jewelPaths}
-            jewel={jewels.find((j) => j.id === selectedJewelId) ?? null}
-            selectedPathId={selectedPathId}
-            onSelectPath={handleSelectPath}
-            answerNotReady={selectedAnswerNotReady}
-            answerPartial={selectedAnswerPartial}
-          />
+          <>
+            {/* AP201 (CP-B): Current Access by SOURCE -- every compute the serve answer names, grouped by what the
+                server said about it; "Approval not recorded" on every row. Only over the serve answer (never the IAP
+                fallback); the path list below keeps every route. */}
+            {jewelRail.source === "serve" ? (
+              <CurrentAccessSourceList
+                data={jewelSummaryConvergence}
+                activePaths={jewelPaths}
+                jewelName={selectedJewel?.name ?? null}
+                selectedPathId={selectedPathId}
+                onSelectPath={handleSelectPath}
+              />
+            ) : null}
+            <PathListGrouped
+              paths={jewelPaths}
+              jewel={jewels.find((j) => j.id === selectedJewelId) ?? null}
+              selectedPathId={selectedPathId}
+              onSelectPath={handleSelectPath}
+              answerNotReady={selectedAnswerNotReady}
+              answerPartial={selectedAnswerPartial}
+            />
+          </>
         )}
           </>
         )}

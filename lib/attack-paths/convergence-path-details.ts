@@ -301,6 +301,10 @@ export function mergeSummaryWithPathDetails(
       live_traffic_promoted: Boolean(p.live_traffic_promoted),
       path_bound_observations: p.path_bound_observations ?? [],
       feasibility: p.feasibility ?? null,
+      // AP201 (CP-B): the server's evidence contract (classification, gates, per-plane runtime evidence, permission
+      // coverage) is what the Current Access source list reads; without this line it died at this whitelist and the
+      // list said "not measured" for every source on the real page while the unit tests over the raw summary passed.
+      evidence_contract: p.evidence_contract ?? null,
     }
 
     const rec = detailsByPathId[p.path_id]

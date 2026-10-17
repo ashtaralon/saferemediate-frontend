@@ -39,6 +39,18 @@ describe("attack-paths-v2 background-IAP auto-retry", () => {
   })
 })
 
+describe("attack-paths-v2 Current Access source list (CP-B)", () => {
+  const src = read("components/attack-paths-v2/attack-paths-v2.tsx")
+  it("renders only over the SERVE answer — never over the legacy IAP fallback rail, whose paths are a capped preview", () => {
+    // A mounted IAP-fallback case needs the legacy 5x5 envelope with rows for the jewel; the guard is pinned here.
+    expect(src).toContain('{jewelRail.source === "serve" ? (\n              <CurrentAccessSourceList')
+    expect(src).toContain("data={jewelSummaryConvergence}")
+    // the list reads the SAME active set the path list shows, so a source never pins a route that list lacks
+    expect(src).toContain("activePaths={jewelPaths}")
+    expect(src).toContain("onSelectPath={handleSelectPath}\n              />\n            ) : null}\n            <PathListGrouped")
+  })
+})
+
 describe("attack-path-panel lite jewel", () => {
   const src = read("components/attack-paths-v2/attack-path-panel.tsx")
   it("takes its severity from the payload's breakdown or none — never a default HIGH (I3)", () => {

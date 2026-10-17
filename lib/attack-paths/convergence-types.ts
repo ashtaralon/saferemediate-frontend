@@ -1,5 +1,7 @@
 /** GET /api/attack-paths/{system}/by-crown-jewel response shape. */
 
+import type { PathEvidenceContract } from "./path-evidence-view"
+
 export interface ConvergenceHop {
   node_id: string
   node_type: string
@@ -110,6 +112,9 @@ export interface ConvergencePath {
   /** O1: path-bound traffic was promoted onto this path. */
   live_traffic_promoted?: boolean
   path_bound_observations?: Array<Record<string, unknown>>
+  /** Server-composed evidence contract (classification, gates, per-plane runtime evidence, permission coverage);
+   *  read by lib/attack-paths/path-evidence-view.ts. Absent on older publications. */
+  evidence_contract?: PathEvidenceContract | null
   /**
    * Server-composed feasibility (path_state ⊥ activity_state).
    * When present, Zoom0 must render literally — no client re-compose.
