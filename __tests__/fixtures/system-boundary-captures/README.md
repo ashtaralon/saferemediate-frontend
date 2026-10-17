@@ -1,0 +1,1 @@
+Level-1 (v1) result evidence, kept byte-identical: NOT a copy of any backend capture directory -- never overwrite these files when copying regenerated backend captures (PC1 S0-F incident; review CC-007 note).

@@ -142,6 +142,10 @@ export interface SetupSummary {
   predecessor: { setup_id: string; attempt: number; state_version: number } | null
   successor: string | null
   association: Association | null
+  /** (PC1 S0-H) Which System the setup is about, display only; read by ``readListedSystem`` (system-boundary-setup-name.ts),
+   *  never checked here: an absent or unknown shape never refuses the list. */
+  system?: unknown
+  system_unreadable?: unknown
 }
 
 /** (Level 4) A preview digest: the backend's canonical content hash. */

@@ -29,6 +29,7 @@ import {
   setupPendingStore,
   type SetupPendingStore,
 } from "@/lib/system-boundary-setup-pending"
+import { readListedSystem, systemPhrase, unavailableNote } from "@/lib/system-boundary-setup-name"
 import { fetchStacks, parseStacksResponse, stacksOutcomeSentence, type StacksData } from "@/lib/system-boundary-stacks"
 
 /** The stacks the setup offers: the census's SETTLED stacks of the account, each with its Region, status and (S1a) the census
@@ -195,6 +196,13 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
     setProblem(`A setup cannot be started (${answer.code}).`)
   }, [accountId, actor, context, createSetup, store])
 
+  // (PC1 S0-H) Which System each row is about, from the backend's ``system`` and the Systems this page already reads.
+  const named = (s: SetupSummary) => {
+    const listed = readListedSystem(s as unknown as Record<string, unknown>)
+    return { phrase: systemPhrase(listed, view.systems), note: unavailableNote(listed) }
+  }
+  const unnamed = [...(mine ?? []), ...(finished ?? [])].filter((s) => named(s).note !== null).length
+
   if (openId) {
     return (
       <SetupWizard setupId={openId} accountId={accountId} view={view} picks={picks} stacks={stacks} client={client}
@@ -229,13 +237,19 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
         </p>
       ) : null}
       {mine && !mine.length ? <p className="text-xs text-slate-500">You have no setup in progress.</p> : null}
+      {unnamed ? (
+        <p className="text-xs text-amber-800" data-testid="setup-names-unavailable">
+          {unnamed} of the setups below could not be named: their saved step could not be read. They are still listed.
+        </p>
+      ) : null}
       {mine && mine.length ? (
         <ul className="text-xs" data-testid="setup-resume-list">
           {mine.map((s) => (
             <li key={s.setup_id}>
               <button type="button" className="underline" onClick={() => setOpenId(s.setup_id)}>
-                Resume setup from {new Date(s.updated_at).toLocaleString()} ({s.status.toLowerCase()})
+                Resume setup{named(s).phrase} from {new Date(s.updated_at).toLocaleString()} ({s.status.toLowerCase()})
               </button>
+              {named(s).note ? <span className="text-amber-800" data-testid="setup-name-unavailable"> -- {named(s).note}</span> : null}
             </li>
           ))}
         </ul>
@@ -245,8 +259,9 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
           {finished.map((s) => (
             <li key={s.setup_id}>
               <button type="button" className="underline" onClick={() => setOpenId(s.setup_id)}>
-                Progress and results of the setup finished {new Date(s.updated_at).toLocaleString()}
+                Progress and results of the setup{named(s).phrase} finished {new Date(s.updated_at).toLocaleString()}
               </button>
+              {named(s).note ? <span className="text-amber-800" data-testid="setup-name-unavailable"> -- {named(s).note}</span> : null}
             </li>
           ))}
         </ul>
