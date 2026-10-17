@@ -85,3 +85,33 @@ describe("S10 · the path-detail read says a typed answer with its own reason, o
     expect(result).toEqual({ ok: false, error: "not found", status: 404 })
   })
 })
+
+describe("review round 2 · the lateral-moves proxy relays a typed hold and never caches a hold", () => {
+  const lateral = async (query = "") => {
+    const { GET } = await import("@/app/api/proxy/identity-attack-paths/[systemName]/identity/[identityId]/lateral-moves/route")
+    return GET(new NextRequest(`http://fe.local/api/proxy/identity-attack-paths/shop/identity/role-1/lateral-moves${query}`),
+      { params: Promise.resolve({ systemName: "shop", identityId: "role-1" }) })
+  }
+
+  it("a typed 503 hold keeps its status and body, no-store", async () => {
+    const response = await lateral()
+    expect(response.status).toBe(503)
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(response.headers.get("x-cache")).toBe("BYPASS-TYPED")
+    expect(await response.json()).toEqual(ROUTE_HELD)
+  })
+
+  it("a 200 hold carrying moves is never cached: the backend is asked again", async () => {
+    backend.mockImplementation(async () => respond(200, { ...HOLD_200, moves: [{ id: "m1" }] }))
+    await lateral()
+    await lateral()
+    expect(backend).toHaveBeenCalledTimes(2)
+  })
+
+  it("a served answer with moves is cached as before", async () => {
+    backend.mockImplementation(async () => respond(200, { moves: [{ id: "m1" }] }))
+    await lateral()
+    await lateral()
+    expect(backend).toHaveBeenCalledTimes(1)
+  })
+})
