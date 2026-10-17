@@ -13,7 +13,7 @@ import type { PickedRoot } from "@/lib/system-boundary-declaration"
 import { isStatus, readAnswer } from "@/lib/system-boundary-setup"
 import type { SetupIntent, SetupRead, SetupStatus, SetupView, SetupWrite } from "@/lib/system-boundary-setup"
 import { freezeOp, setupPendingStore, type PendingSetupOp, type SetupPendingStore } from "@/lib/system-boundary-setup-pending"
-import { GuidedSetups } from "@/components/system-boundary/guided-setups"
+import { GuidedSetups, SETUP_LIST_MAX_PAGES } from "@/components/system-boundary/guided-setups"
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function json(file: string): any {
@@ -918,5 +918,89 @@ describe("installed QA 0.10.10: a finished setup is returned to from Your setups
     await settle()
     expect(screen.queryByTestId("setup-finished-list")).toBeNull()
     expect(screen.queryByTestId("setup-resume-list")).toBeNull()
+  })
+
+  // (PC1 S0-B) The server pages what the person's SCOPE may see, with no owner filter: a person's own draft can sit on a
+  // later page behind other people's setups. Every page is read; an early stop or a failed later page is said plainly.
+  const at = (t: string) => `2026-10-17T${t}.000000+00:00`
+  const page = (setups: SetupView[], next_cursor: string | null): Page => ({ kind: "OK", value: { setups, next_cursor } })
+  const resumeIds = () => [...screen.getByTestId("setup-resume-list").querySelectorAll("li")].map((li) => li.textContent)
+
+  it("(PC1 S0-B) the person's own draft on page 2, behind another person's page 1, is listed; each cursor is followed once", async () => {
+    const others = Array.from({ length: 3 }, (_, i) =>
+      summary({ setup_id: `5e7a0000-0000-4000-8000-0000000000c${i}`, status: "DRAFT", owner: BOB }))
+    const mine = summary({ setup_id: "5e7a0000-0000-4000-8000-0000000000d1", status: "DRAFT", owner: ALICE })
+    const listSetups = vi.fn()
+      .mockResolvedValueOnce(page(others, "cursor-1"))
+      .mockResolvedValueOnce(page([mine], null))
+    render(<GuidedSetups {...fenced(listSetups)} actor={ALICE} />)
+    fireEvent.click(screen.getByTestId("setup-mine"))
+    await settle()
+    expect(listSetups.mock.calls).toEqual([[null], ["cursor-1"]])
+    expect(screen.getByTestId("setup-resume-list").querySelectorAll("li")).toHaveLength(1)
+    expect(screen.queryByRole("alert")).toBeNull()                              // read to the end: nothing to qualify
+  })
+
+  it("(PC1 S0-B) the person's setups are listed latest change first, whatever order the pages came in", async () => {
+    const older = summary({ setup_id: "5e7a0000-0000-4000-8000-0000000000e1", status: "DRAFT", owner: ALICE, updated_at: at("08:00:00") })
+    const newer = summary({ setup_id: "5e7a0000-0000-4000-8000-0000000000e2", status: "DRAFT", owner: ALICE, updated_at: at("09:30:00") })
+    const middle = summary({ setup_id: "5e7a0000-0000-4000-8000-0000000000e3", status: "DRAFT", owner: ALICE, updated_at: at("09:00:00") })
+    const listSetups = vi.fn().mockResolvedValueOnce(page([older, newer], "c1")).mockResolvedValueOnce(page([middle], null))
+    render(<GuidedSetups {...fenced(listSetups)} actor={ALICE} />)
+    fireEvent.click(screen.getByTestId("setup-mine"))
+    await settle()
+    const shown = resumeIds()
+    const label = (s: SetupView) => new Date(s.updated_at).toLocaleString()
+    expect(shown.map((text) => [newer, middle, older].findIndex((s) => text!.includes(label(s))))).toEqual([0, 1, 2])
+  })
+
+  it("(PC1 S0-B) reading stops after the page bound and says the list may be incomplete", async () => {
+    let n = 0
+    const listSetups = vi.fn(async () => {
+      n += 1
+      return page([summary({ setup_id: `5e7a0000-0000-4000-8000-${String(n).padStart(12, "0")}`, status: "DRAFT", owner: ALICE })],
+        `cursor-${n}`)
+    })
+    render(<GuidedSetups {...fenced(listSetups)} actor={ALICE} />)
+    fireEvent.click(screen.getByTestId("setup-mine"))
+    for (let i = 0; i < SETUP_LIST_MAX_PAGES + 2; i += 1) await settle()
+    expect(listSetups).toHaveBeenCalledTimes(SETUP_LIST_MAX_PAGES)
+    expect(screen.getByTestId("setup-resume-list").querySelectorAll("li")).toHaveLength(SETUP_LIST_MAX_PAGES)
+    expect(screen.getByRole("alert").textContent).toContain(`Only the first ${SETUP_LIST_MAX_PAGES} pages`)
+  })
+
+  it("(PC1 S0-B) a later page failing keeps what was read and says the list is not complete; a first-page failure lists nothing", async () => {
+    const mine = summary({ setup_id: "5e7a0000-0000-4000-8000-0000000000f1", status: "DRAFT", owner: ALICE })
+    const fail = { kind: "UNAVAILABLE" as const, status: 503, code: "BOUNDARY_STORE_UNAVAILABLE" }
+    render(<GuidedSetups {...fenced(vi.fn().mockResolvedValueOnce(page([mine], "c1")).mockResolvedValueOnce(fail))} actor={ALICE} />)
+    fireEvent.click(screen.getByTestId("setup-mine"))
+    await settle()
+    expect(screen.getByTestId("setup-resume-list").querySelectorAll("li")).toHaveLength(1)
+    expect(screen.getByRole("alert").textContent).toContain("could not all be listed (BOUNDARY_STORE_UNAVAILABLE)")
+    cleanup()
+    render(<GuidedSetups {...fenced(vi.fn().mockResolvedValueOnce(fail))} actor={ALICE} />)
+    fireEvent.click(screen.getByTestId("setup-mine"))
+    await settle()
+    expect(screen.queryByTestId("setup-resume-list")).toBeNull()
+    expect(screen.getByRole("alert").textContent).toContain("could not be listed (BOUNDARY_STORE_UNAVAILABLE)")
+  })
+
+  it("(PC1 S0-B) a second page answering after the person changed paints nothing for either of them", async () => {
+    const second = deferred<Page>()
+    const listSetups = vi.fn()
+      .mockResolvedValueOnce(page([], "c1"))
+      .mockReturnValueOnce(second.promise)
+    const props = fenced(listSetups)
+    const ui = render(<GuidedSetups {...props} actor={ALICE} />)
+    fireEvent.click(screen.getByTestId("setup-mine"))
+    await settle()
+    expect(listSetups).toHaveBeenCalledTimes(2)                                 // waiting on page 2
+    ui.rerender(<GuidedSetups {...props} actor={BOB} />)
+    await settle()
+    await act(async () => second.resolve(page([summary({ setup_id: FINISHED.setup_id, status: "FINISHED", owner: ALICE })], null)))
+    await settle()
+    expect(screen.queryByTestId("setup-finished-list")).toBeNull()
+    expect(screen.queryByTestId("setup-resume-list")).toBeNull()
+    expect(screen.queryByRole("alert")).toBeNull()
   })
 })
