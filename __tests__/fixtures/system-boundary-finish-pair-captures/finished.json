@@ -3,14 +3,14 @@
     "harness": "tests/cyntro_data/test_system_boundary_finish_pair_captures.py",
     "request": {
       "method": "GET",
-      "path": "/api/system-boundary/setup/31141269-e031-486d-858a-258fcff62348",
+      "path": "/api/system-boundary/setup/9fe9b098-f109-4cd6-9b9a-89342f67f9f3",
       "params": null
     }
   },
   "status": 200,
   "cache_control": "no-store",
   "body": {
-    "setup_id": "31141269-e031-486d-858a-258fcff62348",
+    "setup_id": "9fe9b098-f109-4cd6-9b9a-89342f67f9f3",
     "status": "FINISHED",
     "mode": "create",
     "owner": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
@@ -20,8 +20,8 @@
     "accounts_seen": [
       "111122223333"
     ],
-    "created_at": "2026-10-17T10:17:30.605608+00:00",
-    "updated_at": "2026-10-17T10:17:30.861445+00:00",
+    "created_at": "2026-10-17T14:29:42.328083+00:00",
+    "updated_at": "2026-10-17T14:29:42.557307+00:00",
     "predecessor": null,
     "successor": null,
     "association": {
@@ -41,6 +41,11 @@
         "version": 1
       }
     },
+    "system": {
+      "mode": "ref",
+      "system_id": "authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f",
+      "declared_name": "Payments"
+    },
     "intent": {
       "declaration": {
         "bindings": [
@@ -52,7 +57,7 @@
             "selection": {
               "census": {
                 "generation": 1,
-                "source_identity": "v1:e890547470c14c4a9ad00eb5e70615680bcac7ef2b032186840ed6a82025c411"
+                "source_identity": "v1:70faf1816d0e173500491361fc59618154448bebe67ec054be1329e748b7cbaa"
               },
               "stack_status": "UPDATE_COMPLETE"
             },
@@ -66,7 +71,7 @@
             "selection": {
               "census": {
                 "generation": 1,
-                "source_identity": "v1:e890547470c14c4a9ad00eb5e70615680bcac7ef2b032186840ed6a82025c411"
+                "source_identity": "v1:70faf1816d0e173500491361fc59618154448bebe67ec054be1329e748b7cbaa"
               },
               "stack_status": "UPDATE_COMPLETE"
             },
@@ -152,9 +157,9 @@
             "registration_id": "0123456789abcdef0123456789abcdef",
             "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
             "publication": {
-              "attempt": "ca71530e0d044343b529409b42f0d681",
+              "attempt": "0f645a4a134f452299fc3ba3a721bc05",
               "generation": 1,
-              "source_identity": "v1:e890547470c14c4a9ad00eb5e70615680bcac7ef2b032186840ed6a82025c411",
+              "source_identity": "v1:70faf1816d0e173500491361fc59618154448bebe67ec054be1329e748b7cbaa",
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7"
             },
             "stack_status": "UPDATE_COMPLETE",
@@ -190,9 +195,9 @@
             "registration_id": "0123456789abcdef0123456789abcdef",
             "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
             "publication": {
-              "attempt": "ca71530e0d044343b529409b42f0d681",
+              "attempt": "0f645a4a134f452299fc3ba3a721bc05",
               "generation": 1,
-              "source_identity": "v1:e890547470c14c4a9ad00eb5e70615680bcac7ef2b032186840ed6a82025c411",
+              "source_identity": "v1:70faf1816d0e173500491361fc59618154448bebe67ec054be1329e748b7cbaa",
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7"
             },
             "stack_status": "UPDATE_COMPLETE",
@@ -293,12 +298,12 @@
     "attempt": {
       "attempt": 1,
       "actor": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
-      "created_at": "2026-10-17T10:17:30.844330+00:00",
-      "recover_after": "2026-10-17T10:32:30.844330+00:00",
+      "created_at": "2026-10-17T14:29:42.541430+00:00",
+      "recover_after": "2026-10-17T14:44:42.541430+00:00",
       "intent_revision": 2,
       "base_revision": 1,
       "expected_versions": {},
-      "save_request_id": "8934839d-36b9-4411-881e-6bab30c9e104"
+      "save_request_id": "28788cef-b4b4-4947-b30c-61ec962d4c47"
     },
     "outcome": null,
     "receipt": {
@@ -330,10 +335,10 @@
             "proof": {
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
               "publication": {
-                "attempt": "ca71530e0d044343b529409b42f0d681",
+                "attempt": "0f645a4a134f452299fc3ba3a721bc05",
                 "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
                 "generation": 1,
-                "source_identity": "v1:e890547470c14c4a9ad00eb5e70615680bcac7ef2b032186840ed6a82025c411"
+                "source_identity": "v1:70faf1816d0e173500491361fc59618154448bebe67ec054be1329e748b7cbaa"
               },
               "read_outcome": "COMPLETE",
               "registration_id": "0123456789abcdef0123456789abcdef",
@@ -365,10 +370,10 @@
             "proof": {
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
               "publication": {
-                "attempt": "ca71530e0d044343b529409b42f0d681",
+                "attempt": "0f645a4a134f452299fc3ba3a721bc05",
                 "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
                 "generation": 1,
-                "source_identity": "v1:e890547470c14c4a9ad00eb5e70615680bcac7ef2b032186840ed6a82025c411"
+                "source_identity": "v1:70faf1816d0e173500491361fc59618154448bebe67ec054be1329e748b7cbaa"
               },
               "read_outcome": "COMPLETE",
               "registration_id": "0123456789abcdef0123456789abcdef",
@@ -405,16 +410,16 @@
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
               "contract": "account_census_stacks_read/v1",
               "publication": {
-                "attempt": "ca71530e0d044343b529409b42f0d681",
+                "attempt": "0f645a4a134f452299fc3ba3a721bc05",
                 "generation": 1,
-                "source_identity": "v1:e890547470c14c4a9ad00eb5e70615680bcac7ef2b032186840ed6a82025c411"
+                "source_identity": "v1:70faf1816d0e173500491361fc59618154448bebe67ec054be1329e748b7cbaa"
               },
               "registration_id": "0123456789abcdef0123456789abcdef"
             }
           ]
         },
         "authored_revision": 1,
-        "basis_digest": "v1:afd8903c4011e168805592e79809dfcdc9aed34ca682d3c823183e79224409de",
+        "basis_digest": "v1:71f6d3acf1214251a323ee0f34bceaec2b5047d955237345594a82506dabb674",
         "counts": {
           "dependencies": 0,
           "held": 0,
@@ -423,8 +428,8 @@
           "stale_members": 0,
           "unlisted": 0
         },
-        "preview_digest": "v1:41febc3d160bf4b5e923f42bc09791d59eaf520561e8513427e413cf2b7d3cf3",
-        "result_digest": "v1:77c7c5e1bfc23734285a0fe45e15f6e2a3437606ba2d211d29ff75848faaae06"
+        "preview_digest": "v1:657b1c200d662422962c2bd1057c954c7dec2c9ca686d327322cf2bc02b373e6",
+        "result_digest": "v1:75ea53ccf9a6ba6400d91399f87ebd674d4e93dae3cdb0be3c5460c8e4c03e70"
       },
       "registration_pins": {
         "111122223333": "0123456789abcdef0123456789abcdef"
@@ -438,8 +443,8 @@
         ],
         "hash": "v1:12e6f1d6bab942e8d77010a3e4ffc449c40f04e32ca1b2ba863967626f32dbce"
       },
-      "setup_id": "31141269-e031-486d-858a-258fcff62348",
-      "written_at": "2026-10-17T10:17:30.861445+00:00"
+      "setup_id": "9fe9b098-f109-4cd6-9b9a-89342f67f9f3",
+      "written_at": "2026-10-17T14:29:42.557307+00:00"
     },
     "reconciliation": null,
     "result_scope": {

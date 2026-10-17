@@ -3,7 +3,7 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
     "request": {
       "method": "GET",
-      "path": "/api/system-boundary/setup/dfa6a332-60eb-4265-be17-8918a0bb634b",
+      "path": "/api/system-boundary/setup/9a6fd839-435b-46e1-b1d4-cd6e2171d698",
       "params": null,
       "body": null
     }
@@ -11,7 +11,7 @@
   "status": 200,
   "cache_control": "no-store",
   "body": {
-    "setup_id": "dfa6a332-60eb-4265-be17-8918a0bb634b",
+    "setup_id": "9a6fd839-435b-46e1-b1d4-cd6e2171d698",
     "status": "FINISHING",
     "mode": "create",
     "owner": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
@@ -21,11 +21,15 @@
     "accounts_seen": [
       "111122223333"
     ],
-    "created_at": "2026-10-17T10:17:34.605700+00:00",
-    "updated_at": "2026-10-17T10:17:34.709268+00:00",
+    "created_at": "2026-10-17T14:29:46.207632+00:00",
+    "updated_at": "2026-10-17T14:29:46.302458+00:00",
     "predecessor": null,
     "successor": null,
     "association": null,
+    "system": {
+      "mode": "new",
+      "display_name": "Payments"
+    },
     "intent": {
       "declaration": {
         "bindings": [
@@ -36,7 +40,7 @@
             "selection": {
               "census": {
                 "generation": 1,
-                "source_identity": "v1:89dfb65624ab830a5e8bdafabc1775a19b30efd4b0a6a44ba1349fcfff2b20dc"
+                "source_identity": "v1:dfeede863cf00fb18c91600e0ea31832cd992b692bce9e2ddaf56429b7f7b1c5"
               },
               "stack_status": "UPDATE_COMPLETE"
             },
@@ -93,9 +97,9 @@
             "registration_id": "0123456789abcdef0123456789abcdef",
             "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
             "publication": {
-              "attempt": "c14777a1485249dd96a86820b3c45a04",
+              "attempt": "4dda80d7cfe4437bba3faa916cd0cc61",
               "generation": 2,
-              "source_identity": "v1:d5a0c95d2c758552360758ba7da69304f03299d263451058990e6a430de1683a",
+              "source_identity": "v1:17c3c580308301827bd06feadba4ce1285816c11cd01779d01ad76c66bc2fad5",
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7"
             },
             "stack_status": "UPDATE_COMPLETE",
@@ -196,18 +200,18 @@
     "attempt": {
       "attempt": 1,
       "actor": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
-      "created_at": "2026-10-17T10:17:34.709268+00:00",
-      "recover_after": "2026-10-17T10:32:34.709268+00:00",
+      "created_at": "2026-10-17T14:29:46.302458+00:00",
+      "recover_after": "2026-10-17T14:44:46.302458+00:00",
       "intent_revision": 2,
       "base_revision": 1,
       "expected_versions": {},
-      "save_request_id": "53829e21-c69c-46b8-a059-0d82f11c7984"
+      "save_request_id": "56ac1987-0498-42a7-9304-5f07cb4f66b7"
     },
     "outcome": null,
     "receipt": null,
     "reconciliation": {
       "attempt": 1,
-      "recover_after": "2026-10-17T10:32:34.709268+00:00",
+      "recover_after": "2026-10-17T14:44:46.302458+00:00",
       "state": "OPEN"
     },
     "result_scope": null,
