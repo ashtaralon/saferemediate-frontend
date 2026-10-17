@@ -19,8 +19,7 @@ import {
 import { readConvergencePaths } from "./convergence-readiness"
 import { matchConvergencePathId } from "./iap-to-convergence"
 import { iapHold } from "./path-evidence-view"
-import { scopeClaimsFrom } from "./scope-claims"
-import { useOptionalAccountScope } from "@/lib/account-scope-context"
+import { useAttackPathReadClaims } from "./read-scope-context"
 import { semanticHoldMessage, typedReaderUnavailable, typedServingRefusal, type SemanticHoldKind } from "@/lib/semantic-hold"
 import { heldRouteMessage } from "./held-route-message"
 import type {
@@ -125,15 +124,15 @@ export function useCrownJewelConvergence(
   options: UseCrownJewelConvergenceOptions = {},
 ): UseCrownJewelConvergenceResult {
   const fanInAllDetails = Boolean(options.fanInAllDetails)
-  // AP201 (R11): the operator's tenant / account claims travel with every read (a control plane with several
-  // workload accounts refuses an unnamed read by name). No provider (bare tests, other shells) = no claims.
-  const scope = useOptionalAccountScope()
-  const claims = scopeClaimsFrom(scope)
+  // AP201 (R11) + review: THE one claim rule (useAttackPathReadClaims): the selected account, and the system identity
+  // -- the caller's explicit key when given, else the page's (<AttackPathSystemIdentity>) -- whose own account wins.
+  // No provider (bare tests, other shells, outside the tab) = no selection and no page key: exactly as before.
+  const claims = useAttackPathReadClaims(
+    options.systemKey ? { systemKey: options.systemKey, systemAccountId: options.systemAccountId ?? null } : null)
   const claimedCustomer = claims.customerId
   const claimedAccount = claims.accountId
-  // A7 B5: the page's system key (+ a tag / source key's account) names ONE system when the page was opened by key.
-  const systemKey = options.systemKey ?? null
-  const systemAccountId = systemKey ? (options.systemAccountId ?? null) : null
+  const systemKey = claims.systemKey ?? null
+  const systemAccountId = claims.systemAccountId ?? null
   const [summary, setSummary] = useState<CrownJewelConvergenceSummary | null>(null)
   const [detailsByPathId, setDetailsByPathId] = useState<
     Record<string, PathDetailRecord>

@@ -179,3 +179,22 @@ describe("S11 · the three held readers say a typed 503 hold is a hold, never a 
     expect(result.current.data).toBeNull()
   })
 })
+
+describe("review round 2 · the convergence hook reads through the one claim rule", () => {
+  it("a tab component that passes no key still reads the page's key and the key's account", async () => {
+    const { useCrownJewelConvergence } = await import("@/lib/attack-paths/use-crown-jewel-convergence")
+    renderHook(() => useCrownJewelConvergence("shop", { id: "cj", name: "db", type: "RDSInstance" } as never), { wrapper: opened })
+    await waitFor(() => expect(urls.some((u) => u.includes("/by-crown-jewel/summary"))).toBe(true))
+    const summary = urls.find((u) => u.includes("/by-crown-jewel/summary"))!
+    expect(query(summary)).toMatchObject({ customer_id: "acme", account_id: KEY_ACCOUNT, system_key: "sk-1" })
+  })
+
+  it("outside the tab (no provider, no key): the selected account only, as before", async () => {
+    const { useCrownJewelConvergence } = await import("@/lib/attack-paths/use-crown-jewel-convergence")
+    renderHook(() => useCrownJewelConvergence("shop", { id: "cj", name: "db", type: "RDSInstance" } as never))
+    await waitFor(() => expect(urls.some((u) => u.includes("/by-crown-jewel/summary"))).toBe(true))
+    const summary = urls.find((u) => u.includes("/by-crown-jewel/summary"))!
+    expect(query(summary)).toMatchObject({ customer_id: "acme", account_id: SELECTED })
+    expect(query(summary).system_key).toBeUndefined()
+  })
+})
