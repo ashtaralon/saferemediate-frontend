@@ -50,8 +50,10 @@ export interface PendingRead {
 
 export interface PendingStore {
   read(): PendingRead
-  /** Keep a NEW save in its own record; never writes over a record already at its request id. */
-  put(entry: PendingSave): void
+  /** Keep a NEW save in its own record; never writes over a record already at its request id. (PC1 S0-G) Answers whether THIS
+   *  exact entry is kept -- judged by reading its record back, never by a probe write: false when storage is blocked or full,
+   *  or another record already holds the request id. */
+  put(entry: PendingSave): boolean
   /** Settle ``entry`` -- EXACTLY that tuple, wherever it is kept; any other tuple, even under its request id, stays. */
   remove(entry: PendingSave): void
   /** Drop the entries this version cannot read (its own unreadable records; earlier-release ones by marker). */
@@ -173,6 +175,8 @@ export function pendingStore(storage: Storage | null = browserStorage()): Pendin
     put(entry) {
       const key = PENDING_RECORD_PREFIX + entry.envelope.request_id
       if (get(key) === null) attempt((s) => s.setItem(key, JSON.stringify(entry)))   // never over another record at this id
+      const back = recordAt(key)
+      return back !== null && tuple(back) === tuple(entry)
     },
     remove(entry) {
       const exact = tuple(entry)

@@ -6,7 +6,7 @@
  */
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
-import { act, fireEvent, render, screen } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { DeclareFromInventory } from "@/components/system-boundary/declare-from-inventory"
 import { PendingSaves } from "@/components/system-boundary/pending-saves"
@@ -29,6 +29,11 @@ class MemoryStorage implements Storage {
   key(index: number) { return [...this.items.keys()][index] ?? null }
   removeItem(key: string) { this.items.delete(key) }
   setItem(key: string, value: string) { this.items.set(key, String(value)) }
+}
+
+/** (PC1 S0-G) Storage that refuses every write, as a full or blocked browser storage does. */
+class FullStorage extends MemoryStorage {
+  setItem() { throw new DOMException("quota", "QuotaExceededError") }
 }
 
 const REQUESTS = golden("requests")
@@ -232,6 +237,17 @@ describe("the wrapper keeps every envelope until its outcome is definite", () =>
     expect(pendingStore(storage).read().entries.map((e) => e.envelope)).toEqual([CREATE])
   })
 
+  it("(PC1 S0-G) the Declare panel says so when the save could not be kept, and says nothing when it was", async () => {
+    for (const [storage, said] of [[new FullStorage(), true], [new MemoryStorage(), false]] as const) {
+      await declare(storage, { kind: "OK", value: golden("grant_self").body }, new TypeError("Failed to fetch"))
+      const notice = screen.queryByTestId("declare-save-unkept")
+      expect(Boolean(notice), String(said)).toBe(said)
+      if (notice) expect(notice.textContent).toContain("could not keep your last save")
+      cleanup()
+      vi.restoreAllMocks()
+    }
+  })
+
   it("without a verified subject nothing is kept: the save still goes, only its resume is unavailable", async () => {
     const storage = new MemoryStorage()
     const { spy } = await declare(storage, { kind: "UNAVAILABLE", status: 503, code: "AUTHORING_BACKEND_UNAVAILABLE" }, "save_saved")
@@ -360,4 +376,19 @@ describe("(PC1 S0-E2) an undefined-valued key is not part of a save's identity",
     expect(store.read()).toEqual({ entries: [], unreadable: 0 })
     expect(storage.length).toBe(0)
   })
+})
+
+// (PC1 S0-G) A save this browser cannot keep is said plainly: put() answers whether the exact entry reads back, and the Declare
+// panel tells the person the save still goes but cannot be resumed after a reload.
+describe("(PC1 S0-G) a save the browser cannot keep is said, never silent", () => {
+  it("put() is true only when the exact entry reads back from its own record", () => {
+    const storage = new MemoryStorage()
+    const store = pendingStore(storage)
+    expect(store.put(entry(CREATE))).toBe(true)
+    expect(store.put(entry(CREATE))).toBe(true)                            // the same tuple again: still kept
+    expect(store.put(entry(CREATE, { startedAt: "2026-10-06T13:00:00.000Z" }))).toBe(false)   // another tuple holds the id
+    expect(pendingStore(new FullStorage()).put(entry(TAKEN))).toBe(false)   // storage full: nothing kept
+    expect(pendingStore(null).put(entry(TAKEN))).toBe(false)               // no storage at all
+  })
+
 })
