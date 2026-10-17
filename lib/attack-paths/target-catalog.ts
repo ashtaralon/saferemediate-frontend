@@ -138,12 +138,13 @@ export function targetEntryToJewelSummary(entry: TargetCatalogEntry): CrownJewel
     // name). Mirror its ranking key so any client sort agrees with it.
     priority_score: hasPaths ? Number(entry.max_severity ?? 0) : 0,
     crown_jewel_source: entry.crown_jewel_source === "reachable_only" ? "reachable_only" : null,
-    // Pinned-generation :AttackPath count for this target.
-    materialized_path_count: Number(entry.path_count ?? 0),
+    // Pinned-generation :AttackPath count for this target. S13: these optional counts are carried only when the
+    // catalog served a readable count; absent stays absent (not reported), never an invented 0.
+    ...(isServedCount(entry.path_count) ? { materialized_path_count: entry.path_count } : {}),
     paths_not_computed: state === "projection_not_ready",
     ...(state ? { target_state: state } : {}),
-    observed_path_count: Number(entry.observed_path_count ?? 0),
-    standing_access_count: Number(entry.standing_access_count ?? 0),
+    ...(isServedCount(entry.observed_path_count) ? { observed_path_count: entry.observed_path_count } : {}),
+    ...(isServedCount(entry.standing_access_count) ? { standing_access_count: entry.standing_access_count } : {}),
     inventory_present: entry.inventory_present !== false,
     data_classification_source:
       entry.data_classification_source === "tag" ? "tag" : "unknown",

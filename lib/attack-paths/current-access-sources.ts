@@ -6,7 +6,8 @@
  *
  * Three INDEPENDENT states per route, each from served fields (Rev 6 §3.7):
  * - ACTIVITY in the window -- `feasibility.activity_state` (OBSERVED | PARTIALLY_OBSERVED | NOT_OBSERVED | UNKNOWN)
- *   with its `activity_detail` when the server composed it. Without feasibility, ONLY the contract's per-plane
+ *   with its `activity_detail` when the server composed it; a served word outside these is UNKNOWN, never replaced by
+ *   a derivation. Without feasibility, ONLY the contract's per-plane
  *   `runtime_evidence` (built from path-bound observations, as the backend's feasibility is): every plane observed =
  *   observed; some = observed on those planes; never the gate-based `classification` or legacy `evidence` word (an
  *   OPEN_OBSERVED gate can be estate-wide, not this route). NOT_OBSERVED needs COMPLETE coverage: every plane
@@ -14,7 +15,8 @@
  *   served NOT_OBSERVED whose planes report NOT_READY / NO_DATA is shown as UNKNOWN with those words. UNKNOWN is never
  *   "not observed" and never zero.
  * - ACCESS NOW -- `feasibility.path_state` (REACHABLE | UNVERIFIED | BLOCKED | OUT_OF_SCOPE) with its `reason`;
- *   without feasibility only a served blocked classification says BLOCKED; everything else is UNKNOWN. Observation never
+ *   a served word outside these is UNKNOWN; without feasibility only a served blocked classification says BLOCKED;
+ *   everything else is UNKNOWN. Observation never
  *   upgrades access, and a blocked route keeps its activity ("observed in window, blocked now" is a valid row).
  * - APPROVAL -- no approved-need producer exists (APD-09), so every source is `not_recorded`. Nothing here may ever
  *   call a source legitimate or approved.
@@ -175,9 +177,15 @@ export interface CurrentAccessSources {
 }
 
 export interface DataPlaneNote {
-  /** True when no listed route carries an observed data plane. */
+  /** True only when EVERY listed route served a data-plane state and none of them is observed. */
   noDataObservation: boolean
-  /** The served data-plane states / coverage words across listed routes, verbatim and deduplicated. */
+  /** Listed routes that served an observed data plane. */
+  observedRouteCount: number
+  /** Listed routes with no served data-plane state (no contract, no runtime evidence, or no data state): not reported,
+   *  never counted as "no observation". */
+  notReportedRouteCount: number
+  routeCount: number
+  /** Only what the server sent: data-plane states and coverage words across listed routes, verbatim and deduplicated. */
   servedStates: string[]
   /** The producer's own code for an absent data-access summary was served. */
   summaryAbsent: boolean
@@ -263,6 +271,11 @@ export function routeActivity(path: ConvergencePath): { activity: RouteActivity;
     }
     return { activity: served as RouteActivity, basis: "feasibility", detail }
   }
+  if (served) {
+    // A word the server sent that this page does not know is UNKNOWN, never replaced by a client derivation.
+    return { activity: "UNKNOWN", basis: "feasibility",
+      detail: `the server sent activity "${str(path.feasibility?.activity_state)?.trim()}", which this page does not recognise` }
+  }
   if (planes) {
     const observed = planes.filter((p) => p.state === "observed").map((p) => p.plane)
     if (observed.length === PLANES.length) {
@@ -293,6 +306,11 @@ export function routeAccess(path: ConvergencePath): { access: RouteAccess; basis
   const served = up(path.feasibility?.path_state)
   if (served && ACCESS_WORDS.has(served)) {
     return { access: served as RouteAccess, basis: "feasibility", reason: str(path.feasibility?.reason) }
+  }
+  if (served) {
+    // An unknown served word is UNKNOWN; the classification never stands in for what the server said.
+    return { access: "UNKNOWN", basis: "feasibility",
+      reason: `the server sent access "${str(path.feasibility?.path_state)?.trim()}", which this page does not recognise` }
   }
   if (classificationOf(path) === "blocked") {
     return { access: "BLOCKED", basis: "classification", reason: "the server classifies the route blocked" }
@@ -556,14 +574,27 @@ function dataPlaneNote(routes: SourceRoute[]): DataPlaneNote {
   const dataPlanes = routes.map((r) => (r.planes ?? []).find((p) => p.plane === "data") ?? null)
   const servedStates: string[] = []
   let summaryAbsent = false
+  let notReportedRouteCount = 0
+  let observedRouteCount = 0
   for (const p of dataPlanes) {
-    if (!p) { pushUnique(servedStates, "no evidence contract"); continue }
-    pushUnique(servedStates, words(p.state))
-    for (const c of p.coverageStates) {
+    // A missing data-plane state (planesOf defaults it to NOT_REPORTED) is not reported, never "no observation".
+    if (!p || p.state === NOT_REPORTED) notReportedRouteCount += 1
+    else {
+      pushUnique(servedStates, words(p.state))
+      if (p.state === "observed") observedRouteCount += 1
+    }
+    for (const c of p?.coverageStates ?? []) {
       pushUnique(servedStates, c)
       if (c.toUpperCase() === DATA_ACCESS_SUMMARY_ABSENT) summaryAbsent = true
     }
   }
   if (routes.some((r) => r.dataSummaryAbsent)) summaryAbsent = true
-  return { noDataObservation: !dataPlanes.some((p) => p?.state === "observed"), servedStates, summaryAbsent }
+  return {
+    noDataObservation: routes.length > 0 && notReportedRouteCount === 0 && observedRouteCount === 0,
+    observedRouteCount,
+    notReportedRouteCount,
+    routeCount: routes.length,
+    servedStates,
+    summaryAbsent,
+  }
 }

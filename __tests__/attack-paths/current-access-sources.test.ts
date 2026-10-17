@@ -197,7 +197,8 @@ describe("Rev 6 §3.9 / §3.11 · header facts and the data-plane line come from
     const s = currentAccessSources(body([path({ path_id: "a", source_compute: compute(1), feasibility: feas("REACHABLE", "PARTIALLY_OBSERVED"),
       path_bound_observations: [obs({}), { evidence_quality: "unknown", plane: "data", kind: "configured_only", coverage_state: "NO_DATA", reason_codes: ["DATA_ACCESS_SUMMARY_ABSENT"] }] })]),
       { jewelType: "S3Bucket" })!
-    expect(s.dataPlane).toMatchObject({ noDataObservation: true, summaryAbsent: true })
+    // S7 (review 2026-10-17): this route serves no data-plane state, so it is "not reported", never "no observation".
+    expect(s.dataPlane).toMatchObject({ noDataObservation: false, observedRouteCount: 0, notReportedRouteCount: 1, summaryAbsent: true })
     expect(currentAccessSources(body([path({ path_id: "a", source_compute: compute(1) })]), { jewelType: "RDSInstance" })!.dataPlane).toBeNull()
   })
 

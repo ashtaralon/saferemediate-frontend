@@ -114,6 +114,9 @@ export function CurrentAccessSourceList({ data, activePaths, jewelName, jewelTyp
   const jewel = jewelName ?? "this crown jewel"
   const chip = cardinalityChip(sources.cardinality)
   const observedCount = sources.observed.length
+  // Every listed source's activity is unknown: say that, never "0 ... with observed activity".
+  const allUnknown = sources.sourceCount > 0 && sources.unknown.length === sources.sourceCount
+  const dataPlane = sources.dataPlane
 
   return (
     <section
@@ -127,7 +130,10 @@ export function CurrentAccessSourceList({ data, activePaths, jewelName, jewelTyp
         <div className="min-w-0">
           <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Current access · by source</div>
           <div className="text-xs text-foreground" data-testid="current-access-header">
-            {plural(observedCount, "compute source")} with observed activity (whole route or some planes) toward {jewel} · {windowText(sources)}
+            {allUnknown
+              ? `Activity unknown for ${sources.sourceCount === 1 ? "the one compute source" : `all ${sources.sourceCount} compute sources`} listed toward ${jewel}`
+              : `${plural(observedCount, "compute source")} with observed activity (whole route or some planes) toward ${jewel}`}
+            {` · ${windowText(sources)}`}
           </div>
           <div className="text-[10px] text-muted-foreground" data-testid="current-access-totals">
             {plural(sources.sourceCount, "compute source")} · {plural(sources.routeCount, "compute route")} listed
@@ -146,12 +152,19 @@ export function CurrentAccessSourceList({ data, activePaths, jewelName, jewelTyp
         Listed: the compute sources this attack-path answer names. This install does not serve a reconciliation against
         the admitted observations, so whether every observed compute is listed is not reported.
       </p>
-      {sources.dataPlane && sources.dataPlane.noDataObservation ? (
+      {dataPlane && dataPlane.observedRouteCount === 0 && (dataPlane.routeCount > 0 || dataPlane.summaryAbsent) ? (
         <p className="px-4 pb-2 text-[10px] text-amber-800 dark:text-amber-300" data-testid="current-access-data-plane">
-          {sources.dataPlane.summaryAbsent
+          {/* "No data-plane observation" only when every listed route served a data-plane state (S7). */}
+          {dataPlane.summaryAbsent
             ? "Data-plane observations are not projected on this install — network plane only."
-            : "No data-plane observation is bound to any listed route — network and identity planes only."}
-          {` ${sources.jewelType} use is seen on the data plane; an empty Observed section is not "no traffic". Served data-plane states: ${sources.dataPlane.servedStates.join(", ") || "none"}.`}
+            : dataPlane.noDataObservation
+              ? "No data-plane observation is bound to any listed route — network and identity planes only."
+              : "No listed route served an observed data plane."}
+          {` ${sources.jewelType} use is seen on the data plane; an empty Observed section is not "no traffic".`}
+          {dataPlane.notReportedRouteCount > 0
+            ? ` Data-plane state not reported for ${dataPlane.notReportedRouteCount} of ${plural(dataPlane.routeCount, "listed route")}; its activity there is unknown.`
+            : ""}
+          {` Served data-plane states: ${dataPlane.servedStates.join(", ") || "none served"}.`}
         </p>
       ) : null}
       {sources.partial ? (
