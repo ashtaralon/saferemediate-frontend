@@ -118,6 +118,10 @@ interface ExfilPathListColumnProps {
   jewelName?: string | null
   loading?: boolean
   notApplicableReason?: string | null
+  /** The exfil read failed (no answer). Never rendered as "no exfiltration path". */
+  error?: string | null
+  /** True only when the server actually answered (so an empty list is the answer's own). */
+  answered?: boolean
 }
 
 /** Rev 6 §3.12: the exfil answer is jewel-centric; it does not bind the selected compute (P6.1 binding is later). */
@@ -136,6 +140,8 @@ export function ExfilPathListColumn({
   jewelName,
   loading = false,
   notApplicableReason = null,
+  error = null,
+  answered = true,
 }: ExfilPathListColumnProps) {
   // Group paths by channel, preserving backend's traffic-sorted order
   // inside each group. Unknown channels fall into a synthetic "OTHER"
@@ -195,6 +201,20 @@ export function ExfilPathListColumn({
         <div className="text-xs text-muted-foreground leading-relaxed">
           {notApplicableReason}
         </div>
+      </div>
+    )
+  }
+
+  if (paths.length === 0 && (error || !answered)) {
+    return (
+      <div className="px-4 py-3 space-y-2" data-testid="exfil-rail-unread">
+        <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+          Paths to {jewelName ?? "this jewel"}
+        </div>
+        <div className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+          Exfiltration paths could not be read{error ? ` (${error})` : ""}. Unknown, not &ldquo;no exfiltration&rdquo;.
+        </div>
+        <AggregateBinding />
       </div>
     )
   }

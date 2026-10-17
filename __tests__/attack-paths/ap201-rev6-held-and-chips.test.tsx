@@ -126,6 +126,16 @@ describe("Exfiltration: aggregate, not bound to the selected compute; empty is n
     expect(document.body.textContent).not.toMatch(/No exfil paths surfaced/)
   })
 
+  it("a failed exfil read is said as unread, never as the server's empty answer (browser check on 8dbc9e58)", () => {
+    render(<ExfilPathListColumn paths={[]} selectedPathId={null} onSelectPath={() => undefined} jewelName="acme-data"
+      error="HTTP 404" answered={false} />)
+    expect(screen.getByTestId("exfil-rail-unread").textContent).toMatch(/Exfiltration paths could not be read \(HTTP 404\)\. Unknown, not “no exfiltration”\./)
+    expect(screen.queryByTestId("exfil-rail-empty")).toBeNull()
+    cleanup()
+    render(<ExfilPathListColumn paths={[]} selectedPathId={null} onSelectPath={() => undefined} jewelName="acme-data" answered={false} />)
+    expect(screen.getByTestId("exfil-rail-unread")).toBeInTheDocument()
+  })
+
   it("the two chip titles say what the view is on an install", () => {
     const tabs = Object.fromEntries(buildModeBarTabs().map((t) => [t.key, t]))
     expect(tabs.lateral.title).toMatch(/published reach is shown and labelled/)

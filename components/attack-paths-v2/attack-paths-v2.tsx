@@ -1335,6 +1335,8 @@ export function AttackPathsV2({
             onSelectPath={handleSelectExfilPath}
             jewelName={selectedJewel?.name ?? null}
             loading={exfilLoading}
+            error={exfilError}
+            answered={exfilData != null}
             notApplicableReason={
               exfilData?.applicability?.state === "NOT_APPLICABLE"
                 ? exfilData.applicability.reason
