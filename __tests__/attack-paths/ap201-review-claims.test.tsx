@@ -266,3 +266,22 @@ describe("S10 (T-2) · a held reader's ACCOUNT_SCOPE_REQUIRED names the account 
     expect(bare).toMatchObject({ ok: false, error: expect.stringMatching(/^Path detail: Several workload accounts are registered/) })
   })
 })
+
+describe("T-13 · the foothold (lateral) read goes through the one claim rule", () => {
+  it("a component that passes no key still reads the page's key and the key's account", async () => {
+    const { useAtlasLateral } = await import("@/components/attack-paths-v2/use-atlas-lateral")
+    renderHook(() => useAtlasLateral({ systemName: "shop", jewelRef: "arn:aws:rds:eu-west-1:1:db:orders", enabled: true }), { wrapper: opened })
+    await waitFor(() => expect(urls.some((u) => u.includes("/jewel-footholds"))).toBe(true))
+    const url = urls.find((u) => u.includes("/jewel-footholds"))!
+    expect(query(url)).toMatchObject({ customer_id: "acme", account_id: KEY_ACCOUNT, system_key: "sk-1" })
+  })
+
+  it("no provider and no key: the selected account only", async () => {
+    const { useAtlasLateral } = await import("@/components/attack-paths-v2/use-atlas-lateral")
+    renderHook(() => useAtlasLateral({ systemName: "shop", jewelRef: "arn:aws:rds:eu-west-1:1:db:orders", enabled: true }))
+    await waitFor(() => expect(urls.some((u) => u.includes("/jewel-footholds"))).toBe(true))
+    const url = urls.find((u) => u.includes("/jewel-footholds"))!
+    expect(query(url)).toMatchObject({ customer_id: "acme", account_id: SELECTED })
+    expect(query(url).system_key).toBeUndefined()
+  })
+})

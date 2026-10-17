@@ -625,8 +625,9 @@ export function AttackPathsV2({
     fromProxyStale || iapIsStale || jewelsIsStale
 
   // AP201 (M13) + review S14: the header's totals are the CATALOG's only. The blast-radius totals are another model over
-  // another population (target-catalog.ts) and no longer stand in while the catalog loads: a loading catalog says
-  // "Loading crown-jewel targets…", and a NOT_READY, failed or unreadable one shows no count.
+  // another population (target-catalog.ts) and no longer stand in while the catalog loads. While it loads the header reads
+  // "N loaded paths · M listed jewels" when the IAP list has already answered with paths, else "Loading crown-jewel
+  // targets…"; a NOT_READY, failed or unreadable catalog shows no count.
   const displayedPathCount = catalogTotals?.pathCount
   const displayedReachableJewelCount = catalogTotals?.reachableTargetCount
 
