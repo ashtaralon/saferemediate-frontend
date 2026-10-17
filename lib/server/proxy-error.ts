@@ -20,6 +20,8 @@
  * same anti-pattern at proxy level — also forbidden here.
  */
 import { NextResponse } from "next/server"
+import { isTypedSemanticRefusal } from "@/lib/server/proxy-cache-hygiene"
+import { typedReaderUnavailable } from "@/lib/semantic-hold"
 
 export type ProxyErrorBody = {
   error: string
@@ -167,6 +169,27 @@ export function systemChoiceDetail(rawBody: string): SystemChoiceDetail | undefi
     reason: typedText(d.reason),
     candidate_keys: candidates,
   }
+}
+
+/** A typed server answer as a proxy relays it; `readerFailure` = SEMANTIC_READ_UNAVAILABLE (last-good may stand in). */
+export type TypedBackendAnswer = { response: NextResponse; readerFailure: boolean }
+
+/**
+ * A typed answer from the server (a held route, a refused or unavailable read, a scope refusal, or any 4xx carrying a
+ * `detail.code`) is passed through with its own status and body, never cached and never relabelled as an outage.
+ * Null for any other body. The report proxy's rule, shared (AP201 review B3).
+ */
+export function typedBackendAnswer(rawBody: string, status: number): TypedBackendAnswer | null {
+  let typed: unknown = null
+  try { typed = JSON.parse(rawBody) } catch { typed = null }
+  const typedCode = (typed as { detail?: { code?: unknown } } | null)?.detail?.code
+  if (isTypedSemanticRefusal(typed) || (status < 500 && typeof typedCode === "string")) {
+    return {
+      response: NextResponse.json(typed, { status, headers: { "Cache-Control": "no-store", "X-Cache": "BYPASS-TYPED" } }),
+      readerFailure: typedReaderUnavailable(typed) != null,
+    }
+  }
+  return null
 }
 
 export function backendError(opts: {

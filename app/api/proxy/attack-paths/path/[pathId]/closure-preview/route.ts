@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { getCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
+import { forwardScopeClaims } from "@/lib/server/scope-claims"
+import { typedBackendAnswer } from "@/lib/server/proxy-error"
+import { isSemanticHoldPayload } from "@/lib/server/proxy-cache-hygiene"
 
 // =============================================================================
 // Closure Preview proxy — GET /api/proxy/attack-paths/path/<pathId>/closure-preview
@@ -32,7 +35,10 @@ export async function GET(
     )
   }
 
-  const cacheKey = `closure-preview:${pathId}`
+  // AP201 (R11) review S1: the tenant / account claims travel with the read and are part of the cache key.
+  const upstream = new URLSearchParams()
+  const claimsKey = forwardScopeClaims(req.nextUrl.searchParams, upstream)
+  const cacheKey = `closure-preview:${pathId}${claimsKey ? `:${claimsKey}` : ""}`   // no claim: today's key
   const cached = getCached(cacheKey)
   if (cached) {
     return NextResponse.json(cached, {
@@ -43,7 +49,7 @@ export async function GET(
   try {
     const t0 = Date.now()
     const res = await fetch(
-      `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(pathId)}/closure-preview`,
+      `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(pathId)}/closure-preview${claimsKey ? `?${upstream}` : ""}`,
       { headers: { Accept: "application/json" }, cache: "no-store", signal: AbortSignal.timeout(55_000) },
     )
     console.log(
@@ -51,12 +57,20 @@ export async function GET(
     )
     if (!res.ok) {
       const text = await res.text().catch(() => "")
+      // AP201 review S11: a typed answer (the install's 503 SERVING_ROUTE_HELD, a scope refusal) keeps its status and
+      // body, never relabelled 502 -- the hook says "not available on this install", not an outage.
+      const typed = typedBackendAnswer(text, res.status)
+      if (typed) return typed.response
       return NextResponse.json<ProxyError>(
         { error: "closure_preview_unavailable", detail: `backend ${res.status} ${text.slice(0, 200)}` },
         { status: res.status === 404 ? 404 : 502 },
       )
     }
     const data = await res.json()
+    if (isSemanticHoldPayload(data)) {
+      // A 200 hold is today's answer only: never cached, never edge-cached.
+      return NextResponse.json(data, { headers: { "X-Cache": "BYPASS-HOLD", "Cache-Control": "no-store" } })
+    }
     setCached(cacheKey, data, TTL_STD)
     return NextResponse.json(data, {
       headers: { "X-Cache": "MISS", "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300" },

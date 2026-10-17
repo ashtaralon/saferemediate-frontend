@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { getCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
-import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
+import { backendError, fromCaughtError, typedBackendAnswer } from "@/lib/server/proxy-error"
 import { coerceProxyErrorMessage } from "@/lib/proxy-error-message"
 import { forwardScopeClaims } from "@/lib/server/scope-claims"
-import { isSemanticHoldPayload, isTypedSemanticRefusal } from "@/lib/server/proxy-cache-hygiene"
+import { isSemanticHoldPayload } from "@/lib/server/proxy-cache-hygiene"
 
 // =============================================================================
 // AttackPathReport proxy — GET /api/proxy/attack-paths/path/<pathId>/report
@@ -105,12 +105,8 @@ export async function GET(
       const text = await res.text().catch(() => "")
       // A typed answer from the server (a held route, a refused or unavailable read, a scope refusal) is passed
       // through with its own status and body, never cached and never relabelled as an outage.
-      let typed: unknown = null
-      try { typed = JSON.parse(text) } catch { typed = null }
-      const typedCode = (typed as { detail?: { code?: unknown } } | null)?.detail?.code
-      if (isTypedSemanticRefusal(typed) || (res.status < 500 && typeof typedCode === "string")) {
-        return NextResponse.json(typed, { status: res.status, headers: { "Cache-Control": "no-store", "X-Cache": "BYPASS-TYPED" } })
-      }
+      const typed = typedBackendAnswer(text, res.status)
+      if (typed) return typed.response
       const { code, detail } = parseBackendErrorBody(text, res.status)
       return reportError(
         pathId,

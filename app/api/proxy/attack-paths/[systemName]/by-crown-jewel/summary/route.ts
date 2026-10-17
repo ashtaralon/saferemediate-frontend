@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { getCached, getStaleCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
 import { forwardScopeClaims } from "@/lib/server/scope-claims"
-import { systemChoiceDetail } from "@/lib/server/proxy-error"
+import { systemChoiceDetail, typedBackendAnswer } from "@/lib/server/proxy-error"
+import { isSemanticHoldPayload } from "@/lib/server/proxy-cache-hygiene"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -57,6 +58,12 @@ export async function GET(
     if (!res.ok) {
       const body = await res.text().catch(() => "")
       console.error(`[by-crown-jewel/summary] backend ${res.status}: ${body.slice(0, 200)}`)
+      // A7 B5: the 409 system choice is relayed (typed) so the page can offer it; every other refusal answers as before.
+      const choice = systemChoiceDetail(body)
+      // AP201 review B3: any other typed answer passes through as the server gave it, no-store; a refusal is never
+      // masked by a stale serve, a reader failure (SEMANTIC_READ_UNAVAILABLE) may still be answered by last-good.
+      const typed = choice ? null : typedBackendAnswer(body, res.status)
+      if (typed && !typed.readerFailure) return typed.response
       if (res.status >= 500) {
         const stale = getStaleCached(key)
         if (stale) {
@@ -69,14 +76,17 @@ export async function GET(
           )
         }
       }
-      // A7 B5: the 409 system choice is relayed (typed) so the page can offer it; every other refusal answers as before.
-      const choice = systemChoiceDetail(body)
+      if (typed) return typed.response
       return NextResponse.json(
         { error: "Failed to load crown jewel summary", status: res.status, ...(choice ? { detail: choice } : {}) },
         { status: res.status },
       )
     }
     const data = await res.json()
+    // A 200 hold is a status answer about right now: passed through no-store, never cached.
+    if (isSemanticHoldPayload(data)) {
+      return NextResponse.json(data, { headers: { "Cache-Control": "no-store", "X-Cache": "BYPASS-HOLD" } })
+    }
     setCached(key, data, TTL_STD)
     return NextResponse.json(data, {
       headers: {

@@ -21,7 +21,8 @@ import { matchConvergencePathId } from "./iap-to-convergence"
 import { iapHold } from "./path-evidence-view"
 import { scopeClaimsFrom } from "./scope-claims"
 import { useOptionalAccountScope } from "@/lib/account-scope-context"
-import { semanticHoldMessage, type SemanticHoldKind } from "@/lib/semantic-hold"
+import { semanticHoldMessage, typedReaderUnavailable, typedServingRefusal, type SemanticHoldKind } from "@/lib/semantic-hold"
+import { heldRouteMessage } from "./held-route-message"
 import type {
   CrownJewelConvergence,
   CrownJewelConvergenceSummary,
@@ -33,9 +34,9 @@ import type {
  *
  * Not settled: the legacy `{error}` wrapper (`iapHold` kind "error"). The summary proxy itself answers 5xx and its
  * own timeout with `{error: "Failed to … crown jewel summary"}`, so that wrapper is a cold backend and keeps the
- * AP188 ladder. Today that proxy rewrites EVERY backend non-2xx into that wrapper, so the typed refused / route-held
- * / 503-unavailable arms below are reached only by a 200 body (or once the proxy forwards typed bodies); they are
- * kept so a forwarded typed answer is read as one rather than as "backend may be cold".
+ * AP188 ladder. The proxy passes a typed non-2xx body through as the server gave it (review B3), so the typed
+ * refused / route-held / 503-unavailable arms below read a forwarded typed answer as one rather than as "backend may
+ * be cold".
  */
 class SettledAnswer extends Error {}
 const SETTLED_HOLD_KINDS: ReadonlySet<SemanticHoldKind> = new Set(["not_recorded", "unavailable", "refused", "route_held"])
@@ -215,18 +216,18 @@ export function useCrownJewelConvergence(
           hold != null && SETTLED_HOLD_KINDS.has(hold.kind) && (hold.kind !== "unavailable" || summaryRes.ok)
         if (settledHold) throw new SettledAnswer(semanticHoldMessage(hold))
         if (!summaryRes.ok || !summaryBody || "error" in summaryBody) {
-          const msg =
-            (summaryBody as { error?: string })?.error ??
-            `Backend busy (${summaryRes.status})`
+          // Review S10: a typed detail (a scope refusal, a reader failure) is the server's words and wins over a
+          // proxy's generic `error`, worded by the shared held-route formatter.
+          const typed = typedServingRefusal(summaryBody) ?? typedReaderUnavailable(summaryBody)
+          const msg = typed
+            ? heldRouteMessage(summaryBody, summaryRes.status, "Attack-path summary")
+            : (summaryBody as { error?: string })?.error ?? `Backend busy (${summaryRes.status})`
           const finalStatus =
             summaryRes.status >= 400 && summaryRes.status < 500 && summaryRes.status !== 408 && summaryRes.status !== 429
           if (finalStatus) {
-            // The server's own words when it gave any; never "Backend busy" for an answer that is final.
-            const detail = (summaryBody as { detail?: unknown })?.detail
-            throw new SettledAnswer(
-              (summaryBody as { error?: string })?.error ??
-                (typeof detail === "string" && detail ? detail : `HTTP ${summaryRes.status}`),
-            )
+            // The server's own words when it gave any (typed, then a string detail, then `error`); never "Backend
+            // busy" for an answer that is final.
+            throw new SettledAnswer(heldRouteMessage(summaryBody, summaryRes.status, "Attack-path summary"))
           }
           throw new Error(msg)
         }

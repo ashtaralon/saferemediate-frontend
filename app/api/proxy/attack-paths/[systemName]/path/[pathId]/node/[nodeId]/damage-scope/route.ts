@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { forwardScopeClaims } from "@/lib/server/scope-claims"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -8,7 +9,7 @@ export const maxDuration = 60
 const BACKEND_URL = getBackendBaseUrl()
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   {
     params,
   }: {
@@ -16,7 +17,10 @@ export async function GET(
   },
 ) {
   const { systemName, pathId, nodeId } = await params
-  const backendUrl = `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(systemName)}/path/${encodeURIComponent(pathId)}/node/${encodeURIComponent(nodeId)}/damage-scope`
+  // AP201 (R11) review S1: the tenant / account claims travel with the read.
+  const upstream = new URLSearchParams()
+  const claimsKey = forwardScopeClaims(req.nextUrl.searchParams, upstream)
+  const backendUrl = `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(systemName)}/path/${encodeURIComponent(pathId)}/node/${encodeURIComponent(nodeId)}/damage-scope${claimsKey ? `?${upstream}` : ""}`
 
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 55_000)

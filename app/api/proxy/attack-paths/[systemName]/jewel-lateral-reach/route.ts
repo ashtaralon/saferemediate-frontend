@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { getCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
 import { forwardScopeClaims } from "@/lib/server/scope-claims"
-import { systemChoiceDetail } from "@/lib/server/proxy-error"
+import { systemChoiceDetail, typedBackendAnswer } from "@/lib/server/proxy-error"
+import { isSemanticHoldPayload } from "@/lib/server/proxy-cache-hygiene"
 
 // =============================================================================
 // Lateral reach proxy —
@@ -77,6 +78,9 @@ export async function GET(
       if (choice) {
         return NextResponse.json({ error: "lateral_reach_unavailable", detail: choice }, { status: 409 })
       }
+      // AP201 review B3: any other typed answer keeps its own status and body (a 422 stays 422), no-store, uncached.
+      const typed = typedBackendAnswer(text, res.status)
+      if (typed) return typed.response
       return NextResponse.json<ProxyError>(
         {
           error: "lateral_reach_unavailable",
@@ -86,6 +90,10 @@ export async function GET(
       )
     }
     const data = await res.json()
+    // A 200 hold is a status answer about right now: passed through no-store, never cached.
+    if (isSemanticHoldPayload(data)) {
+      return NextResponse.json(data, { headers: { "Cache-Control": "no-store", "X-Cache": "BYPASS-HOLD" } })
+    }
     setCached(cacheKey, data, TTL_STD)
     return NextResponse.json(data, {
       headers: {
