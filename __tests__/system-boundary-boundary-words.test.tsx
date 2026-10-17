@@ -15,7 +15,7 @@ import { ResultLists } from "@/components/system-boundary/system-result"
 import {
   BOUNDARY_TITLES,
   boundarySummary,
-  readNotMemberReasons,
+  readShared,
   sharedSentence,
 } from "@/lib/system-boundary-boundary-words"
 import { parseResultResponse } from "@/lib/system-boundary-result"
@@ -28,35 +28,41 @@ const PREVIEW = () => capture("system-boundary-setup-preview-captures-v5", "prev
 const RESULT_V2 = () => capture("system-boundary-result-captures-v2", "served_without_context")
 const RESULT_V1 = () => capture("system-boundary-captures", "result")
 
-describe("the closed class count, read exactly", () => {
+describe("the closed class count, read into three states", () => {
   const exact = { SHARED_FOUNDATION: 2, SHARED_CLUSTER: 1, EXCLUDED_BY_DECISION: 0, OTHER: 1 }
+  const reported = (reasons: typeof exact) => ({ state: "reported" as const, reasons })
 
-  it("absent or null is 'not reported'; an exact set adding up to the not-member count is read", () => {
-    expect(readNotMemberReasons(undefined, 4)).toBeNull()
-    expect(readNotMemberReasons(null, 4)).toBeNull()
-    expect(readNotMemberReasons(exact, 4)).toEqual(exact)
+  it("absent or null is NOT REPORTED; an exact set adding up to the not-member count is REPORTED", () => {
+    expect(readShared(undefined, 4)).toEqual({ state: "not_reported" })
+    expect(readShared(null, 4)).toEqual({ state: "not_reported" })
+    expect(readShared(exact, 4)).toEqual(reported(exact))
   })
 
-  it("anything else is malformed: a missing or extra class, a non-count, or classes that do not add up", () => {
+  it("(F2) anything else is INCONSISTENT -- a missing or extra class, a non-count, or classes that do not add up", () => {
     const { OTHER: _drop, ...missing } = exact
     for (const bad of [missing, { ...exact, SHARED_VPC: 0 }, { ...exact, OTHER: -1 }, { ...exact, OTHER: 1.5 },
                        { ...exact, OTHER: "1" }, [], "x"]) {
-      expect(readNotMemberReasons(bad, 4), JSON.stringify(bad)).toBeUndefined()
+      expect(readShared(bad, 4), JSON.stringify(bad)).toEqual({ state: "inconsistent" })
     }
-    expect(readNotMemberReasons(exact, 5)).toBeUndefined()                // 4 counted, 5 not-members: never shown
+    expect(readShared(exact, 5)).toEqual({ state: "inconsistent" })        // 4 counted, 5 not-members
   })
 
-  it("the words: shared from the server's count, or said not reported -- never a zero", () => {
-    expect(sharedSentence(exact)).toBe(
+  it("the words: shared from the server's count; not reported; or not shown when it does not add up -- never a number then", () => {
+    expect(sharedSentence(reported(exact))).toBe(
       "Shared: 3 -- 2 shared foundation, 1 shared cluster: by design a member of no single system.")
-    expect(sharedSentence({ ...exact, EXCLUDED_BY_DECISION: 1, OTHER: 0 })).toContain("1 excluded by a person's decision.")
-    expect(sharedSentence(null)).toContain("not reported")
-    expect(sharedSentence(null)).not.toMatch(/\b0\b/)
+    expect(sharedSentence(reported({ ...exact, EXCLUDED_BY_DECISION: 1, OTHER: 0 }))).toContain("1 excluded by a person's decision.")
+    expect(sharedSentence({ state: "not_reported" })).toContain("not reported")
+    expect(sharedSentence({ state: "inconsistent" })).toContain("do not add up")
+    for (const read of [{ state: "not_reported" as const }, { state: "inconsistent" as const }]) {
+      expect(sharedSentence(read), read.state).not.toMatch(/\d/)          // no shared number at all
+    }
     const counts = { members: 3, stale_members: 1, dependencies: 2, held: 1, not_members: 4 }
-    expect(boundarySummary(counts, exact)).toBe(
+    expect(boundarySummary(counts, reported(exact))).toBe(
       "3 owned (1 last seen), 2 used, 1 unresolved, 4 not part of this system (3 of them shared)")
-    expect(boundarySummary(counts, null)).toBe(
+    expect(boundarySummary(counts, { state: "not_reported" })).toBe(
       "3 owned (1 last seen), 2 used, 1 unresolved, 4 not part of this system (shared not reported)")
+    expect(boundarySummary(counts, { state: "inconsistent" })).toBe(
+      "3 owned (1 last seen), 2 used, 1 unresolved, 4 not part of this system (shared not shown: its counts do not add up)")
   })
 })
 
@@ -66,44 +72,57 @@ describe("the backend's own preview answer", () => {
     const read = parsePreview(answer.status, answer.body)
     expect(read.kind).toBe("OK")
     if (read.kind !== "OK") return
-    expect(read.value.notMemberReasons).toEqual(answer.body.not_member_reasons)
-    expect(read.value.notMemberReasons).toEqual({ SHARED_FOUNDATION: 0, SHARED_CLUSTER: 0, EXCLUDED_BY_DECISION: 2, OTHER: 0 })
-    expect(read.value.accounts[0].display?.notMemberReasons).toEqual(answer.body.accounts[0].display.not_member_reasons)
+    expect(read.value.shared).toEqual({ state: "reported", reasons: answer.body.not_member_reasons })
+    expect(read.value.shared).toEqual({ state: "reported",
+                                        reasons: { SHARED_FOUNDATION: 0, SHARED_CLUSTER: 0, EXCLUDED_BY_DECISION: 2, OTHER: 0 } })
+    expect(read.value.accounts[0].display?.shared).toEqual({ state: "reported", reasons: answer.body.accounts[0].display.not_member_reasons })
     const sentence = previewSentence(read)
     expect(sentence).toContain(`${answer.body.counts.members} owned`)
     expect(sentence).toContain(`${answer.body.counts.not_members} not part of this system (0 of them shared)`)
     expect(sentence).not.toMatch(/not a member|dependenc/)
   })
 
-  it("an answer from before the field says shared is not reported; one whose classes do not add up is not read", () => {
+  it("an answer from before the field says shared is not reported; (F2) one whose classes do not add up is still read", () => {
     const before = PREVIEW()
     delete before.body.not_member_reasons
     delete before.body.accounts[0].display.not_member_reasons
     const read = parsePreview(before.status, before.body)
-    expect(read.kind === "OK" && read.value.notMemberReasons).toBeNull()
-    expect(read.kind === "OK" && read.value.accounts[0].display?.notMemberReasons).toBeNull()
+    expect(read.kind === "OK" && read.value.shared).toEqual({ state: "not_reported" })
+    expect(read.kind === "OK" && read.value.accounts[0].display?.shared).toEqual({ state: "not_reported" })
     expect(previewSentence(read)).toContain("(shared not reported)")
     for (const where of ["top", "account"] as const) {
       const bad = PREVIEW()                                                  // TEST_ONLY: classes that do not add up
       const target = where === "top" ? bad.body : bad.body.accounts[0].display
       target.not_member_reasons = { ...target.not_member_reasons, OTHER: target.not_member_reasons.OTHER + 1 }
-      expect(parsePreview(bad.status, bad.body), where).toMatchObject({ kind: "UNAVAILABLE", code: "MALFORMED_RESPONSE" })
+      const read = parsePreview(bad.status, bad.body)
+      expect(read.kind, where).toBe("OK")                                    // the rest of the preview is still read
+      if (read.kind !== "OK") continue
+      const shared = where === "top" ? read.value.shared : read.value.accounts[0].display?.shared
+      expect(shared, where).toEqual({ state: "inconsistent" })
+      if (where === "top") expect(previewSentence(read)).toContain("(shared not shown: its counts do not add up)")
     }
   })
 })
 
 describe("the backend's own served result", () => {
-  it("level 2 carries the classes; level 1 (published before them) says not reported; a contradiction is not shown", () => {
+  it("level 2 carries the classes; level 1 (published before them) says not reported; (F2) a contradiction shows no number", () => {
     const v2 = RESULT_V2()
     const served = parseResultResponse(v2.status, v2.body, v2.body.account_id)
-    expect(served.kind === "served" && served.notMemberReasons).toEqual(v2.body.not_member_reasons)
+    expect(served.kind === "served" && served.shared).toEqual({ state: "reported", reasons: v2.body.not_member_reasons })
     const v1 = RESULT_V1()
     expect(v1.body.not_member_reasons).toBeUndefined()
     const older = parseResultResponse(v1.status, v1.body, v1.body.account_id)
-    expect(older.kind === "served" && older.notMemberReasons).toBeNull()
+    expect(older.kind === "served" && older.shared).toEqual({ state: "not_reported" })
     const bad = RESULT_V2()                                                  // TEST_ONLY: one more than counted
     bad.body.not_member_reasons = { ...bad.body.not_member_reasons, OTHER: bad.body.counts.not_members + 1 }
-    expect(parseResultResponse(bad.status, bad.body, bad.body.account_id)).toMatchObject({ kind: "unavailable" })
+    const contradicted = parseResultResponse(bad.status, bad.body, bad.body.account_id)
+    expect(contradicted.kind).toBe("served")                                 // the lists are still served
+    expect(contradicted.kind === "served" && contradicted.shared).toEqual({ state: "inconsistent" })
+    if (contradicted.kind === "served") {
+      render(<ResultLists answer={contradicted} />)
+      expect(screen.getByTestId("boundary-shared").textContent).toContain("not shown")
+      expect(screen.getByTestId("boundary-shared").textContent).not.toMatch(/\d/)
+    }
   })
 
   it("the lists are titled owned / used / unresolved / not part, with the summary and the server's shared line", () => {

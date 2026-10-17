@@ -87,8 +87,8 @@ export function SystemResult({ systemKey, accountIds, fetcher = fetchResult }: S
 export function ResultLists({ answer }: { answer: ResultServed }) {
   return (
     <>
-      <p className="text-xs text-slate-700" data-testid="boundary-summary">{boundarySummary(answer.counts, answer.notMemberReasons)}.</p>
-      <p className="text-xs text-slate-600" data-testid="boundary-shared">{sharedSentence(answer.notMemberReasons)}</p>
+      <p className="text-xs text-slate-700" data-testid="boundary-summary">{boundarySummary(answer.counts, answer.shared)}.</p>
+      <p className="text-xs text-slate-600" data-testid="boundary-shared">{sharedSentence(answer.shared)}</p>
       {(["members", "dependencies", "held", "not_members"] as const).map((list) => (
         <details key={list} open={list === "members"}>
           <summary className="text-xs font-medium text-slate-700">

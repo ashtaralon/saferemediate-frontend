@@ -1345,7 +1345,7 @@ function PreviewPanel({ read, setupId, stateVersion, readPreview, onPreviewAgain
               ) : null}
               {account.display ? (
                 <p className="text-slate-600" data-testid={`setup-preview-shared-${account.accountId}`}>
-                  {sharedSentence(account.display.notMemberReasons)}
+                  {sharedSentence(account.display.shared)}
                 </p>
               ) : null}
               {account.display ? PREVIEW_LISTS_SHOWN.map((list) => {
