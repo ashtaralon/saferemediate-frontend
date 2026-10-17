@@ -27,10 +27,12 @@ describe("Zoom0 Lateral wiring", () => {
 
   it("enumerates graph compute then invokes canonical ATLAS", () => {
     const src = read(HOOK)
-    // AP201 (R11): the footholds URL comes from the one builder, with evaluate=true and the operator's claims.
+    // AP201 (R11) + T-13: the footholds URL comes from the one builder, with evaluate=true and THE page's claims
+    // (useAttackPathReadClaims: the selected account, and the system identity whose own account wins).
     expect(src).toContain("buildJewelFootholdsUrl(")
     expect(src).toContain("{ evaluate: true, evaluation_limit: 30, evaluation_budget_ms: 8000, max_hops: 8 }")
-    expect(src).toContain("{ customerId: claimedCustomer, accountId: claimedAccount, systemKey, systemAccountId }")
+    expect(src).toContain("const claims = useAttackPathReadClaims(systemKey ? { systemKey, systemAccountId } : null)")
+    expect(src).toContain("const claimsArg = claims")
     expect(src).toContain("recommended_candidate_id")
     expect(src).toContain("recommended_simulation")
     expect(src).toContain("/api/proxy/atlas/search/")
