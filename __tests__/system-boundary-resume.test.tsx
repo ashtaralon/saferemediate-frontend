@@ -14,7 +14,7 @@ import type { InventoryRow, PublicationIdentity } from "@/lib/account-inventory"
 import type { CreateEnvelope, DeclarationsView, OwnGrant, ReadResult } from "@/lib/system-boundary-authoring"
 import type { RootSelection } from "@/lib/system-boundary-authoring"   // deep fixtures (wizard on discovery widened DeclaredRoot)
 import type { InventorySelection } from "@/lib/account-inventory"
-import { PENDING_KEY, pendingFor, pendingStore, type PendingSave } from "@/lib/system-boundary-pending"
+import { PENDING_KEY, PENDING_RECORD_PREFIX, pendingFor, pendingStore, type PendingSave } from "@/lib/system-boundary-pending"
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function golden(name: string): any {
@@ -69,10 +69,10 @@ describe("the pending-save store", () => {
     store.put(entry(CREATE))                                             // the same request id is kept once
     store.put(entry(TAKEN))
     expect(store.read().entries.map((e) => e.envelope.request_id)).toEqual([CREATE.request_id, TAKEN.request_id])
-    store.remove(CREATE.request_id)
+    store.remove(entry(CREATE))
     expect(store.read()).toEqual({ entries: [entry(TAKEN)], unreadable: 0 })
-    store.remove(TAKEN.request_id)
-    expect(storage.getItem(PENDING_KEY)).toBeNull()
+    store.remove(entry(TAKEN))
+    expect(storage.length).toBe(0)                                       // (PC1 S0-E) every record gone; the old list never written
   })
 
   it("never returns what this version cannot read exactly, counts it, and clears it on request", () => {
@@ -203,7 +203,7 @@ describe("the wrapper keeps every envelope until its outcome is definite", () =>
     vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValueOnce(CREATE.request_id as `${string}-${string}-${string}-${string}-${string}`)
     let atSend: string | null = null
     const spy = vi.spyOn(globalThis, "fetch").mockImplementationOnce(async () => {
-      atSend = storage.getItem(PENDING_KEY)                               // what the browser held when the request left
+      atSend = storage.getItem(PENDING_RECORD_PREFIX + CREATE.request_id)  // what the browser held when the request left
       if (saveAnswer instanceof Error) throw saveAnswer
       return Response.json(golden(saveAnswer).body, { status: golden(saveAnswer).status })
     })
@@ -221,9 +221,9 @@ describe("the wrapper keeps every envelope until its outcome is definite", () =>
   it("kept BEFORE the request leaves, under the verified person and this account; dropped once Saved", async () => {
     const storage = new MemoryStorage()
     const { atSend } = await declare(storage, { kind: "OK", value: golden("grant_self").body }, "save_saved")
-    expect(JSON.parse(atSend!)).toEqual([{ version: 1, actor: ACTOR, accountId: ACCOUNT, kind: "CREATE", envelope: CREATE,
-                                           startedAt: expect.any(String) }])
-    expect(storage.getItem(PENDING_KEY)).toBeNull()
+    expect(JSON.parse(atSend!)).toEqual({ version: 1, actor: ACTOR, accountId: ACCOUNT, kind: "CREATE", envelope: CREATE,
+                                          startedAt: expect.any(String) })
+    expect(storage.length).toBe(0)                                       // settled: its record removed, no list written
   })
 
   it("kept after an unconfirmed send -- the next visit resumes it", async () => {
@@ -236,6 +236,113 @@ describe("the wrapper keeps every envelope until its outcome is definite", () =>
     const storage = new MemoryStorage()
     const { spy } = await declare(storage, { kind: "UNAVAILABLE", status: 503, code: "AUTHORING_BACKEND_UNAVAILABLE" }, "save_saved")
     expect(spy).toHaveBeenCalledTimes(1)
-    expect(storage.getItem(PENDING_KEY)).toBeNull()
+    expect(storage.length).toBe(0)
+  })
+})
+
+// (PC1 S0-E) Two tabs never lose each other's unresolved saves -- the setup store's S0 DR05 / S0-R02 / S0-R03 / S0-R06 design,
+// tested the same way: each tab is its own store over ONE browser storage, and the storage double runs the other tab's step
+// exactly between this tab's read and its first write (storage has no cross-tab lock). A "reload" is a new store.
+describe("(PC1 S0-E) one storage record per unresolved save", () => {
+  function sharedStorage() {
+    const data = new Map<string, string>()
+    const view = () => {
+      const tab = {
+        between: null as null | (() => void),
+        storage: {
+          get length() { return data.size },
+          clear: () => data.clear(),
+          getItem: (k: string) => data.get(k) ?? null,
+          key: (i: number) => [...data.keys()][i] ?? null,
+          removeItem: (k: string) => { tab.interleave(); data.delete(k) },
+          setItem: (k: string, v: string) => { tab.interleave(); data.set(k, v) },
+        } as Storage,
+        interleave() {
+          const step = tab.between
+          tab.between = null
+          if (step) step()
+        },
+      }
+      return tab
+    }
+    return { data, view }
+  }
+  const third = entry({ ...CREATE, request_id: "00000000-0000-4000-8000-0000000000e3" })
+  const ids = (entries: PendingSave[]) => entries.map((e) => e.envelope.request_id).sort()
+
+  it("two tabs keeping saves at the same moment both survive a reload, each tuple exact", () => {
+    const shared = sharedStorage()
+    const a = shared.view(), b = shared.view()
+    const tabA = pendingStore(a.storage), tabB = pendingStore(b.storage)
+    a.between = () => tabB.put(entry(TAKEN))                              // tab B keeps its save between A's read and A's write
+    tabA.put(entry(CREATE))
+    const reloaded = pendingStore(shared.view().storage).read()
+    expect(ids(reloaded.entries)).toEqual(ids([entry(CREATE), entry(TAKEN)]))
+    expect(reloaded.entries.find((e) => e.envelope.request_id === CREATE.request_id)).toEqual(entry(CREATE))
+    expect(shared.data.has(PENDING_KEY)).toBe(false)                      // the old shared list is never written
+  })
+
+  it("settling one save while another tab keeps a new one loses neither", () => {
+    const shared = sharedStorage()
+    const a = shared.view(), b = shared.view()
+    const tabA = pendingStore(a.storage), tabB = pendingStore(b.storage)
+    tabA.put(entry(CREATE))
+    tabB.put(entry(TAKEN))
+    a.between = () => tabB.put(third)
+    tabA.remove(entry(CREATE))
+    expect(ids(pendingStore(shared.view().storage).read().entries)).toEqual(ids([entry(TAKEN), third]))
+  })
+
+  it("a save kept by an earlier release in the shared list is offered, and settled by a marker alone -- the list untouched", () => {
+    const shared = sharedStorage()
+    const list = JSON.stringify([entry(CREATE), { version: 0, envelope: TAKEN }, third])
+    shared.data.set(PENDING_KEY, list)
+    const store = pendingStore(shared.view().storage)
+    expect(pendingFor(store.read(), ACTOR, ACCOUNT).map((e) => e.envelope.request_id)).toEqual([CREATE.request_id, third.envelope.request_id])
+    store.remove(entry(CREATE))
+    expect(shared.data.get(PENDING_KEY)).toBe(list)                       // byte for byte
+    expect(pendingStore(shared.view().storage).read()).toEqual({ entries: [third], unreadable: 1 })
+  })
+
+  it("an earlier-release tab appending to its list while this one settles loses nothing", () => {
+    const shared = sharedStorage()
+    const current = shared.view()
+    shared.data.set(PENDING_KEY, JSON.stringify([entry(CREATE), entry(TAKEN)]))
+    const store = pendingStore(current.storage)
+    expect(ids(store.read().entries)).toEqual(ids([entry(CREATE), entry(TAKEN)]))
+    current.between = () => {
+      shared.data.set(PENDING_KEY, JSON.stringify([...JSON.parse(shared.data.get(PENDING_KEY)!), third]))
+    }
+    store.remove(entry(CREATE))
+    expect(ids(pendingStore(shared.view().storage).read().entries)).toEqual(ids([entry(TAKEN), third]))
+    expect(JSON.parse(shared.data.get(PENDING_KEY)!)).toEqual([entry(CREATE), entry(TAKEN), third])
+  })
+
+  it("a settlement names the EXACT tuple: another tuple under the same request id stays, and put never writes over it", () => {
+    const storage = new MemoryStorage()
+    const store = pendingStore(storage)
+    const original = entry(CREATE)
+    const other = entry(CREATE, { startedAt: "2026-10-06T13:00:00.000Z" })     // same request id, another tuple
+    store.put(original)
+    store.put(other)                                                       // never over the record already at this id
+    expect(store.read().entries).toEqual([original])
+    store.remove(other)                                                    // not the tuple kept: nothing is settled
+    expect(store.read().entries).toEqual([original])
+    store.remove(original)
+    expect(store.read()).toEqual({ entries: [], unreadable: 0 })
+  })
+
+  it("discarding unreadable saves removes this release's unreadable record and hides the old list's by marker only", () => {
+    const shared = sharedStorage()
+    const list = JSON.stringify([{ version: 0, envelope: TAKEN }, entry(CREATE)])
+    shared.data.set(PENDING_KEY, list)
+    shared.data.set(PENDING_RECORD_PREFIX + TAKEN.request_id, JSON.stringify({ ...entry(TAKEN), kind: "APPLY" }))
+    shared.data.set(PENDING_RECORD_PREFIX + "00000000-0000-4000-8000-0000000000aa", JSON.stringify(entry(TAKEN)))   // key names another id
+    const store = pendingStore(shared.view().storage)
+    expect(store.read()).toEqual({ entries: [entry(CREATE)], unreadable: 3 })
+    store.clearUnreadable()
+    expect(pendingStore(shared.view().storage).read()).toEqual({ entries: [entry(CREATE)], unreadable: 0 })
+    expect(shared.data.get(PENDING_KEY)).toBe(list)
+    expect([...shared.data.keys()].filter((k) => k.startsWith(PENDING_RECORD_PREFIX))).toEqual([])
   })
 })
