@@ -486,8 +486,9 @@ export function AttackPathsV2({
   // (materialized AttackPath rows). Keep a background 5×5 fetch for when it
   // succeeds (richer severity / damage), but do not block or hard-error on it.
   const fetchUrl = systemName
-    // The IAP envelope is not an R11 read: it keeps A7 B5's rule (account only beside a key; Alon 2026-10-17).
-    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&max_jewels=12&max_paths_per_jewel=8${systemScopeQuery(identityKey, identityAccount)}`
+    // AP201 T-14: the IAP envelope carries THE page's claims too (selected account; a key's own account wins). With no
+    // selection and no key the URL is byte-identical; with a key only it equals the old systemScopeQuery spelling.
+    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&max_jewels=12&max_paths_per_jewel=8${scopeClaimsCacheKey ? `&${scopeClaimsCacheKey}` : ""}`
     : null
   const {
     data: rawData,
@@ -497,7 +498,7 @@ export function AttackPathsV2({
     isStale: iapIsStale,
     retry: retryFullIap,
   } = useCachedFetch<any>(fetchUrl, {
-    cacheKey: `iap-v2:5x5:${systemName}${identityCacheSuffix}`,
+    cacheKey: `iap-v2:5x5:${systemName}${identityCacheSuffix}${selectedClaimsCacheSuffix}`,
     // The hook already fails closed on typed refusals and semantic_status
     // holds (returned as `hold`). This also refuses to persist a legacy
     // 200 `error` with no rows, from a backend that predates semantic_status.

@@ -256,9 +256,10 @@ describe("the attack-path proxies", () => {
   // forwarded on its own. The page sends account_id only when a system key names one (the key's account wins) or when a
   // 12-digit account is selected; neither, it sends none (the by-name case below stays byte-identical). A proxy never
   // invents a system key.
-  // The nine per-jewel reads R11 covers (each carries the claims); the IAP envelope and the identity facade are not R11
-  // reads and keep A7 B5's original rule below.
-  const R11_READS = new Set(["attack-paths by-crown-jewel", "attack-paths by-crown-jewel/detail", "attack-paths by-crown-jewel/summary",
+  // The nine per-jewel reads R11 covers (each carries the claims), plus the IAP envelope since AP201 T-14 (Alon,
+  // 2026-10-17: the envelope carries the selected account; additive, no-selection/no-key bytes unchanged). The identity
+  // facade is not an R11 read and keeps A7 B5's original rule below.
+  const R11_READS = new Set(["identity-attack-paths", "attack-paths by-crown-jewel", "attack-paths by-crown-jewel/detail", "attack-paths by-crown-jewel/summary",
     "attack-paths jewel-footholds", "attack-paths jewel-lateral-reach", "attack-paths targets", "identity-attack-paths jewels",
     "identity-attack-paths jewel", "identity-attack-paths jewel-surface"])
   it.each(PROXIES.filter((p) => R11_READS.has(p.name)))(
