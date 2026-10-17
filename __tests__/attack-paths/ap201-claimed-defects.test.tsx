@@ -155,9 +155,11 @@ describe("C3 · a business-impact scenario missing the fields the card dereferen
     expect(screen.getByText("Data theft")).toBeInTheDocument()
     // The expanded grid dereferences six more optional fields: open it.
     await act(async () => { fireEvent.click(screen.getByText(/Calculation, assumptions, and regulatory exposure/)) })
-    expect(screen.getByText(/No monetary components are defined yet/)).toBeInTheDocument()
-    expect(screen.getByText(/No potentially applicable rule pack/)).toBeInTheDocument()
-    expect(screen.getByText(/No high-provenance comparable/)).toBeInTheDocument()
+    // Rev 6 §3.4 (AP201-CP-A-READ-1): these three fields were OMITTED, so they read "not reported", never "none".
+    expect(screen.getByText("Loss components not reported by the server.")).toBeInTheDocument()
+    expect(screen.getByText("Regulatory exposure not reported by the server.")).toBeInTheDocument()
+    expect(screen.getByText("Comparable incidents not reported by the server.")).toBeInTheDocument()
+    expect(screen.queryByText(/No monetary components are defined yet|No potentially applicable rule pack|No high-provenance comparable/)).toBeNull()
     expect(screen.getByText(/Confidence not reported/)).toBeInTheDocument()
   })
 })

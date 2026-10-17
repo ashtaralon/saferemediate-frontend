@@ -1358,6 +1358,7 @@ export function AttackPathsV2({
                 data={jewelSummaryConvergence}
                 activePaths={jewelPaths}
                 jewelName={selectedJewel?.name ?? null}
+                jewelType={selectedJewel?.type ?? null}
                 selectedPathId={selectedPathId}
                 onSelectPath={handleSelectPath}
               />

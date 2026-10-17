@@ -47,6 +47,7 @@ export function AtlasLateralLensPanel({
   candidatesLoading,
   simulationLoading,
   error,
+  evaluationHeld = null,
   onSelectFoothold,
   onRetry,
 }: {
@@ -58,6 +59,8 @@ export function AtlasLateralLensPanel({
   candidatesLoading: boolean
   simulationLoading: boolean
   error: string | null
+  /** The server's coded reason when it holds the live evaluation (published reach is shown instead). */
+  evaluationHeld?: string | null
   onSelectFoothold: (id: string) => void
   onRetry: () => void
 }) {
@@ -78,6 +81,12 @@ export function AtlasLateralLensPanel({
           </span>
         ) : null}
       </div>
+      {evaluationHeld ? (
+        <p className="mt-1.5 text-[10px] text-amber-900 dark:text-amber-200" data-testid="atlas-lateral-evaluation-held">
+          Lateral evaluation is held on this install; published reach shown. No result here means not evaluated, never
+          &ldquo;no lateral movement&rdquo;. <span className="font-mono text-muted-foreground">({evaluationHeld})</span>
+        </p>
+      ) : null}
 
       {candidatesLoading ? (
         <p className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">

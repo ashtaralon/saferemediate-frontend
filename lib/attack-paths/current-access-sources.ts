@@ -1,27 +1,28 @@
 /**
- * (AP201 / CP-B) The jewel-wide Current Access source list: every compute source the by-crown-jewel answer names,
- * grouped by canonical compute identity, read from the fields the backend already serves. This is the temporary
- * authoritative reader of the approved plan (P5.1): it groups and relays server words; it classifies nothing itself.
+ * (AP201 / CP-B, revised for Rev 6 Day 3) The jewel-wide Current Access source list: every compute source the
+ * by-crown-jewel answer names, grouped by canonical compute identity, read from the fields the backend already serves.
+ * This is the temporary authoritative reader of the approved plan (P5.1): it groups and relays server words; it
+ * classifies nothing itself and ranks nothing.
  *
- * Server words used, and nothing else:
- * - `source_compute` (AP3-001, a CanonicalComputeRef) and `origin_class`: who point A is. A row without a compute
- *   origin is never shown as a compute source.
- * - `feasibility.path_state` (REACHABLE | BLOCKED | UNVERIFIED | OUT_OF_SCOPE) and `feasibility.activity_state`
- *   (OBSERVED | NOT_OBSERVED | UNKNOWN) when the server composed them -- a BLOCKED / OUT_OF_SCOPE route is never
- *   "current access" whatever its activity; else the server's `evidence_contract.classification`
- *   (observed | inferred | blocked | unknown), else the legacy whole-path word -- all through the one existing
- *   reader, path-evidence-view's `pathClassification` (no second classifier).
- * - `evidence_contract.runtime_evidence` per plane (state, kinds, first/last seen, hit count, coverage states),
- *   `whole_path_observed`, `gates`, and `permission_coverage.actions` (permission x runtime per action): relayed per
- *   route, never merged into a verdict here. A value the server did not send is "not reported", never a default.
- * - `path_bound_observations` (AP3-101, contract v2): the per-hop observations bound to THIS path, each referencing the
- *   behavioral summary it was read from. Only `evidence_quality: observed` with `attribution: exact | sole_consumer`
- *   is an observation of this source; `unresolved` -- and an observation that names NO attribution -- is shared
- *   activity on a role, never this source's. Nothing is summed across hops or paths (design §4).
- * - `identity_name`, `damage`, `impact_headline`, `business_sentence`: relayed as the server's assessed capability.
+ * Three INDEPENDENT states per route, each from served fields (Rev 6 §3.7):
+ * - ACTIVITY in the window -- `feasibility.activity_state` (OBSERVED | PARTIALLY_OBSERVED | NOT_OBSERVED | UNKNOWN)
+ *   with its `activity_detail` when the server composed it. Without feasibility, the route's own contract words:
+ *   `classification: observed` is observed; per-plane `runtime_evidence` states are relayed (some plane observed =
+ *   observed on that plane; every plane `not_observed` = not observed); anything else is UNKNOWN with the reason.
+ *   UNKNOWN is never "not observed" and never zero.
+ * - ACCESS NOW -- `feasibility.path_state` (REACHABLE | UNVERIFIED | BLOCKED | OUT_OF_SCOPE) with its `reason`;
+ *   without feasibility only a served blocked classification says BLOCKED; everything else is UNKNOWN. Observation never
+ *   upgrades access, and a blocked route keeps its activity ("observed in window, blocked now" is a valid row).
+ * - APPROVAL -- no approved-need producer exists (APD-09), so every source is `not_recorded`. Nothing here may ever
+ *   call a source legitimate or approved.
  *
- * Approval: no approved-need producer exists (APD-09 is unregistered), so every source carries
- * `approval: "not_recorded"`. Nothing here may ever call a source legitimate.
+ * Point A (AP3-001): a route is a compute source only when `origin_class` is `compute` AND `source_compute` is a
+ * canonical ref (uid + kind). The producer derives the two from different row fields, so they can disagree; a
+ * disagreement is shown as "Unknown origin (conflicting metadata)" with both values, never reassigned.
+ *
+ * Observations: only `path_bound_observations` with `evidence_quality: observed` and `attribution: exact |
+ * sole_consumer` are this source's; any other (or none) is shared activity, never credited. Hits and bytes are relayed
+ * per observation and per route plane, NEVER summed across hops of a route or across routes (design §4).
  */
 import type { ConvergencePath, CrownJewelConvergence } from "./convergence-types"
 import { readConvergencePaths } from "./convergence-readiness"
@@ -32,18 +33,11 @@ import {
   type PathEvidenceContract,
 } from "./path-evidence-view"
 
-export type SourceSection =
-  /** The server bound observed activity to a route from this compute (feasibility activity OBSERVED, or class observed). */
-  | "observed"
-  /** Configured or reachable with no observed activity (not observed, or unknown -- the route says which). */
-  | "allowed_not_observed"
-  /** A server-backed control stops every route of this source. */
-  | "blocked"
-  /** Routes the server could not verify, and routes with no feasibility and no evidence word. */
-  | "unverified"
-  /** Explicitly outside the assessed scope (platform / service-linked). */
-  | "out_of_scope"
+/** The list groups sources by ACTIVITY only (Rev 6 §3.7). */
+export type SourceSection = "observed" | "not_observed" | "unknown"
 
+export type RouteActivity = "OBSERVED" | "PARTIALLY_OBSERVED" | "NOT_OBSERVED" | "UNKNOWN"
+export type RouteAccess = "REACHABLE" | "UNVERIFIED" | "BLOCKED" | "OUT_OF_SCOPE" | "UNKNOWN"
 export type SourceApproval = "not_recorded"
 
 export interface SourceObservation {
@@ -69,8 +63,7 @@ export const PLANES = ["identity", "network", "data"] as const
 export type Plane = (typeof PLANES)[number]
 export const NOT_REPORTED = "not_reported"
 
-/** One plane of one route's `evidence_contract.runtime_evidence`, relayed. `state` is the server's word, lowercased,
- *  or `not_reported` when the server sent none. */
+/** One plane of one route's `evidence_contract.runtime_evidence`, relayed. */
 export interface RoutePlane {
   plane: Plane
   state: string
@@ -81,7 +74,6 @@ export interface RoutePlane {
   coverageStates: string[]
 }
 
-/** One action of one route's `permission_coverage.actions`, relayed; `NOT_REPORTED` / `not_reported` when absent. */
 export interface RouteAction {
   action: string
   permission: string
@@ -92,103 +84,119 @@ export interface RouteAction {
 export interface SourceRoute {
   pathId: string
   attackPathId: string | null
-  section: SourceSection
-  /** The server's classification (contract first, legacy word second), as path-evidence-view reads it. */
+  activity: RouteActivity
+  /** Where the activity word came from and what the server said about it, verbatim when it said something. */
+  activityBasis: "feasibility" | "contract" | "legacy" | "none"
+  activityDetail: string
+  access: RouteAccess
+  accessBasis: "feasibility" | "classification" | "none"
+  accessReason: string | null
   classification: PathClassification
-  fromContract: boolean
-  /** The contract's `whole_path_observed`; null without a contract. */
   wholePathObserved: boolean | null
-  evidence: string | null
-  activityState: string | null
-  pathState: string | null
   identity: string | null
   damage: string[]
   impactHeadline: string | null
-  score: number | null
-  severityLabel: string | null
-  /** Per-plane runtime evidence; null when the route carries no contract. */
   planes: RoutePlane[] | null
-  /** The server's gate words (identity / network / data), null per plane when not sent; null without a contract. */
   gates: Record<Plane, string | null> | null
   actions: RouteAction[]
-  /** path-evidence-view's permission-coverage sentence, or null without a contract. */
   permissionCoverage: string | null
+  /** Resolved observations of this route, relayed one per hop -- one flow seen at two hops is two rows, never a sum. */
+  observations: SourceObservation[]
+  /** Some observation on this route is shared or unattributed: unknown for this compute. */
+  sharedActivity: boolean
+  /** The producer served its own DATA_ACCESS_SUMMARY_ABSENT record for this route's data hop. */
+  dataSummaryAbsent: boolean
 }
 
 export interface CurrentAccessSource {
-  /** Canonical compute identity (CanonicalComputeRef.uid). */
   key: string
   kind: string
   name: string
   arn: string | null
   nativeId: string | null
-  /** The section of the source's strongest route (the list's grouping); `sectionCounts` says what the others are. */
+  /** Activity section: observed if any route was observed (wholly or on a plane); not_observed only when every route
+   *  is NOT_OBSERVED; otherwise unknown. */
   section: SourceSection
-  /** How many of this source's routes fall in each section -- a mixed source is said as mixed. */
-  sectionCounts: Partial<Record<SourceSection, number>>
+  /** How many routes carry each activity / access word -- a mixed source is said as mixed. */
+  activityCounts: Partial<Record<RouteActivity, number>>
+  accessCounts: Partial<Record<RouteAccess, number>>
+  /** Routes ordered by the server's activity grade, then path id (no client risk ranking). */
   routes: SourceRoute[]
-  /** The route the list opens on selection: the strongest-evidence route, then the highest server score. */
+  /** The route a selection opens: the first route carrying the source's best served activity word. */
   primaryPathId: string
   identities: string[]
-  /** Resolved observations of THIS source (observed quality, exact / sole-consumer attribution). */
-  observations: SourceObservation[]
-  /** Some observation on this source's routes is shared or unattributed activity on a role: UNKNOWN for this source. */
   sharedActivity: boolean
-  /** Earliest / latest measured timestamp the server attributed to this source's routes: resolved bound observations
-   *  and observed-plane runtime evidence, across all its routes. Null when nothing was measured. */
+  /** Earliest / latest measured timestamp across this source's routes (resolved observations and observed planes);
+   *  `seenRouteCount` says how many routes contributed, so a cross-route summary is always labelled. */
   firstSeen: string | null
   lastSeen: string | null
-  /** Actions some route's permission coverage marks `runtime: observed`. */
+  seenRouteCount: number
+  /** Distinct protocol/port and API operations from resolved observations (relayed, deduplicated, not counted). */
+  operations: string[]
   observedActions: string[]
-  /** Actions with an ALLOWED permission whose runtime is `not_observed` on every route (never when runtime is unreported). */
   allowedUnobservedActions: string[]
-  /** Planes whose runtime evidence is not "observed" on some route, with the server's coverage word: what the answer
-   *  could not see. Empty when every plane of every route is observed, or when no route carries a contract. */
   coverageGaps: string[]
-  /** The server's damage labels across this source's routes (assessed capability, not activity). */
   damage: string[]
   impactHeadline: string | null
   approval: SourceApproval
 }
 
-export interface NonComputeRow {
+export interface OriginRow {
   pathId: string
-  originClass: string | null
   label: string
+  originClass: string | null
+  /** Set when the row is an UNKNOWN origin because its metadata disagrees: both served values, verbatim. */
+  conflict: { originClass: string | null; computeKind: string | null; computeUid: string | null; why: string } | null
 }
 
 export interface CurrentAccessSources {
   observed: CurrentAccessSource[]
-  allowedNotObserved: CurrentAccessSource[]
-  blocked: CurrentAccessSource[]
-  unverified: CurrentAccessSource[]
-  outOfScope: CurrentAccessSource[]
-  /** Rows whose point A is not a registered compute: standing access / identity / external / unknown origins. */
-  nonCompute: NonComputeRow[]
-  /** Distinct compute sources across every section. */
+  notObserved: CurrentAccessSource[]
+  unknown: CurrentAccessSource[]
+  /** Rows whose point A is a non-compute origin the server named (standing access, identity, external, unknown). */
+  nonCompute: OriginRow[]
+  /** Rows whose origin metadata disagrees (origin_class vs source_compute): "Unknown origin (conflicting metadata)". */
+  conflictingOrigin: OriginRow[]
   sourceCount: number
-  /** Listed compute routes across every source (non-compute rows excluded). */
   routeCount: number
-  /** Routes the caller's active set excluded (e.g. a resource reconciled inactive); said, never silently dropped. */
   excludedInactive: number
-  /** Why the listed routes are not every route to the jewel (readConvergencePaths), or null. */
   partial: string | null
   cardinality: CrownJewelConvergence["cardinality"] | null
+  /** Observation window across resolved observations, when the server sent one; never invented. */
+  window: { start: string | null; end: string | null } | null
+  asOf: string | null
+  generation: string | null
+  /** The jewel's served resource type and whether the data-plane line applies (Rev 6 §3.11). */
+  jewelType: string | null
+  dataPlane: DataPlaneNote | null
+}
+
+export interface DataPlaneNote {
+  /** True when no listed route carries an observed data plane. */
+  noDataObservation: boolean
+  /** The served data-plane states / coverage words across listed routes, verbatim and deduplicated. */
+  servedStates: string[]
+  /** The producer's own code for an absent data-access summary was served. */
+  summaryAbsent: boolean
 }
 
 export interface CurrentAccessOptions {
-  /** Path ids the page lists (its active filter applied). When given, routes outside it are counted, not shown, so a
-   *  source never pins a route the path list does not have. */
   activePathIds?: ReadonlySet<string> | null
+  /** The selected target's served resource type (catalog `kind`); falls back to the answer's `cj_type`. */
+  jewelType?: string | null
 }
 
-const SECTION_RANK: Record<SourceSection, number> = {
-  observed: 0, allowed_not_observed: 1, unverified: 2, out_of_scope: 3, blocked: 4,
-}
-const CLASS_SECTION: Record<PathClassification, SourceSection> = {
-  observed: "observed", inferred: "allowed_not_observed", blocked: "blocked", unknown: "unverified",
-}
+/** Data-plane services: their crown jewels need data-plane observations to show use (AP3-101). */
+export const DATA_PLANE_JEWEL_TYPES: ReadonlySet<string> = new Set([
+  "S3Bucket", "DynamoDBTable", "KMSKey", "Secret", "SecretsManagerSecret",
+])
+const DATA_ACCESS_SUMMARY_ABSENT = "DATA_ACCESS_SUMMARY_ABSENT"
+
+/** Activity grade, only to order a source's routes and to group sources: the server's own words, strongest first. */
+const ACTIVITY_GRADE: Record<RouteActivity, number> = { OBSERVED: 0, PARTIALLY_OBSERVED: 1, NOT_OBSERVED: 2, UNKNOWN: 3 }
 const RESOLVED_ATTRIBUTIONS = new Set(["exact", "sole_consumer"])
+const ACTIVITY_WORDS: ReadonlySet<string> = new Set(["OBSERVED", "PARTIALLY_OBSERVED", "NOT_OBSERVED", "UNKNOWN"])
+const ACCESS_WORDS: ReadonlySet<string> = new Set(["REACHABLE", "UNVERIFIED", "BLOCKED", "OUT_OF_SCOPE"])
 
 const up = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim().toUpperCase() : null)
 const low = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim().toLowerCase() : null)
@@ -201,33 +209,100 @@ function contractOf(path: ConvergencePath): PathEvidenceContract | null {
   return c && typeof c === "object" ? c : null
 }
 
-/** The section one route belongs to, from the server's words only. The server-composed `feasibility` is the authority
- *  when present: a BLOCKED or OUT_OF_SCOPE route is not current access whatever its activity; then observed activity;
- *  then an unverified route; then a reachable one with no observed activity. Without feasibility, the server's
- *  classification as path-evidence-view reads it (contract first, then the legacy `evidence` word, then `confidence`). */
-export function routeSection(path: ConvergencePath): SourceSection {
-  const activity = up(path.feasibility?.activity_state)
-  const state = up(path.feasibility?.path_state)
-  if (state === "OUT_OF_SCOPE") return "out_of_scope"
-  if (state === "BLOCKED") return "blocked"
-  if (activity === "OBSERVED") return "observed"
-  if (state === "UNVERIFIED") return "unverified"
-  if (state === "REACHABLE") return "allowed_not_observed"
-  return CLASS_SECTION[classificationOf(path)]
-}
-
 function classificationOf(path: ConvergencePath): PathClassification {
   return pathClassification({ evidence_contract: contractOf(path), evidence_type: path.evidence ?? path.confidence })
 }
 
-function observationsOf(path: ConvergencePath): { resolved: SourceObservation[]; shared: boolean } {
+function planesOf(contract: PathEvidenceContract | null): RoutePlane[] | null {
+  const runtime = contract?.runtime_evidence
+  if (!runtime || typeof runtime !== "object") return null
+  return PLANES.map((plane) => {
+    const raw = (runtime as Record<string, unknown>)[plane]
+    const r = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {}
+    return {
+      plane,
+      state: low(r.state) ?? NOT_REPORTED,
+      kinds: strings(r.kinds),
+      firstSeen: str(r.first_seen),
+      lastSeen: str(r.last_seen),
+      hitCount: int(r.hit_count),
+      coverageStates: strings(r.coverage_states),
+    }
+  })
+}
+
+const words = (s: string) => s.replace(/_/g, " ")
+
+/** ACTIVITY of one route, from the server's words only. */
+export function routeActivity(path: ConvergencePath): { activity: RouteActivity; basis: SourceRoute["activityBasis"]; detail: string } {
+  const served = up(path.feasibility?.activity_state)
+  if (served && ACTIVITY_WORDS.has(served)) {
+    return {
+      activity: served as RouteActivity,
+      basis: "feasibility",
+      detail: str(path.feasibility?.activity_detail) ?? `${words(served.toLowerCase())} (server feasibility)`,
+    }
+  }
+  const contract = contractOf(path)
+  if (contract) {
+    if (contract.classification === "observed") {
+      return { activity: "OBSERVED", basis: "contract", detail: "the evidence contract classifies the route observed" }
+    }
+    const planes = planesOf(contract)
+    if (planes) {
+      const observed = planes.filter((p) => p.state === "observed").map((p) => p.plane)
+      if (observed.length > 0) {
+        return {
+          activity: "PARTIALLY_OBSERVED",
+          basis: "contract",
+          detail: `observed on ${observed.join(", ")}; not every plane of this route was observed`,
+        }
+      }
+      if (planes.every((p) => p.state === "not_observed")) {
+        return { activity: "NOT_OBSERVED", basis: "contract", detail: "every plane reports not observed" }
+      }
+      const unseen = planes.filter((p) => p.state !== "not_observed").map((p) => `${p.plane} ${words(p.state)}`)
+      return { activity: "UNKNOWN", basis: "contract", detail: `activity not established: ${unseen.join(", ")}` }
+    }
+    return { activity: "UNKNOWN", basis: "contract", detail: "the evidence contract carries no runtime evidence" }
+  }
+  if (low(path.evidence) === "observed") {
+    return { activity: "OBSERVED", basis: "legacy", detail: "the server's legacy whole-path evidence word is observed" }
+  }
+  return { activity: "UNKNOWN", basis: "none", detail: "the server sent no activity for this route" }
+}
+
+/** ACCESS NOW of one route, from the server's words only; observation never upgrades it. */
+export function routeAccess(path: ConvergencePath): { access: RouteAccess; basis: SourceRoute["accessBasis"]; reason: string | null } {
+  const served = up(path.feasibility?.path_state)
+  if (served && ACCESS_WORDS.has(served)) {
+    return { access: served as RouteAccess, basis: "feasibility", reason: str(path.feasibility?.reason) }
+  }
+  if (classificationOf(path) === "blocked") {
+    return { access: "BLOCKED", basis: "classification", reason: "the server classifies the route blocked" }
+  }
+  return { access: "UNKNOWN", basis: "none", reason: "access now not composed by the server for this route" }
+}
+
+/** The list section of one route (its activity). Exported for the honesty-rule tests. */
+export function routeSection(path: ConvergencePath): SourceSection {
+  return sectionOf(routeActivity(path).activity)
+}
+
+function sectionOf(activity: RouteActivity): SourceSection {
+  if (activity === "OBSERVED" || activity === "PARTIALLY_OBSERVED") return "observed"
+  if (activity === "NOT_OBSERVED") return "not_observed"
+  return "unknown"
+}
+
+function observationsOf(path: ConvergencePath): { resolved: SourceObservation[]; shared: boolean; dataAbsent: boolean } {
   const resolved: SourceObservation[] = []
   let shared = false
+  let dataAbsent = false
   for (const raw of path.path_bound_observations ?? []) {
     if (!raw || typeof raw !== "object") continue
-    const quality = low(raw.evidence_quality)
-    if (quality !== "observed") continue
-    // No attribution is not "exact": an observation the server did not attribute is shared activity.
+    if (strings(raw.reason_codes).some((c) => c.toUpperCase() === DATA_ACCESS_SUMMARY_ABSENT)) dataAbsent = true
+    if (low(raw.evidence_quality) !== "observed") continue
     const attribution = low(raw.attribution)
     if (!attribution || !RESOLVED_ATTRIBUTIONS.has(attribution)) { shared = true; continue }
     resolved.push({
@@ -249,25 +324,7 @@ function observationsOf(path: ConvergencePath): { resolved: SourceObservation[];
       summaryKey: str(raw.summary_key),
     })
   }
-  return { resolved, shared }
-}
-
-function planesOf(contract: PathEvidenceContract | null): RoutePlane[] | null {
-  const runtime = contract?.runtime_evidence
-  if (!runtime || typeof runtime !== "object") return null
-  return PLANES.map((plane) => {
-    const raw = (runtime as Record<string, unknown>)[plane]
-    const r = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {}
-    return {
-      plane,
-      state: low(r.state) ?? NOT_REPORTED,
-      kinds: strings(r.kinds),
-      firstSeen: str(r.first_seen),
-      lastSeen: str(r.last_seen),
-      hitCount: int(r.hit_count),
-      coverageStates: strings(r.coverage_states),
-    }
-  })
+  return { resolved, shared, dataAbsent }
 }
 
 function gatesOf(contract: PathEvidenceContract | null): Record<Plane, string | null> | null {
@@ -277,6 +334,7 @@ function gatesOf(contract: PathEvidenceContract | null): Record<Plane, string | 
   return { identity: up(g.identity), network: up(g.network), data: up(g.data) }
 }
 
+/** Permission x runtime per action, relayed; a missing runtime is `not_reported`, never `not_observed`. */
 function actionsOf(contract: PathEvidenceContract | null): RouteAction[] {
   const actions = contract?.permission_coverage?.actions
   if (!actions || typeof actions !== "object") return []
@@ -295,32 +353,44 @@ function actionsOf(contract: PathEvidenceContract | null): RouteAction[] {
 
 function routeOf(path: ConvergencePath): SourceRoute {
   const contract = contractOf(path)
-  const classification = classificationOf(path)
+  const activity = routeActivity(path)
+  const access = routeAccess(path)
+  const { resolved, shared, dataAbsent } = observationsOf(path)
   return {
     pathId: path.path_id,
     attackPathId: path.attack_path_id ?? null,
-    section: routeSection(path),
-    classification,
-    fromContract: contract != null && contract.classification === classification,
+    activity: activity.activity,
+    activityBasis: activity.basis,
+    activityDetail: activity.detail,
+    access: access.access,
+    accessBasis: access.basis,
+    accessReason: access.reason,
+    classification: classificationOf(path),
     wholePathObserved: contract && typeof contract.whole_path_observed === "boolean" ? contract.whole_path_observed : null,
-    evidence: low(path.evidence) ?? low(path.confidence),
-    activityState: up(path.feasibility?.activity_state),
-    pathState: up(path.feasibility?.path_state),
     identity: str(path.identity_name) ?? str(path.identity),
     damage: strings(path.damage),
     impactHeadline: str(path.impact_headline),
-    score: int(path.score),
-    severityLabel: str(path.severity_label),
     planes: planesOf(contract),
     gates: gatesOf(contract),
     actions: actionsOf(contract),
     permissionCoverage: permissionCoverageLine(contract),
+    observations: resolved,
+    sharedActivity: shared,
+    dataSummaryAbsent: dataAbsent,
   }
 }
 
+const PROTOCOL_NAMES: Record<number, string> = { 6: "TCP", 17: "UDP", 1: "ICMP" }
+
+export function operationOf(o: SourceObservation): string | null {
+  if (o.apiOperation) return o.apiOperation
+  if (o.dstPort == null && o.protocol == null) return null
+  const proto = o.protocol == null ? "protocol not reported" : (PROTOCOL_NAMES[o.protocol] ?? `protocol ${o.protocol}`)
+  return o.dstPort == null ? proto : `${proto}/${o.dstPort}`
+}
+
 function minIso(values: Array<string | null>): string | null {
-  const present = values.filter((v): v is string => Boolean(v)).sort()
-  return present[0] ?? null
+  return values.filter((v): v is string => Boolean(v)).sort()[0] ?? null
 }
 function maxIso(values: Array<string | null>): string | null {
   const present = values.filter((v): v is string => Boolean(v)).sort()
@@ -330,8 +400,31 @@ function pushUnique(list: string[], value: string | null | undefined): void {
   if (value && !list.includes(value)) list.push(value)
 }
 
-function nonComputeLabel(path: ConvergencePath): string {
+function originLabel(path: ConvergencePath): string {
   return str(path.source) ?? str(path.identity_name) ?? str(path.identity) ?? path.path_id
+}
+
+/** Point A of one row: a compute ref only when origin_class says compute AND source_compute is canonical. */
+function originOf(path: ConvergencePath):
+  | { kind: "compute"; uid: string; computeKind: string }
+  | { kind: "other"; row: OriginRow }
+  | { kind: "conflict"; row: OriginRow } {
+  const originClass = low(path.origin_class)
+  const compute = path.source_compute && typeof path.source_compute === "object" ? path.source_compute : null
+  const uid = str(compute?.uid)
+  const computeKind = str(compute?.kind)
+  const ref = uid && computeKind ? { uid, computeKind } : null
+  const base = { pathId: path.path_id, label: originLabel(path), originClass }
+  if (originClass === "compute" && ref) return { kind: "compute", ...ref }
+  if (originClass === "compute" && !ref) {
+    return { kind: "conflict", row: { ...base, conflict: { originClass, computeKind, computeUid: uid,
+      why: "origin class says compute but no canonical compute reference was served" } } }
+  }
+  if (ref) {
+    return { kind: "conflict", row: { ...base, conflict: { originClass, computeKind: ref.computeKind, computeUid: ref.uid,
+      why: originClass ? `origin class says ${words(originClass)} but a compute reference was served` : "origin class not reported beside a compute reference" } } }
+  }
+  return { kind: "other", row: { ...base, conflict: null } }
 }
 
 /** Group a by-crown-jewel answer into the Current Access source list. Null when there is no answer. */
@@ -344,37 +437,38 @@ export function currentAccessSources(
   const paths = reading.kind === "paths" ? reading.paths : []
   const active = options.activePathIds ?? null
   const bySource = new Map<string, CurrentAccessSource>()
-  const nonCompute: NonComputeRow[] = []
-  let routeCount = 0
+  const nonCompute: OriginRow[] = []
+  const conflictingOrigin: OriginRow[] = []
+  const listedRoutes: SourceRoute[] = []
   let excludedInactive = 0
 
   for (const path of paths) {
     if (active && !active.has(path.path_id)) { excludedInactive += 1; continue }
-    const compute = path.source_compute
-    if (!compute || typeof compute !== "object" || !str(compute.uid) || !str(compute.kind)) {
-      nonCompute.push({ pathId: path.path_id, originClass: str(path.origin_class), label: nonComputeLabel(path) })
-      continue
-    }
+    const origin = originOf(path)
+    if (origin.kind === "other") { nonCompute.push(origin.row); continue }
+    if (origin.kind === "conflict") { conflictingOrigin.push(origin.row); continue }
+    const compute = path.source_compute!
     const route = routeOf(path)
-    const { resolved, shared } = observationsOf(path)
-    const key = compute.uid
-    let source = bySource.get(key)
+    listedRoutes.push(route)
+    let source = bySource.get(origin.uid)
     if (!source) {
       source = {
-        key,
-        kind: compute.kind,
-        name: str(compute.name) ?? str(compute.native_id) ?? str(compute.arn) ?? compute.uid,
+        key: origin.uid,
+        kind: origin.computeKind,
+        name: str(compute.name) ?? str(compute.native_id) ?? str(compute.arn) ?? origin.uid,
         arn: str(compute.arn),
         nativeId: str(compute.native_id),
-        section: route.section,
-        sectionCounts: {},
+        section: "unknown",
+        activityCounts: {},
+        accessCounts: {},
         routes: [],
         primaryPathId: path.path_id,
         identities: [],
-        observations: [],
         sharedActivity: false,
         firstSeen: null,
         lastSeen: null,
+        seenRouteCount: 0,
+        operations: [],
         observedActions: [],
         allowedUnobservedActions: [],
         coverageGaps: [],
@@ -382,34 +476,37 @@ export function currentAccessSources(
         impactHeadline: null,
         approval: "not_recorded",
       }
-      bySource.set(key, source)
+      bySource.set(origin.uid, source)
     }
-    routeCount += 1
     source.routes.push(route)
-    source.sectionCounts[route.section] = (source.sectionCounts[route.section] ?? 0) + 1
-    source.observations.push(...resolved)
-    source.sharedActivity = source.sharedActivity || shared
+    source.activityCounts[route.activity] = (source.activityCounts[route.activity] ?? 0) + 1
+    source.accessCounts[route.access] = (source.accessCounts[route.access] ?? 0) + 1
+    source.sharedActivity = source.sharedActivity || route.sharedActivity
     pushUnique(source.identities, route.identity)
     for (const d of route.damage) pushUnique(source.damage, d)
-    for (const a of route.actions) {
-      if (a.runtime === "observed") pushUnique(source.observedActions, a.action)
-    }
+    for (const o of route.observations) pushUnique(source.operations, operationOf(o))
+    for (const a of route.actions) if (a.runtime === "observed") pushUnique(source.observedActions, a.action)
     for (const p of route.planes ?? []) {
       if (p.state === "observed") continue
       const coverage = p.coverageStates.length ? ` (${p.coverageStates.join(", ")})` : ""
-      pushUnique(source.coverageGaps, `${p.plane} ${p.state.replace(/_/g, " ")}${coverage}`)
+      pushUnique(source.coverageGaps, `${p.plane} ${words(p.state)}${coverage}`)
     }
   }
 
   for (const source of bySource.values()) {
-    source.routes.sort((a, b) =>
-      SECTION_RANK[a.section] - SECTION_RANK[b.section] || (b.score ?? -1) - (a.score ?? -1) || a.pathId.localeCompare(b.pathId))
-    source.section = source.routes[0].section
+    source.routes.sort((a, b) => ACTIVITY_GRADE[a.activity] - ACTIVITY_GRADE[b.activity] || a.pathId.localeCompare(b.pathId))
+    source.section = sectionOf(source.routes[0].activity)
     source.primaryPathId = source.routes[0].pathId
     source.impactHeadline = source.routes.find((r) => r.impactHeadline)?.impactHeadline ?? null
-    const observedPlanes = source.routes.flatMap((r) => (r.planes ?? []).filter((p) => p.state === "observed"))
-    source.firstSeen = minIso([...source.observations.map((o) => o.firstSeen), ...observedPlanes.map((p) => p.firstSeen)])
-    source.lastSeen = maxIso([...source.observations.map((o) => o.lastSeen), ...observedPlanes.map((p) => p.lastSeen)])
+    const seen = source.routes.map((r) => {
+      const observedPlanes = (r.planes ?? []).filter((p) => p.state === "observed")
+      const firsts = [...r.observations.map((o) => o.firstSeen), ...observedPlanes.map((p) => p.firstSeen)]
+      const lasts = [...r.observations.map((o) => o.lastSeen), ...observedPlanes.map((p) => p.lastSeen)]
+      return { first: minIso(firsts), last: maxIso(lasts) }
+    })
+    source.firstSeen = minIso(seen.map((s) => s.first))
+    source.lastSeen = maxIso(seen.map((s) => s.last))
+    source.seenRouteCount = seen.filter((s) => s.first || s.last).length
     for (const r of source.routes) {
       for (const a of r.actions) {
         if (a.permission === "ALLOWED" && a.runtime === "not_observed" && !source.observedActions.includes(a.action)) {
@@ -419,23 +516,46 @@ export function currentAccessSources(
     }
   }
 
-  const ordered = [...bySource.values()].sort((a, b) =>
-    SECTION_RANK[a.section] - SECTION_RANK[b.section]
-    || (b.lastSeen ?? "").localeCompare(a.lastSeen ?? "")
-    || (b.routes[0].score ?? -1) - (a.routes[0].score ?? -1)
-    || a.name.localeCompare(b.name))
+  // Presentation order is by NAME within a section (Rev 6 §3.6): no client ranking by risk, count or score.
+  const ordered = [...bySource.values()].sort((a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key))
   const pick = (s: SourceSection) => ordered.filter((x) => x.section === s)
+  const allObservations = listedRoutes.flatMap((r) => r.observations)
+  const starts = allObservations.map((o) => o.windowStart)
+  const ends = allObservations.map((o) => o.windowEnd)
+  const window = starts.some(Boolean) || ends.some(Boolean) ? { start: minIso(starts), end: maxIso(ends) } : null
+  const jewelType = str(options.jewelType) ?? str(data.cj_type)
+
   return {
     observed: pick("observed"),
-    allowedNotObserved: pick("allowed_not_observed"),
-    blocked: pick("blocked"),
-    unverified: pick("unverified"),
-    outOfScope: pick("out_of_scope"),
+    notObserved: pick("not_observed"),
+    unknown: pick("unknown"),
     nonCompute,
+    conflictingOrigin,
     sourceCount: ordered.length,
-    routeCount,
+    routeCount: listedRoutes.length,
     excludedInactive,
     partial: reading.kind === "paths" ? reading.partial : null,
     cardinality: data.cardinality ?? null,
+    window,
+    asOf: str(data.as_of),
+    generation: str(data.generation),
+    jewelType,
+    dataPlane: jewelType && DATA_PLANE_JEWEL_TYPES.has(jewelType) ? dataPlaneNote(listedRoutes) : null,
   }
+}
+
+function dataPlaneNote(routes: SourceRoute[]): DataPlaneNote {
+  const dataPlanes = routes.map((r) => (r.planes ?? []).find((p) => p.plane === "data") ?? null)
+  const servedStates: string[] = []
+  let summaryAbsent = false
+  for (const p of dataPlanes) {
+    if (!p) { pushUnique(servedStates, "no evidence contract"); continue }
+    pushUnique(servedStates, words(p.state))
+    for (const c of p.coverageStates) {
+      pushUnique(servedStates, c)
+      if (c.toUpperCase() === DATA_ACCESS_SUMMARY_ABSENT) summaryAbsent = true
+    }
+  }
+  if (routes.some((r) => r.dataSummaryAbsent)) summaryAbsent = true
+  return { noDataObservation: !dataPlanes.some((p) => p?.state === "observed"), servedStates, summaryAbsent }
 }

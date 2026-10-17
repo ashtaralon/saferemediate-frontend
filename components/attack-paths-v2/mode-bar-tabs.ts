@@ -43,7 +43,7 @@ const PRIMARY_TABS: ModeTabDef[] = [
     key: "lateral",
     label: "Lateral Movement",
     title:
-      "Where this path's identity can pivot next — sibling resources each on-path role can also reach.",
+      "Lateral movement from a compute foothold. Where this install holds the live evaluation, the published reach is shown and labelled — never read as \"no lateral movement\".",
   },
   {
     key: "convergence",
@@ -60,7 +60,7 @@ const PRIMARY_TABS: ModeTabDef[] = [
     key: "exfil",
     label: "Exfiltration",
     title:
-      "Where does the data go from here? Every door the data can leave through — capable vs actively observed.",
+      "Jewel-wide destinations (aggregate). Not bound to the selected compute. Capable vs actively observed, as the server says.",
   },
   {
     key: "topology",

@@ -841,6 +841,7 @@ export function Zoom0FanInPanel({
               candidatesLoading={atlasLateral.candidatesLoading}
               simulationLoading={atlasLateral.simulationLoading}
               error={atlasLateral.error}
+              evaluationHeld={atlasLateral.evaluationHeld}
               onSelectFoothold={atlasLateral.selectFoothold}
               onRetry={atlasLateral.retry}
             />

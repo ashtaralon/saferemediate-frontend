@@ -16,6 +16,7 @@
  */
 
 import { useCallback, useState } from "react"
+import { heldRouteMessage } from "@/lib/attack-paths/held-route-message"
 
 export type GuardVerdict = "PASS" | "REFUSE" | "UNVERIFIED"
 
@@ -111,10 +112,7 @@ export function usePermissionCutPlan(systemName: string) {
           setState({
             plan: null,
             loading: false,
-            error:
-              (body?.detail as string) ??
-              (body?.error as string) ??
-              `plan request failed (${res.status})`,
+            error: heldRouteMessage(body, res.status, "Permission-cut plan"),
           })
           return
         }

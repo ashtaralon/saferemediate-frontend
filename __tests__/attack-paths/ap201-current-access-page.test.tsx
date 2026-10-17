@@ -83,7 +83,10 @@ describe("Current Access by source on the mounted page (captured acme-data summa
     // served per-plane hits on the real page, not "not measured". This is the assertion the first cut lacked.
     const observed = within(list).getAllByTestId("current-access-source").find((r) => r.getAttribute("data-section") === "observed")!
     await waitFor(() => expect(within(observed).getByTestId("current-access-planes").textContent).toMatch(/identity observed · 3 hits \(cloudtrail_api\)/))
-    expect(within(observed).getByTestId("current-access-qualifier").textContent).toBe("whole path observed (contract)")
+    expect(within(observed).getByTestId("current-access-qualifier").textContent).toBe("observed — the evidence contract classifies the route observed")
+    // Rev 6 §3.1 / §3.7 on the mounted page: activity sections only; the inferred route with unavailable planes is Unknown.
+    expect(within(list).queryByTestId("current-access-section-not_observed")).toBeNull()
+    expect(within(within(list).getByTestId("current-access-section-unknown")).getAllByTestId("current-access-source").length).toBe(2)
     // the route list is still there, BELOW the source list (not inside it)
     const firstPathRow = (await screen.findAllByTestId("zoom0-path-row"))[0]
     expect(list.contains(firstPathRow)).toBe(false)

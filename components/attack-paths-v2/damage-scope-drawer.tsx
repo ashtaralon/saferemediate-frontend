@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Loader2 } from "lucide-react"
 import { IAMPermissionAnalysisModal } from "@/components/iam-permission-analysis-modal"
+import { heldRouteMessage } from "@/lib/attack-paths/held-route-message"
 
 export type DamageScopeTarget = {
   nodeId: string
@@ -150,12 +151,8 @@ export function DamageScopeDrawer({
       const url = `/api/proxy/attack-paths/${encodeURIComponent(t.systemName)}/path/${encodeURIComponent(t.pathId)}/node/${encodeURIComponent(t.nodeId)}/damage-scope`
       const res = await fetch(url, { cache: "no-store" })
       if (!res.ok) {
-        const errBody = await res.json().catch(() => ({}))
-        throw new Error(
-          (errBody as { detail?: string }).detail ||
-            (errBody as { error?: string }).error ||
-            `HTTP ${res.status}`,
-        )
+        const errBody = await res.json().catch(() => null)
+        throw new Error(heldRouteMessage(errBody, res.status, "Damage scope"))
       }
       setData((await res.json()) as DamageScopePayload)
     } catch (e) {

@@ -60,6 +60,7 @@ export function AtlasLateralView({
         candidatesLoading={atlas.candidatesLoading}
         simulationLoading={atlas.simulationLoading}
         error={atlas.error}
+        evaluationHeld={atlas.evaluationHeld}
         onSelectFoothold={atlas.selectFoothold}
         onRetry={atlas.retry}
       />
