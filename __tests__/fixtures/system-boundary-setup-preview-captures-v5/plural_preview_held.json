@@ -3,7 +3,7 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
     "request": {
       "method": "GET",
-      "path": "/api/system-boundary/setup/e62ad510-e8d8-4f7d-b4e2-d1fa579265a0/preview",
+      "path": "/api/system-boundary/setup/35ff3c98-654a-4ab7-89ff-149281facb56/preview",
       "params": {
         "state_version": "2"
       },
@@ -15,11 +15,11 @@
   "body": {
     "contract": "system_boundary_setup_preview/v2",
     "state": "HELD",
-    "preview_digest": "v1:d1febf3a7fddddd1d5232b2d4a5b8762e092726c2df06c8aadb6b13f916c6cf5",
-    "basis_digest": "v1:508b03727380c60afb95e40c548f7de3af1df169ec859b435485c866243c92a5",
+    "preview_digest": "v1:bfe9b6baef69d9e94003c5cfac5666b12e885854b3b23cc94af042f41575b2ba",
+    "basis_digest": "v1:edb9d73c2ff9f75b0b4ff3e6e9d1b7369b278bd2501d976a5b683d0320255571",
     "result_digest": "v1:ed32c439e03da20a1c556cb0759b6628613bb3bce4f16541ac64abfed04801e6",
     "setup": {
-      "setup_id": "e62ad510-e8d8-4f7d-b4e2-d1fa579265a0",
+      "setup_id": "35ff3c98-654a-4ab7-89ff-149281facb56",
       "intent_revision": 2,
       "state_version": 2
     },
@@ -164,6 +164,12 @@
             "not_members": 0
           },
           "omitted": {},
+          "not_member_reasons": {
+            "SHARED_FOUNDATION": 0,
+            "SHARED_CLUSTER": 0,
+            "EXCLUDED_BY_DECISION": 0,
+            "OTHER": 0
+          },
           "deployment_context_state": {
             "state": "SERVED",
             "members": 0
@@ -175,6 +181,12 @@
         }
       }
     ],
+    "not_member_reasons": {
+      "SHARED_FOUNDATION": 0,
+      "SHARED_CLUSTER": 0,
+      "EXCLUDED_BY_DECISION": 0,
+      "OTHER": 0
+    },
     "setup_contract": "system_boundary_setup/v5"
   }
 }

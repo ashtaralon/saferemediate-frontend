@@ -20,3 +20,8 @@ Each file is a byte-for-byte copy of `tests/fixtures/system_boundary_result_capt
 **fff8cdaca89823c7300c03f2e777f6ba038eea0d** (C3f-R). The v1 / held result answers stay in `../system-boundary-captures/`.
 
 Never edit these by hand. Re-copy them from the backend commit that asserts them, and update the SHA above.
+
+(PC1 S0-F, 2026-10-17) Every file here was re-copied byte-for-byte from saferemediate-backend **e593baec7** (branch
+`claude/pc1-s0-f-t3-boundary-words`, local), regenerated through the same harness: answers that carry a summary now also carry
+`not_member_reasons` (the closed class count). Under the harness's own masking each file differs from the earlier copy only by that
+field or not at all. The commit named above remains the history of the earlier shape.

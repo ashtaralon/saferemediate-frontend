@@ -22,14 +22,14 @@
       "install_account": false
     },
     "publication": {
-      "attempt": "fe871fc8a8604bef9eb9f6f5582e36ce",
+      "attempt": "b7d0398a34474b0abba4e91215db5841",
       "generation": 1,
-      "source_identity": "v1:a24a5dd6addfdd02bc307f092dfd208e44a309908afe4cd2f87c23275103e36a",
+      "source_identity": "v1:5ee4e321c8025191ad7fe27fbbec2b5604e6347e2a9cbf9b21fa323045145e06",
       "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
-      "published_at_epoch": 1791928833,
-      "confirmed_at_epoch": 1791928833,
+      "published_at_epoch": 1792250226,
+      "confirmed_at_epoch": 1792250226,
       "marker": {
-        "dispatched_at": "2026-10-13T21:00:33.744220+00:00",
+        "dispatched_at": "2026-10-17T14:17:06.141727+00:00",
         "schedule": "rate(1 day)",
         "regions": [
           "eu-west-1"
@@ -40,7 +40,7 @@
         "status": "served",
         "reason": "",
         "generation": 1,
-        "source_identity": "v1:be3d1d804b8425eba9b33819c7ae9e899457b1ea688a836130d1361f168a55bd"
+        "source_identity": "v1:54611cab36d38364ca95310f7e62ecb591ac7dea6535aabb43370aa1ae30dc26"
       }
     },
     "coverage": {
@@ -66,7 +66,7 @@
           "stacks_in_progress": 0,
           "stacks_deleted": 0,
           "pagination_complete": true,
-          "collected_at": "2026-10-13T22:00:33.744220+00:00",
+          "collected_at": "2026-10-17T15:17:06.141727+00:00",
           "view_filter": null,
           "includes_global": false,
           "recording": null,
@@ -131,8 +131,8 @@
     "outcome": {
       "outcome": "CURRENT",
       "detail": "published",
-      "attempt": "fe871fc8a8604bef9eb9f6f5582e36ce",
-      "recorded_at_epoch": 1791928833,
+      "attempt": "b7d0398a34474b0abba4e91215db5841",
+      "recorded_at_epoch": 1792250226,
       "registration_id": "0123456789abcdef0123456789abcdef",
       "registration_recorded": true
     },

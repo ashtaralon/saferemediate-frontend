@@ -212,3 +212,17 @@ describe("DR05: one storage record per unresolved write", () => {
     expect(tab(null as unknown as Storage).put(op(2, ALICE))).toBe("memory")
   })
 })
+
+// (PC1 S0-E2, the declaration store's review E-1 applied to the identical setup helper) storage drops an undefined-valued key
+// (JSON), so a frozen operation carrying one must still settle its own stored record -- else a reload offers it forever.
+describe("(PC1 S0-E2) an undefined-valued key is not part of an operation's identity", () => {
+  it("an update whose steps carry an undefined-valued key is settled in storage, not only in this page's memory", () => {
+    const shared = sharedStorage()
+    const base = op(1, ALICE, "update") as Extract<PendingSetupOp, { kind: "update" }>
+    const withUndefined = freezeOp({ ...base, steps: { ...base.steps, declaration: { system: { mode: "new" }, note: undefined } } } as PendingSetupOp)
+    const store = tab(shared.view().storage)
+    expect(store.put(withUndefined)).toBe("storage")
+    store.remove(withUndefined)                                             // the very frozen object the wizard keeps
+    expect(tab(shared.view().storage).read()).toEqual([])                   // a reload: nothing left to resend
+  })
+})

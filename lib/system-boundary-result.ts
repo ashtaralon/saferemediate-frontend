@@ -11,6 +11,7 @@
  * Served only where membership v2 serves: elsewhere the answer is `held` MEMBERSHIP_V2_NOT_SERVED. Validation mirrors
  * backend cyntro_data/semantic/system_boundary_result.py. Anything else is "unavailable"; nothing here throws.
  */
+import { readShared, type SharedRead } from "@/lib/system-boundary-boundary-words"
 import { decoratedMembersAreWhole, decoration, type Decoration } from "@/lib/system-boundary-deployment-context"
 
 /** The level this frontend REQUIRES (lib/release-contract.json requires 1) -- and the levels it reads (requires up to accepts). */
@@ -61,6 +62,9 @@ export interface ResultServed {
   /** (S1b) The contract the answer was read at, and its Deployment decoration: null at level 1 (none is served). */
   contract: string
   deploymentContext: Decoration | null
+  /** (PC1 S0-F / F2) What this answer says about its not-member classes (shared among them): reported, not reported, or
+   *  inconsistent -- never a reason to refuse the rest of the answer. */
+  shared: SharedRead
 }
 
 export interface ResultHeld {
@@ -159,6 +163,9 @@ export function parseResultResponse(status: number, body: unknown, accountId: st
   if (!count(counts.stale_members) || (counts.stale_members as number) > (counts.members as number)) {
     return unavailable(status, RESPONSE_MALFORMED)
   }
+  // (PC1 S0-F2) the shared count is the server's: absent = not reported; present but not the closed set, or not adding up to
+  // the not-member count, = inconsistent -- no shared number is shown, and the lists still are.
+  const shared = readShared(body.not_member_reasons, counts.not_members as number)
   // (S1b) A level-2 served answer's decoration, whole: never a context on some members, never one at level 1.
   let deploymentContext: Decoration | null = null
   if (v2) {
@@ -174,6 +181,7 @@ export function parseResultResponse(status: number, body: unknown, accountId: st
     kind: "served", status, accountId, systemKey: body.system_key, systemName: body.system_name as string | null,
     generation, publishedAt, lists, counts: counts as unknown as ResultCounts,
     omitted: omitted as Partial<Record<ResultList, number>>, contract: body.contract as string, deploymentContext,
+    shared,
   }
 }
 

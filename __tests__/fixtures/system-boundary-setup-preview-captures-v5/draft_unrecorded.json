@@ -3,7 +3,7 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
     "request": {
       "method": "PUT",
-      "path": "/api/system-boundary/setup/18b9fe03-eaa6-4397-9ccf-2c2e37622380",
+      "path": "/api/system-boundary/setup/5ea898df-97eb-4650-ad6c-949d1374d7e6",
       "params": null,
       "body": {
         "request_id": "00000000-0000-4000-8000-000000005132",
@@ -35,7 +35,7 @@
                 "selection": {
                   "census": {
                     "generation": 1,
-                    "source_identity": "v1:c83d1b37ac716256157d80e0241c7c12063a83e33fab5412f233eaf341d035fb"
+                    "source_identity": "v1:975de5620d17bee52d8e79c720cd9a158bb3d6f88586c986bc3f4c4176717241"
                   },
                   "stack_status": "UPDATE_COMPLETE"
                 }
@@ -65,7 +65,7 @@
   "status": 200,
   "cache_control": "no-store",
   "body": {
-    "setup_id": "18b9fe03-eaa6-4397-9ccf-2c2e37622380",
+    "setup_id": "5ea898df-97eb-4650-ad6c-949d1374d7e6",
     "status": "DRAFT",
     "mode": "create",
     "owner": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
@@ -75,11 +75,15 @@
     "accounts_seen": [
       "111122223333"
     ],
-    "created_at": "2026-10-13T22:00:36.467351+00:00",
-    "updated_at": "2026-10-13T22:00:36.473909+00:00",
+    "created_at": "2026-10-17T15:17:09.276423+00:00",
+    "updated_at": "2026-10-17T15:17:09.284047+00:00",
     "predecessor": null,
     "successor": null,
     "association": null,
+    "system": {
+      "mode": "new",
+      "display_name": "Payments"
+    },
     "intent": {
       "declaration": {
         "bindings": [
@@ -90,7 +94,7 @@
             "selection": {
               "census": {
                 "generation": 1,
-                "source_identity": "v1:c83d1b37ac716256157d80e0241c7c12063a83e33fab5412f233eaf341d035fb"
+                "source_identity": "v1:975de5620d17bee52d8e79c720cd9a158bb3d6f88586c986bc3f4c4176717241"
               },
               "stack_status": "UPDATE_COMPLETE"
             },
@@ -147,9 +151,9 @@
             "registration_id": "0123456789abcdef0123456789abcdef",
             "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
             "publication": {
-              "attempt": "3963b031e6264736b40195c01d2440af",
+              "attempt": "a70cab84aaad406ab307481eaa64f7c9",
               "generation": 1,
-              "source_identity": "v1:c83d1b37ac716256157d80e0241c7c12063a83e33fab5412f233eaf341d035fb",
+              "source_identity": "v1:975de5620d17bee52d8e79c720cd9a158bb3d6f88586c986bc3f4c4176717241",
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7"
             },
             "stack_status": "UPDATE_COMPLETE",

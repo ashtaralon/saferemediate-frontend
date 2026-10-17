@@ -3,7 +3,7 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
     "request": {
       "method": "GET",
-      "path": "/api/system-boundary/setup/f51c6480-88cd-4709-94bb-4cf46fdf3904",
+      "path": "/api/system-boundary/setup/81ed3ade-41ee-4378-b669-b15d47c7d16c",
       "params": null,
       "body": null
     }
@@ -11,7 +11,7 @@
   "status": 200,
   "cache_control": "no-store",
   "body": {
-    "setup_id": "f51c6480-88cd-4709-94bb-4cf46fdf3904",
+    "setup_id": "81ed3ade-41ee-4378-b669-b15d47c7d16c",
     "status": "DRAFT",
     "mode": "create",
     "owner": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
@@ -21,11 +21,15 @@
     "accounts_seen": [
       "111122223333"
     ],
-    "created_at": "2026-10-13T22:00:35.789879+00:00",
-    "updated_at": "2026-10-13T22:00:35.965616+00:00",
+    "created_at": "2026-10-17T15:17:08.466852+00:00",
+    "updated_at": "2026-10-17T15:17:08.668809+00:00",
     "predecessor": null,
     "successor": null,
     "association": null,
+    "system": {
+      "mode": "new",
+      "display_name": "Payments"
+    },
     "intent": {
       "declaration": {
         "bindings": [
@@ -36,7 +40,7 @@
             "selection": {
               "census": {
                 "generation": 1,
-                "source_identity": "v1:b0a62168636e6a56b068aa5e51f2e0fd6cf51961a419a98af56c0c873b8af3b3"
+                "source_identity": "v1:aece7c03ad71acba5647810bc45975e11f51dca307985f24027230924f26136d"
               },
               "stack_status": "UPDATE_COMPLETE"
             },
@@ -93,9 +97,9 @@
             "registration_id": "0123456789abcdef0123456789abcdef",
             "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
             "publication": {
-              "attempt": "16268ee216aa48a18dcb687dc25baa6c",
+              "attempt": "17dffb42cb66406cbc9ca0560e4d317f",
               "generation": 2,
-              "source_identity": "v1:af1dd2648f5c090e9bb37c0bf97eec77632be403eb0f12059eb413b1e3927f11",
+              "source_identity": "v1:60f812c68feb30df5d2ea96802386409465eec7a79011448aabaaf198e83da5c",
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7"
             },
             "stack_status": "UPDATE_COMPLETE",
@@ -196,12 +200,12 @@
     "attempt": {
       "attempt": 1,
       "actor": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
-      "created_at": "2026-10-13T22:00:35.879729+00:00",
-      "recover_after": "2026-10-13T22:15:35.879729+00:00",
+      "created_at": "2026-10-17T15:17:08.572977+00:00",
+      "recover_after": "2026-10-17T15:32:08.572977+00:00",
       "intent_revision": 2,
       "base_revision": 1,
       "expected_versions": {},
-      "save_request_id": "f65bf53b-5540-42c8-9ae3-3ba61174aa28"
+      "save_request_id": "6ab08f42-7a46-4dd4-b4a8-21a7445c64e4"
     },
     "outcome": {
       "code": "PREVIEW_INPUT_CHANGED",
@@ -212,9 +216,9 @@
             "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
             "contract": "account_census_stacks_read/v1",
             "publication": {
-              "attempt": "16268ee216aa48a18dcb687dc25baa6c",
+              "attempt": "17dffb42cb66406cbc9ca0560e4d317f",
               "generation": 2,
-              "source_identity": "v1:af1dd2648f5c090e9bb37c0bf97eec77632be403eb0f12059eb413b1e3927f11"
+              "source_identity": "v1:60f812c68feb30df5d2ea96802386409465eec7a79011448aabaaf198e83da5c"
             },
             "registration_id": "0123456789abcdef0123456789abcdef"
           }
@@ -224,9 +228,9 @@
             "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
             "contract": "account_census_stacks_read/v1",
             "publication": {
-              "attempt": "2e42ba1106624986b7ffd8f9618c51a3",
+              "attempt": "cf891ffb2f1e4118b895f3da7b8a40a2",
               "generation": 1,
-              "source_identity": "v1:b0a62168636e6a56b068aa5e51f2e0fd6cf51961a419a98af56c0c873b8af3b3"
+              "source_identity": "v1:aece7c03ad71acba5647810bc45975e11f51dca307985f24027230924f26136d"
             },
             "registration_id": "0123456789abcdef0123456789abcdef"
           }
@@ -236,7 +240,7 @@
       "outcome": "REFUSED",
       "reconciled_by": "finish",
       "status": 409,
-      "written_at": "2026-10-13T22:00:35.965616+00:00"
+      "written_at": "2026-10-17T15:17:08.668809+00:00"
     },
     "receipt": null,
     "reconciliation": null,

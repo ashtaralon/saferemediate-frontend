@@ -35,3 +35,8 @@ Each file is a byte-for-byte copy of `tests/fixtures/system_boundary_finish_pair
 `tests/cyntro_data/test_system_boundary_finish_pair_captures.py`.
 
 Never edit these by hand. Re-copy them from the backend commit that asserts them, and update the SHA above.
+
+(PC1 S0-F, 2026-10-17) Every file here was re-copied byte-for-byte from saferemediate-backend **e593baec7** (branch
+`claude/pc1-s0-f-t3-boundary-words`, local), regenerated through the same harness: answers that carry a summary now also carry
+`not_member_reasons` (the closed class count). Under the harness's own masking each file differs from the earlier copy only by that
+field or not at all. The commit named above remains the history of the earlier shape.

@@ -3,19 +3,19 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
     "request": {
       "method": "POST",
-      "path": "/api/system-boundary/setup/ee3d0265-ca84-4be9-80b8-57eaaa826de3/finish",
+      "path": "/api/system-boundary/setup/3ff6c0ed-409e-4d3c-b2cb-586f15651918/finish",
       "params": null,
       "body": {
         "request_id": "00000000-0000-4000-8000-000000005105",
         "base_state_version": 2,
-        "preview_digest": "v1:fb2898a1e73c666f0b7b0c382aafa1810220b220fe3e1ed8c77ee44d370ff611"
+        "preview_digest": "v1:b1fd9793b479c18be7911d81ec4a62826f3fa0b94e0a6182f70ceee6f5c1584f"
       }
     }
   },
   "status": 200,
   "cache_control": "no-store",
   "body": {
-    "setup_id": "ee3d0265-ca84-4be9-80b8-57eaaa826de3",
+    "setup_id": "3ff6c0ed-409e-4d3c-b2cb-586f15651918",
     "status": "FINISHED",
     "mode": "create",
     "owner": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
@@ -25,8 +25,8 @@
     "accounts_seen": [
       "111122223333"
     ],
-    "created_at": "2026-10-13T22:00:34.062279+00:00",
-    "updated_at": "2026-10-13T22:00:34.623641+00:00",
+    "created_at": "2026-10-17T15:17:06.522226+00:00",
+    "updated_at": "2026-10-17T15:17:07.085013+00:00",
     "predecessor": null,
     "successor": null,
     "association": {
@@ -42,6 +42,11 @@
         "version": 1
       }
     },
+    "system": {
+      "mode": "ref",
+      "system_id": "authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f",
+      "declared_name": "Payments"
+    },
     "intent": {
       "declaration": {
         "bindings": [
@@ -52,7 +57,7 @@
             "selection": {
               "census": {
                 "generation": 1,
-                "source_identity": "v1:a24a5dd6addfdd02bc307f092dfd208e44a309908afe4cd2f87c23275103e36a"
+                "source_identity": "v1:5ee4e321c8025191ad7fe27fbbec2b5604e6347e2a9cbf9b21fa323045145e06"
               },
               "stack_status": "UPDATE_COMPLETE"
             },
@@ -120,9 +125,9 @@
             "registration_id": "0123456789abcdef0123456789abcdef",
             "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
             "publication": {
-              "attempt": "fe871fc8a8604bef9eb9f6f5582e36ce",
+              "attempt": "b7d0398a34474b0abba4e91215db5841",
               "generation": 1,
-              "source_identity": "v1:a24a5dd6addfdd02bc307f092dfd208e44a309908afe4cd2f87c23275103e36a",
+              "source_identity": "v1:5ee4e321c8025191ad7fe27fbbec2b5604e6347e2a9cbf9b21fa323045145e06",
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7"
             },
             "stack_status": "UPDATE_COMPLETE",
@@ -223,12 +228,12 @@
     "attempt": {
       "attempt": 1,
       "actor": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
-      "created_at": "2026-10-13T22:00:34.609830+00:00",
-      "recover_after": "2026-10-13T22:15:34.609830+00:00",
+      "created_at": "2026-10-17T15:17:07.068950+00:00",
+      "recover_after": "2026-10-17T15:32:07.068950+00:00",
       "intent_revision": 2,
       "base_revision": 1,
       "expected_versions": {},
-      "save_request_id": "17ec1151-92c6-4ef7-b8b9-edfcba89d403"
+      "save_request_id": "e13a86da-efb7-435d-b4b3-a0a2c63f9327"
     },
     "outcome": null,
     "receipt": {
@@ -256,10 +261,10 @@
             "proof": {
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
               "publication": {
-                "attempt": "fe871fc8a8604bef9eb9f6f5582e36ce",
+                "attempt": "b7d0398a34474b0abba4e91215db5841",
                 "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
                 "generation": 1,
-                "source_identity": "v1:a24a5dd6addfdd02bc307f092dfd208e44a309908afe4cd2f87c23275103e36a"
+                "source_identity": "v1:5ee4e321c8025191ad7fe27fbbec2b5604e6347e2a9cbf9b21fa323045145e06"
               },
               "read_outcome": "COMPLETE",
               "registration_id": "0123456789abcdef0123456789abcdef",
@@ -295,16 +300,16 @@
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
               "contract": "account_census_stacks_read/v1",
               "publication": {
-                "attempt": "fe871fc8a8604bef9eb9f6f5582e36ce",
+                "attempt": "b7d0398a34474b0abba4e91215db5841",
                 "generation": 1,
-                "source_identity": "v1:a24a5dd6addfdd02bc307f092dfd208e44a309908afe4cd2f87c23275103e36a"
+                "source_identity": "v1:5ee4e321c8025191ad7fe27fbbec2b5604e6347e2a9cbf9b21fa323045145e06"
               },
               "registration_id": "0123456789abcdef0123456789abcdef"
             }
           ]
         },
         "authored_revision": 1,
-        "basis_digest": "v1:a7067fe93e7fecfdcd2a0316d2443703432a393d8d26ff3809de51cf74bce59e",
+        "basis_digest": "v1:a79d8c08156d8884afa0a4a4c0d8bc4dfbbf9f6e6b7fc4bfeeb46ea3eb8db811",
         "counts": {
           "dependencies": 1,
           "held": 0,
@@ -313,8 +318,8 @@
           "stale_members": 0,
           "unlisted": 0
         },
-        "preview_digest": "v1:fb2898a1e73c666f0b7b0c382aafa1810220b220fe3e1ed8c77ee44d370ff611",
-        "result_digest": "v1:d21a15897618e59dd37a27dbf7434ba4a2412999b4d2738e9729dcc30a7ea1ec"
+        "preview_digest": "v1:b1fd9793b479c18be7911d81ec4a62826f3fa0b94e0a6182f70ceee6f5c1584f",
+        "result_digest": "v1:0ebc0c4977ef11996de772b91cfb1f6add5b1fe21270a2d913e2fb515d417af0"
       },
       "registration_pins": {
         "111122223333": "0123456789abcdef0123456789abcdef"
@@ -328,8 +333,8 @@
         ],
         "hash": "v1:12e6f1d6bab942e8d77010a3e4ffc449c40f04e32ca1b2ba863967626f32dbce"
       },
-      "setup_id": "ee3d0265-ca84-4be9-80b8-57eaaa826de3",
-      "written_at": "2026-10-13T22:00:34.623641+00:00"
+      "setup_id": "3ff6c0ed-409e-4d3c-b2cb-586f15651918",
+      "written_at": "2026-10-17T15:17:07.085013+00:00"
     },
     "reconciliation": null,
     "result_scope": {

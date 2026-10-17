@@ -29,6 +29,7 @@ import {
   setupPendingStore,
   type SetupPendingStore,
 } from "@/lib/system-boundary-setup-pending"
+import { readListedSystem, systemPhrase, unavailableNote } from "@/lib/system-boundary-setup-name"
 import { fetchStacks, parseStacksResponse, stacksOutcomeSentence, type StacksData } from "@/lib/system-boundary-stacks"
 
 /** The stacks the setup offers: the census's SETTLED stacks of the account, each with its Region, status and (S1a) the census
@@ -42,6 +43,9 @@ export function stackOptionsOf(parsed: StacksData): StackOption[] {
 
 type Stacks = { state: "served"; stacks: StackOption[] } | { state: "unavailable"; reason: string }
 
+/** (PC1 S0-B) "Your setups" reads at most this many list pages (the server scans a bounded number of setups per page). */
+export const SETUP_LIST_MAX_PAGES = 10
+
 export interface GuidedSetupsProps {
   accountId: string
   view: DeclarationsView
@@ -51,7 +55,8 @@ export interface GuidedSetupsProps {
   /** Opened from Systems > Add System: the panel says what the guided setup is and "Set up a system" takes the focus, once.
    *  Nothing is started or read for it: starting a setup is a write, and it waits for the person's click. */
   open?: boolean
-  listSetups?: () => Promise<SetupRead<{ setups: SetupSummary[]; next_cursor: string | null }>>
+  /** One page of the setups this person's scope may see; `cursor` is the previous page's `next_cursor` (null: the first). */
+  listSetups?: (cursor?: string | null) => Promise<SetupRead<{ setups: SetupSummary[]; next_cursor: string | null }>>
   createSetup?: (requestId: string) => Promise<SetupWrite>
   readStacks?: (accountId: string) => Promise<{ status: number; body: unknown }>
   client?: Partial<SetupClient>
@@ -111,16 +116,41 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
 
   const refresh = useCallback(async () => {
     const generation = ++listGeneration.current
-    const answer = await listSetups()
-    if (generation !== listGeneration.current) return
-    if (answer.kind !== "OK") {
-      setProblem(`Your setups could not be listed (${answer.code}).`)
-      return
+    // (PC1 S0-B) The server pages every setup this person's SCOPE may see, oldest key order, at most a bounded scan per page;
+    // its owner is not a filter there. Reading page 1 alone could leave this person's own draft unlisted behind other
+    // people's. Every page is read in turn, up to SETUP_LIST_MAX_PAGES; each answer is used only while it answers the latest
+    // request. Stopping early, or a later page failing, is said plainly: the list is then never presented as complete.
+    const collected: SetupSummary[] = []
+    let cursor: string | null = null
+    let stopped: string | null = null
+    for (let page = 0; ; page += 1) {
+      if (page >= SETUP_LIST_MAX_PAGES) {
+        stopped = `Only the first ${SETUP_LIST_MAX_PAGES} pages of setups were read; more may exist.`
+        break
+      }
+      const answer = await listSetups(cursor)
+      if (generation !== listGeneration.current) return
+      if (answer.kind !== "OK") {
+        if (page === 0) {
+          setProblem(`Your setups could not be listed (${answer.code}).`)
+          return
+        }
+        stopped = `Your setups could not all be listed (${answer.code}); the ones below were read before it stopped.`
+        break
+      }
+      collected.push(...answer.value.setups)
+      cursor = answer.value.next_cursor
+      if (cursor === null) break
     }
     // This slice edits a NEW system's setup; a successor (correction mode) has no steps here yet and is not offered.
-    const own = answer.value.setups.filter((s) => actor !== null && s.owner === actor && s.mode === "create")
+    const own = collected
+      .filter((s) => actor !== null && s.owner === actor && s.mode === "create")
+      // The latest change first. The server writes and re-validates one fixed-width UTC form (microseconds, "+00:00"),
+      // so string order is time order.
+      .sort((a, b) => (a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0))
     setMine(own.filter((s) => s.status === "DRAFT" || s.status === "FINISHING"))
     setFinished(own.filter((s) => s.status === "FINISHED"))
+    setProblem(stopped)
   }, [actor, listSetups])
   // Nothing is read until the person asks: the list when they choose "Your setups", the stacks when a setup opens.
   useEffect(() => {
@@ -166,6 +196,13 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
     setProblem(`A setup cannot be started (${answer.code}).`)
   }, [accountId, actor, context, createSetup, store])
 
+  // (PC1 S0-H) Which System each row is about, from the backend's ``system`` and the Systems this page already reads.
+  const named = (s: SetupSummary) => {
+    const listed = readListedSystem(s as unknown as Record<string, unknown>)
+    return { phrase: systemPhrase(listed, view.systems), note: unavailableNote(listed) }
+  }
+  const unnamed = [...(mine ?? []), ...(finished ?? [])].filter((s) => named(s).note !== null).length
+
   if (openId) {
     return (
       <SetupWizard setupId={openId} accountId={accountId} view={view} picks={picks} stacks={stacks} client={client}
@@ -200,13 +237,19 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
         </p>
       ) : null}
       {mine && !mine.length ? <p className="text-xs text-slate-500">You have no setup in progress.</p> : null}
+      {unnamed ? (
+        <p className="text-xs text-amber-800" data-testid="setup-names-unavailable">
+          {unnamed} of the setups below could not be named: their saved step could not be read. They are still listed.
+        </p>
+      ) : null}
       {mine && mine.length ? (
         <ul className="text-xs" data-testid="setup-resume-list">
           {mine.map((s) => (
             <li key={s.setup_id}>
               <button type="button" className="underline" onClick={() => setOpenId(s.setup_id)}>
-                Resume setup from {new Date(s.updated_at).toLocaleString()} ({s.status.toLowerCase()})
+                Resume setup{named(s).phrase} from {new Date(s.updated_at).toLocaleString()} ({s.status.toLowerCase()})
               </button>
+              {named(s).note ? <span className="text-amber-800" data-testid="setup-name-unavailable"> -- {named(s).note}</span> : null}
             </li>
           ))}
         </ul>
@@ -216,8 +259,9 @@ export function GuidedSetups({ accountId, view, picks, actor, open = false, list
           {finished.map((s) => (
             <li key={s.setup_id}>
               <button type="button" className="underline" onClick={() => setOpenId(s.setup_id)}>
-                Progress and results of the setup finished {new Date(s.updated_at).toLocaleString()}
+                Progress and results of the setup{named(s).phrase} finished {new Date(s.updated_at).toLocaleString()}
               </button>
+              {named(s).note ? <span className="text-amber-800" data-testid="setup-name-unavailable"> -- {named(s).note}</span> : null}
             </li>
           ))}
         </ul>

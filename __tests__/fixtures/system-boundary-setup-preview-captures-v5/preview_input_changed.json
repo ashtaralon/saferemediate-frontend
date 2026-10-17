@@ -3,7 +3,7 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
     "request": {
       "method": "GET",
-      "path": "/api/system-boundary/setup/f51c6480-88cd-4709-94bb-4cf46fdf3904/preview",
+      "path": "/api/system-boundary/setup/81ed3ade-41ee-4378-b669-b15d47c7d16c/preview",
       "params": {
         "state_version": "2"
       },
@@ -15,11 +15,11 @@
   "body": {
     "contract": "system_boundary_setup_preview/v1",
     "state": "COMPUTED",
-    "preview_digest": "v1:72f8b77775c4c305b78ed8793d28a077e39c3d1b023eb3bffc89f3d34d6ab4e3",
-    "basis_digest": "v1:2221c6b85a71d2be55c0c35455caa5364408bfa6c43729c09738363049d7dcbd",
-    "result_digest": "v1:e7fbb011ea3acc9c99a082f1abf99ffcd2b55bfd3c21cd09760f228f654c2d39",
+    "preview_digest": "v1:126d3f5b805eb51d9f28f8d966a951a2e72b914f580454424755d995915e538a",
+    "basis_digest": "v1:f91f7fd06f2d0278a563cbd6d154fb4297ce864ccbd904835a3b0abd385a219f",
+    "result_digest": "v1:0861e72e51c10750aea77fb5e49f534bb5d6fe08ef58ef360b0fc318849765cb",
     "setup": {
-      "setup_id": "f51c6480-88cd-4709-94bb-4cf46fdf3904",
+      "setup_id": "81ed3ade-41ee-4378-b669-b15d47c7d16c",
       "intent_revision": 2,
       "state_version": 2
     },
@@ -71,8 +71,8 @@
               "census_status": "served",
               "census_pin": {
                 "generation": 1,
-                "source_identity": "v1:b0a62168636e6a56b068aa5e51f2e0fd6cf51961a419a98af56c0c873b8af3b3",
-                "attempt": "2e42ba1106624986b7ffd8f9618c51a3",
+                "source_identity": "v1:aece7c03ad71acba5647810bc45975e11f51dca307985f24027230924f26136d",
+                "attempt": "cf891ffb2f1e4118b895f3da7b8a40a2",
                 "inventory_generation": 1
               },
               "stacks": [
@@ -85,7 +85,7 @@
                   ""
                 ]
               ],
-              "hash": "v1:ca6554c5e2114450559a1855a798db8dab9bb12a20fb9f836d82dcbb2dc2b17a"
+              "hash": "v1:82a441af44a0a32638a1e44090a3e82ca77d6351a61526341797069b78e435d9"
             },
             "counts": {
               "stacks": 1,
@@ -175,7 +175,13 @@
             "held": 0,
             "not_members": 0
           },
-          "omitted": {}
+          "omitted": {},
+          "not_member_reasons": {
+            "SHARED_FOUNDATION": 0,
+            "SHARED_CLUSTER": 0,
+            "EXCLUDED_BY_DECISION": 0,
+            "OTHER": 0
+          }
         },
         "inventory": {
           "generation": 1,
@@ -183,6 +189,12 @@
         }
       }
     ],
+    "not_member_reasons": {
+      "SHARED_FOUNDATION": 0,
+      "SHARED_CLUSTER": 0,
+      "EXCLUDED_BY_DECISION": 0,
+      "OTHER": 0
+    },
     "setup_contract": "system_boundary_setup/v5"
   }
 }

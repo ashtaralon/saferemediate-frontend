@@ -8,10 +8,14 @@ The real answers of the backend's `/api/system-boundary/setup*` routes at setup 
   in one cell, each on its own root, with Deployment-scoped dispositions (`scope.deployment`). The flow is create, update and
   the draft read, then a Finish whose receipt association pins both Deployments in canonical `deployment_key` order, the
   finished read and the status. The status carries `result_scope` v2 (`from`: every pinned Deployment).
+- **`request_id_reused` / `request_id_conflict`** (PC1 S0-D): a request id already recorded, by the same person for a different
+  request (409 `REQUEST_ID_REUSED`) and by another operator (409 `REQUEST_ID_CONFLICT`). Taken last in the harness, so no
+  earlier answer changed.
 
 Each file is a byte-for-byte copy of `tests/fixtures/system_boundary_setup_captures_v5/` at saferemediate-backend
-**fff8cdaca89823c7300c03f2e777f6ba038eea0d** (branch claude/s1b-plural-deployments, local; the files are identical at C3f `ab4437b4`). That commit's
-`tests/test_system_boundary_setup_captures.py::test_the_real_setup_route_answers_are_exactly_the_captures` asserts the mounted
+**e318405d6** (branch claude/pc1-s0-a-roundtrip, local), whose harness asserts all 21. The 19 earlier files are unchanged since
+**fff8cdaca89823c7300c03f2e777f6ba038eea0d** (branch claude/s1b-plural-deployments; identical at C3f `ab4437b4`). The harness is
+`tests/test_system_boundary_setup_captures.py::test_the_real_setup_route_answers_are_exactly_the_captures`; it asserts the mounted
 routes still answer exactly these.
 
 The level-1..4 copies beside this directory are those levels' evidence: this frontend reads level 4 AND level 5 answers.

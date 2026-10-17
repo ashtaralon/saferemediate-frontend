@@ -3,7 +3,7 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
     "request": {
       "method": "GET",
-      "path": "/api/system-boundary/setup/ee3d0265-ca84-4be9-80b8-57eaaa826de3/preview",
+      "path": "/api/system-boundary/setup/3ff6c0ed-409e-4d3c-b2cb-586f15651918/preview",
       "params": {
         "state_version": "1"
       },
