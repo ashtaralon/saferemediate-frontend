@@ -25,7 +25,8 @@ import type { CorrectionEnvelope, CreateEnvelope } from "@/lib/system-boundary-a
 
 /** The list releases before PC1 S0-E kept every save in (read; never written by this release). */
 export const PENDING_KEY = "cyntro.systemBoundary.pending.v1"
-/** Each save's own record: this prefix + its request id. */
+/** Each save's own record: this prefix + its request id. (PC1 S0-E2) A later release that changes the record's SHAPE must use a NEW
+ *  prefix: this release reads only exact v1 entries here and would count a reshaped record as unreadable. */
 export const PENDING_RECORD_PREFIX = `${PENDING_KEY}.rec.`
 /** A settled earlier-release tuple's marker: this prefix + its request id + "." + the first 32 hex of its tuple's digest. */
 export const PENDING_RETIRED_PREFIX = `${PENDING_KEY}.retired.`
@@ -80,7 +81,10 @@ function entryOf(value: unknown): PendingSave | null {
 function tuple(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(tuple).join(",")}]`
   if (isRecord(value)) {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${tuple(value[key])}`).join(",")}}`
+    // (PC1 S0-E2) JSON semantics: a key whose value is undefined is not part of the stored record (JSON.stringify drops it),
+    // so it is not part of the tuple either -- else an in-memory entry carrying one never matches its own stored record.
+    return `{${Object.keys(value).filter((key) => value[key] !== undefined).sort()
+      .map((key) => `${JSON.stringify(key)}:${tuple(value[key])}`).join(",")}}`
   }
   return JSON.stringify(value) ?? "null"
 }

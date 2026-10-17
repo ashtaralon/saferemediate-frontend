@@ -346,3 +346,18 @@ describe("(PC1 S0-E) one storage record per unresolved save", () => {
     expect([...shared.data.keys()].filter((k) => k.startsWith(PENDING_RECORD_PREFIX))).toEqual([])
   })
 })
+
+// (PC1 S0-E2, review E-1) An entry whose envelope carries an undefined-valued optional key: storage drops the key (JSON), so the
+// stored record and the in-memory entry the caller kept must still be ONE tuple -- else the save is never settled.
+describe("(PC1 S0-E2) an undefined-valued key is not part of a save's identity", () => {
+  it("a save kept with an undefined-valued key is settled by the very entry the caller kept", () => {
+    const storage = new MemoryStorage()
+    const store = pendingStore(storage)
+    const kept = entry({ ...CREATE, declaration: { ...CREATE.declaration, optional_note: undefined } as typeof CREATE.declaration })
+    store.put(kept)
+    expect(store.read().entries).toHaveLength(1)
+    store.remove(kept)                                                      // the in-memory object, not a read() copy
+    expect(store.read()).toEqual({ entries: [], unreadable: 0 })
+    expect(storage.length).toBe(0)
+  })
+})
