@@ -14,6 +14,12 @@
  */
 
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
+import {
+  targetCoverageCause,
+  targetEvidenceUnreadable,
+  targetHasHeldPaths,
+  targetHeldCount,
+} from "@/lib/attack-paths/lifecycle-coverage"
 import { TARGET_STATE_CONFIG, type TargetState } from "@/lib/types"
 
 export type TargetSeverityLabel = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
@@ -41,6 +47,13 @@ export interface TargetCatalogEntry {
   manifest_path_count: number | null
   state: TargetState
   crown_jewel_source: string | null
+  /** AP105 / AP177: why this target's coverage is not complete — `lifecycle_held`, or a stage-receipt code. Absent,
+   *  or null on the non-install route, when nothing is recorded. A value outside this type at runtime is judged
+   *  unreadable, never dropped (lib/attack-paths/lifecycle-coverage.ts targetCoverageCause); so is a malformed
+   *  `held_path_count`. */
+  coverage_withheld_reason?: string | null
+  /** AP177: lifecycle-held paths to this target, not in `path_count`. Served only on an install, and only when > 0. */
+  held_path_count?: number
 }
 
 /** GET /api/attack-paths/{system}/targets — mirrors TargetCatalog. */
@@ -106,6 +119,7 @@ function severityOf(entry: TargetCatalogEntry): CrownJewelSummary["severity"] {
 export function targetEntryToJewelSummary(entry: TargetCatalogEntry): CrownJewelSummary {
   const state = isTargetState(entry.state) ? entry.state : undefined
   const hasPaths = Number(entry.path_count ?? 0) > 0
+  const cause = targetCoverageCause(entry.coverage_withheld_reason, entry.held_path_count)
   return {
     id: entry.target_id,
     canonical_id: entry.arn ?? entry.target_id,
@@ -113,8 +127,10 @@ export function targetEntryToJewelSummary(entry: TargetCatalogEntry): CrownJewel
     type: entry.kind,
     severity: severityOf(entry),
     path_count: Number(entry.path_count ?? 0),
-    // Max path severity score in the active generation; 0 only when no path.
-    highest_risk_score: hasPaths ? Number(entry.max_severity ?? 0) : 0,
+    // Max path severity score in the active generation. AP201 (I3): a served number, else null (not reported); it
+    // used to be coerced to 0 and shown as a score of 0 beside a HIGH badge.
+    highest_risk_score:
+      hasPaths && typeof entry.max_severity === "number" && Number.isFinite(entry.max_severity) ? entry.max_severity : null,
     is_internet_exposed:
       typeof entry.is_internet_exposed === "boolean" ? entry.is_internet_exposed : null,
     data_classification: entry.data_classification ?? null,
@@ -122,16 +138,27 @@ export function targetEntryToJewelSummary(entry: TargetCatalogEntry): CrownJewel
     // name). Mirror its ranking key so any client sort agrees with it.
     priority_score: hasPaths ? Number(entry.max_severity ?? 0) : 0,
     crown_jewel_source: entry.crown_jewel_source === "reachable_only" ? "reachable_only" : null,
-    // Pinned-generation :AttackPath count for this target.
-    materialized_path_count: Number(entry.path_count ?? 0),
+    // Pinned-generation :AttackPath count for this target. S13: these optional counts are carried only when the
+    // catalog served a readable count; absent stays absent (not reported), never an invented 0.
+    ...(isServedCount(entry.path_count) ? { materialized_path_count: entry.path_count } : {}),
     paths_not_computed: state === "projection_not_ready",
     ...(state ? { target_state: state } : {}),
-    observed_path_count: Number(entry.observed_path_count ?? 0),
-    standing_access_count: Number(entry.standing_access_count ?? 0),
+    ...(isServedCount(entry.observed_path_count) ? { observed_path_count: entry.observed_path_count } : {}),
+    ...(isServedCount(entry.standing_access_count) ? { standing_access_count: entry.standing_access_count } : {}),
     inventory_present: entry.inventory_present !== false,
     data_classification_source:
       entry.data_classification_source === "tag" ? "tag" : "unknown",
+    // AP182/AP183: the recorded cause, judged HERE from the raw fields, where absence and malformed presence still
+    // differ (lib/attack-paths/lifecycle-coverage.ts). A row with nothing recorded carries no key and reads as before.
+    ...(cause.kind !== "none" ? { coverage_cause: cause } : {}),
+    // AP190: what the catalog itself served for the count, validated, so a missing or malformed value (coerced to 0 /
+    // NaN above for display) never proves that the target has no path.
+    catalog_path_count: isServedCount(entry.path_count) ? entry.path_count : null,
   }
+}
+
+function isServedCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
 }
 
 /** Whole catalog → rail list, in the backend's order. Empty when absent. */
@@ -148,19 +175,57 @@ export function targetCatalogToJewelSummaries(
  * different model with a different population. The header and rail must quote
  * the same target catalog the operator is looking at.
  */
+export interface TargetCatalogTotals {
+  /** Listed (eligible) paths only. */
+  pathCount: number
+  reachableTargetCount: number
+  /** AP182: some target's paths are lifecycle-held, so the two counts above are not totals. */
+  lifecycleHeld: boolean
+  /** Held paths across those targets when every one of them reports its count; null otherwise (or none held). */
+  heldPathCount: number | null
+  /** Targets whose coverage the active generation withheld for a recorded non-lifecycle reason (a stage-receipt code):
+   *  another reason the counts are not totals. */
+  withheldTargetCount: number
+  /** (AP183/AP184) Targets with coverage evidence served unreadable (wholly, or a held count beside a receipt code):
+   *  their part of the counts is unknown. (AP193) Also a target whose served `path_count` is missing or not a whole
+   *  number >= 0: its paths are in neither count above, and each target is counted once. */
+  unreadableTargetCount: number
+}
+
 export function targetCatalogTotals(
   catalog: TargetCatalog | null | undefined,
-): { pathCount: number; reachableTargetCount: number } | null {
+): TargetCatalogTotals | null {
   if (!catalog || catalog.serve_state !== "READY" || !Array.isArray(catalog.targets)) {
     return null
   }
-  return catalog.targets.reduce(
-    (totals, target) => {
-      const paths = Math.max(0, Number(target.path_count ?? 0))
-      totals.pathCount += paths
-      if (paths > 0) totals.reachableTargetCount += 1
-      return totals
-    },
-    { pathCount: 0, reachableTargetCount: 0 },
-  )
+  const totals: TargetCatalogTotals = {
+    pathCount: 0, reachableTargetCount: 0, lifecycleHeld: false, heldPathCount: null, withheldTargetCount: 0,
+    unreadableTargetCount: 0,
+  }
+  let heldTargets = 0
+  let heldCounted = 0
+  let heldSum = 0
+  for (const target of catalog.targets) {
+    // AP193: only a served whole number >= 0 is a count. A missing / malformed one ("bad", -1, null, absent -- the
+    // backend model always serialises it) is unknown: never NaN, never a silent 0, never part of a total.
+    const countReadable = isServedCount(target.path_count)
+    const paths = countReadable ? target.path_count : 0
+    totals.pathCount += paths
+    if (paths > 0) totals.reachableTargetCount += 1
+    const cause = targetCoverageCause(target.coverage_withheld_reason, target.held_path_count)
+    if (cause.kind === "withheld") totals.withheldTargetCount += 1
+    if (targetEvidenceUnreadable(cause) || !countReadable) totals.unreadableTargetCount += 1
+    // Held: lifecycle-held, or a well-formed count beside a receipt code (AP184: never a malformed one).
+    if (targetHasHeldPaths(cause)) {
+      heldTargets += 1
+      const count = targetHeldCount(cause)
+      if (count !== null) {
+        heldCounted += 1
+        heldSum += count
+      }
+    }
+  }
+  totals.lifecycleHeld = heldTargets > 0
+  totals.heldPathCount = heldTargets > 0 && heldCounted === heldTargets ? heldSum : null
+  return totals
 }

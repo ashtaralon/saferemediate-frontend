@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { getCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
+import { forwardScopeClaims } from "@/lib/server/scope-claims"
+import { typedBackendAnswer } from "@/lib/server/proxy-error"
+import { isSemanticHoldPayload } from "@/lib/server/proxy-cache-hygiene"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -26,7 +29,12 @@ export async function GET(
   const jewelId = searchParams.get("jewel_id")
   const limit = searchParams.get("limit")
 
-  const cacheKey = `lateral-moves:${systemName}:${identityId}:${jewelId ?? ""}:${limit ?? ""}`
+  const backendParams = new URLSearchParams()
+  if (jewelId) backendParams.set("jewel_id", jewelId)
+  if (limit) backendParams.set("limit", limit)
+  // AP201 (R11) review S1: the tenant / account claims travel with the read and are part of the cache key.
+  const claims = forwardScopeClaims(searchParams, backendParams)
+  const cacheKey = `lateral-moves:${systemName}:${identityId}:${jewelId ?? ""}:${limit ?? ""}${claims ? `:${claims}` : ""}`   // no claim: today's key
   const cached = getCached(cacheKey)
   if (cached) {
     return NextResponse.json(cached, {
@@ -34,9 +42,6 @@ export async function GET(
     })
   }
 
-  const backendParams = new URLSearchParams()
-  if (jewelId) backendParams.set("jewel_id", jewelId)
-  if (limit) backendParams.set("limit", limit)
   const qs = backendParams.toString()
   const backendUrl =
     `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(systemName)}/identity/${encodeURIComponent(identityId)}/lateral-moves` +
@@ -55,6 +60,12 @@ export async function GET(
     clearTimeout(timeoutId)
 
     const text = await res.text()
+    // AP201 review round 2 (S11, as closure-preview): a typed answer (the install's 503 SERVING_ROUTE_HELD, a scope
+    // refusal) is relayed with its own status and body through the shared rule, never cached.
+    if (!res.ok) {
+      const typed = typedBackendAnswer(text, res.status)
+      if (typed) return typed.response
+    }
     let data: unknown = {}
     try {
       data = text ? JSON.parse(text) : {}
@@ -65,7 +76,8 @@ export async function GET(
     // Never cache empty/error — a hung-then-empty response was poisoning Zoom0.
     const moves = (data as { moves?: unknown[] })?.moves
     const hasMoves = Array.isArray(moves) && moves.length > 0
-    if (res.ok && hasMoves) {
+    // A 200 hold is an answer about right now: never cached, whatever it carries.
+    if (res.ok && hasMoves && !isSemanticHoldPayload(data)) {
       setCached(cacheKey, data, TTL_STD)
     }
 

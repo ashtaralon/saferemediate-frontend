@@ -16,11 +16,29 @@ import {
   pathIdsNeedingDetail,
   type PathDetailRecord,
 } from "./convergence-path-details"
+import { readConvergencePaths } from "./convergence-readiness"
 import { matchConvergencePathId } from "./iap-to-convergence"
+import { iapHold } from "./path-evidence-view"
+import { useAttackPathReadClaims } from "./read-scope-context"
+import { semanticHoldMessage, typedReaderUnavailable, typedServingRefusal, type SemanticHoldKind } from "@/lib/semantic-hold"
+import { heldRouteMessage } from "./held-route-message"
 import type {
   CrownJewelConvergence,
   CrownJewelConvergenceSummary,
 } from "./convergence-types"
+
+/**
+ * AP201 (M4): an answer that settles the question. A TYPED hold / refusal is an answer, not a cold backend, and a 4xx
+ * (other than 408 / 429) is final. Neither is retried; the message names the hold (V3-PERF-06/07).
+ *
+ * Not settled: the legacy `{error}` wrapper (`iapHold` kind "error"). The summary proxy itself answers 5xx and its
+ * own timeout with `{error: "Failed to … crown jewel summary"}`, so that wrapper is a cold backend and keeps the
+ * AP188 ladder. The proxy passes a typed non-2xx body through as the server gave it (review B3), so the typed
+ * refused / route-held / 503-unavailable arms below read a forwarded typed answer as one rather than as "backend may
+ * be cold".
+ */
+class SettledAnswer extends Error {}
+const SETTLED_HOLD_KINDS: ReadonlySet<SemanticHoldKind> = new Set(["not_recorded", "unavailable", "refused", "route_held"])
 
 interface UseCrownJewelConvergenceResult {
   data: CrownJewelConvergence | null
@@ -36,6 +54,9 @@ interface UseCrownJewelConvergenceResult {
   /** How many summary attempts have been made for this jewel (1-based). */
   attempts: number
   error: string | null
+  /** AP201 (M4): the server settled the question (typed hold / refusal, or a final 4xx). `error` names it; there
+   *  will be no auto-retry, so a caller must not keep "warming" on `attempts`. */
+  settled: boolean
   retry: () => void
 }
 
@@ -103,8 +124,15 @@ export function useCrownJewelConvergence(
   options: UseCrownJewelConvergenceOptions = {},
 ): UseCrownJewelConvergenceResult {
   const fanInAllDetails = Boolean(options.fanInAllDetails)
-  const systemKey = options.systemKey ?? null
-  const systemAccountId = systemKey ? (options.systemAccountId ?? null) : null
+  // AP201 (R11) + review: THE one claim rule (useAttackPathReadClaims): the selected account, and the system identity
+  // -- the caller's explicit key when given, else the page's (<AttackPathSystemIdentity>) -- whose own account wins.
+  // No provider (bare tests, other shells, outside the tab) = no selection and no page key: exactly as before.
+  const claims = useAttackPathReadClaims(
+    options.systemKey ? { systemKey: options.systemKey, systemAccountId: options.systemAccountId ?? null } : null)
+  const claimedCustomer = claims.customerId
+  const claimedAccount = claims.accountId
+  const systemKey = claims.systemKey ?? null
+  const systemAccountId = claims.systemAccountId ?? null
   const [summary, setSummary] = useState<CrownJewelConvergenceSummary | null>(null)
   const [detailsByPathId, setDetailsByPathId] = useState<
     Record<string, PathDetailRecord>
@@ -113,6 +141,7 @@ export function useCrownJewelConvergence(
   const [retrying, setRetrying] = useState(false)
   const [attempts, setAttempts] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [settled, setSettled] = useState(false)
   const [nonce, setNonce] = useState(0)
   const attemptRef = useRef(0)
   /** Path ids whose /detail already settled ready — skip re-fetch on pin change. */
@@ -131,6 +160,7 @@ export function useCrownJewelConvergence(
       setDetailsByPathId({})
       readyDetailIdsRef.current = new Set()
       setError(null)
+      setSettled(false)
       setLoading(false)
       setRetrying(false)
       setAttempts(0)
@@ -145,11 +175,13 @@ export function useCrownJewelConvergence(
     setLoading(true)
     setRetrying(false)
     setError(null)
+    setSettled(false)
     setDetailsByPathId({})
     readyDetailIdsRef.current = new Set()
     setSummary(null)
 
-    const summaryUrl = buildConvergenceSummaryUrl(systemName, jewel, systemKey, systemAccountId)
+    const summaryUrl = buildConvergenceSummaryUrl(systemName, jewel,
+      { customerId: claimedCustomer, accountId: claimedAccount, systemKey, systemAccountId })
 
     const runAttempt = async () => {
       if (cancelled) return
@@ -176,18 +208,52 @@ export function useCrownJewelConvergence(
           | { error?: string }
           | null
         if (cancelled) return
+        const hold = summaryBody && typeof summaryBody === "object" ? iapHold(summaryBody) : null
+        // "unavailable" is two producers: the 200 semantic hold (settled, as use-cached-fetch fail-closes it) and the
+        // typed 503 reader failure (transient there: 503 is retried). Only the 200 form settles here.
+        const settledHold =
+          hold != null && SETTLED_HOLD_KINDS.has(hold.kind) && (hold.kind !== "unavailable" || summaryRes.ok)
+        if (settledHold) throw new SettledAnswer(semanticHoldMessage(hold))
         if (!summaryRes.ok || !summaryBody || "error" in summaryBody) {
-          const msg =
-            (summaryBody as { error?: string })?.error ??
-            `Backend busy (${summaryRes.status})`
+          // Review S10: a typed detail (a scope refusal, a reader failure) is the server's words and wins over a
+          // proxy's generic `error`, worded by the shared held-route formatter.
+          const typed = typedServingRefusal(summaryBody) ?? typedReaderUnavailable(summaryBody)
+          const msg = typed
+            ? heldRouteMessage(summaryBody, summaryRes.status, "Attack-path summary")
+            : (summaryBody as { error?: string })?.error ?? `Backend busy (${summaryRes.status})`
+          const finalStatus =
+            summaryRes.status >= 400 && summaryRes.status < 500 && summaryRes.status !== 408 && summaryRes.status !== 429
+          if (finalStatus) {
+            // The server's own words when it gave any (typed, then a string detail, then `error`); never "Backend
+            // busy" for an answer that is final.
+            throw new SettledAnswer(heldRouteMessage(summaryBody, summaryRes.status, "Attack-path summary"))
+          }
           throw new Error(msg)
         }
-        setSummary(summaryBody as CrownJewelConvergenceSummary)
+        // AP188: a 200 hold (semantic_status not_recorded / unavailable), a typed refusal, or a body with no path
+        // list is not a summary. It goes the failure way, never "a summary with no paths" (which also made
+        // mergeSummaryWithPathDetails throw on the missing list).
+        const reading = readConvergencePaths(summaryBody)
+        if (reading.kind === "unavailable") {
+          throw new Error(reading.reason ?? "Attack-path summary unavailable")
+        }
+        // AP189: a NOT_READY answer is kept as one -- its state is what every reader shows ("unknown, not absent") --
+        // and a pathless one gets an empty list, so no caller maps a missing list. It is never read as a zero.
+        const body = summaryBody as CrownJewelConvergenceSummary
+        setSummary(Array.isArray(body.paths) ? body : { ...body, paths: [] })
         setError(null)
         setRetrying(false)
         setLoading(false)
       } catch (e) {
         if (cancelled) return
+        if (e instanceof SettledAnswer) {
+          setSummary(null)
+          setError(e.message)
+          setSettled(true)
+          setRetrying(false)
+          setLoading(false)
+          return
+        }
         const m = (e as Error).message ?? String(e)
         const friendly =
           m.includes("aborted") || m.includes("Timeout")
@@ -229,6 +295,8 @@ export function useCrownJewelConvergence(
     jewel?.name,
     jewel?.path_count,
     jewel?.target_state,
+    claimedCustomer,
+    claimedAccount,
     nonce,
     systemKey,
     systemAccountId,
@@ -292,7 +360,8 @@ export function useCrownJewelConvergence(
       if (ctrl.signal.aborted) return pathId
       if (readyDetailIdsRef.current.has(pathId)) return pathId
 
-      const detailUrl = buildConvergenceDetailUrl(systemName, jewel, pathId, systemKey, systemAccountId)
+      const detailUrl = buildConvergenceDetailUrl(systemName, jewel, pathId,
+        { customerId: claimedCustomer, accountId: claimedAccount, systemKey, systemAccountId })
       const result = await fetchConvergencePathDetail({
         url: detailUrl,
         signal: ctrl.signal,
@@ -322,6 +391,8 @@ export function useCrownJewelConvergence(
     resolvedSelectedPathId,
     summary,
     neededDetailIds.join("|"),
+    claimedCustomer,
+    claimedAccount,
     nonce,
     fanInAllDetails,
     systemKey,
@@ -347,11 +418,13 @@ export function useCrownJewelConvergence(
     detailFailures,
     attempts,
     error,
+    settled,
     retry,
   }
 }
 
-/** Minimal jewel for callers that only have arn/name (convergence-map-loader). */
+/** Minimal jewel for callers that only have arn/name (convergence-map-loader). Nothing is known about it beyond the
+ *  name: no severity, no score, no exposure (AP201 I3: it used to invent MEDIUM / 0 / false). */
 export function crownJewelFromArnName(
   cjArn: string | null,
   cjName: string | null,
@@ -363,10 +436,10 @@ export function crownJewelFromArnName(
     canonical_id: cjArn,
     name: cjName || cjArn || id,
     type: "Unknown",
-    severity: "MEDIUM",
+    severity: null,
     path_count: 0,
-    highest_risk_score: 0,
-    is_internet_exposed: false,
+    highest_risk_score: null,
+    is_internet_exposed: null,
     data_classification: null,
     priority_score: 0,
   }

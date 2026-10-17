@@ -31,10 +31,22 @@ function evaluationLabel(candidate: AtlasFootholdCandidate): string {
   return "not evaluated"
 }
 
+/** Split footholds by the server's own evaluation word. Only an explicit DEAD_END is "no modeled path"; a candidate
+ *  the server did not evaluate (no evaluation, an ERROR, an unknown word) is NOT EVALUATED, never "no path". */
+
+/** A count the server served: a finite, non-negative number (never a missing field). */
+function isCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+}
+
 export function partitionAtlasFootholds(candidates: AtlasFootholdCandidate[]) {
   return {
     reachable: candidates.filter((candidate) => candidate.atlas_evaluation?.state === "REACHABLE"),
-    noPath: candidates.filter((candidate) => candidate.atlas_evaluation?.state !== "REACHABLE"),
+    noPath: candidates.filter((candidate) => candidate.atlas_evaluation?.state === "DEAD_END"),
+    notEvaluated: candidates.filter((candidate) => {
+      const state = candidate.atlas_evaluation?.state
+      return state !== "REACHABLE" && state !== "DEAD_END"
+    }),
   }
 }
 
@@ -47,6 +59,8 @@ export function AtlasLateralLensPanel({
   candidatesLoading,
   simulationLoading,
   error,
+  evaluationHeld = null,
+  emptyAnswer = false,
   onSelectFoothold,
   onRetry,
 }: {
@@ -58,10 +72,20 @@ export function AtlasLateralLensPanel({
   candidatesLoading: boolean
   simulationLoading: boolean
   error: string | null
+  /** The server's coded reason when it holds the live evaluation (published reach is shown instead). */
+  evaluationHeld?: string | null
+  /** The served foothold answer says `semantic_status: empty` (it found no compute in scope). */
+  emptyAnswer?: boolean
   onSelectFoothold: (id: string) => void
   onRetry: () => void
 }) {
-  const { reachable, noPath } = partitionAtlasFootholds(candidates)
+  const { reachable, noPath, notEvaluated } = partitionAtlasFootholds(candidates)
+  // "No evaluated service reached this jewel" is a verdict only when the server evaluated EVERY eligible candidate --
+  // and said how many (review B2): both counts must be served numbers and at least one candidate eligible. An
+  // evaluation without its counts (undefined === undefined) or with none eligible is no verdict (the canvas's own rule).
+  const counted = evaluation != null && isCount(evaluation.evaluated_count) && isCount(evaluation.eligible_count)
+  const fullyEvaluatedNone = !evaluationHeld && counted && reachable.length === 0 && notEvaluated.length === 0
+    && evaluation.eligible_count > 0 && evaluation.evaluated_count === evaluation.eligible_count
   return (
     <div
       className="rounded-lg border border-amber-200/70 bg-amber-50/40 px-3 py-2.5 dark:border-amber-500/30 dark:bg-amber-500/10"
@@ -78,6 +102,12 @@ export function AtlasLateralLensPanel({
           </span>
         ) : null}
       </div>
+      {evaluationHeld ? (
+        <p className="mt-1.5 text-[10px] text-amber-900 dark:text-amber-200" data-testid="atlas-lateral-evaluation-held">
+          Lateral evaluation is held on this install; published reach shown. No result here means not evaluated, never
+          &ldquo;no lateral movement&rdquo;. <span className="font-mono text-muted-foreground">({evaluationHeld})</span>
+        </p>
+      ) : null}
 
       {candidatesLoading ? (
         <p className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -91,8 +121,10 @@ export function AtlasLateralLensPanel({
           </button>
         </p>
       ) : candidates.length === 0 ? (
-        <p className="mt-2 text-[11px] text-muted-foreground">
-          No supported compute services were found in the current graph projection.
+        <p className="mt-2 text-[11px] text-muted-foreground" data-testid="atlas-no-candidates">
+          {emptyAnswer
+            ? "The served foothold answer names no compute in scope for this jewel."
+            : "The foothold answer lists no compute candidate for this jewel."}
         </p>
       ) : (
         <>
@@ -114,9 +146,15 @@ export function AtlasLateralLensPanel({
                 ))}
               </select>
             </label>
-            ) : (
-              <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+            ) : fullyEvaluatedNone ? (
+              <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300" data-testid="atlas-none-reached">
                 No evaluated service reached this jewel within the modeled scope.
+              </p>
+            ) : (
+              <p className="text-[11px] text-muted-foreground" data-testid="atlas-reach-not-established">
+                {evaluationHeld
+                  ? `${candidates.length} published foothold${candidates.length === 1 ? "" : "s"}, not evaluated on this install.`
+                  : `No foothold was evaluated as reaching this jewel; ${notEvaluated.length} not evaluated.`}
               </p>
             )}
             <span className="text-[10px] text-muted-foreground">
@@ -129,11 +167,31 @@ export function AtlasLateralLensPanel({
           {noPath.length > 0 ? (
             <details className="mt-2 rounded-md border border-border/60 bg-background/60 text-[10px]" data-testid="atlas-no-path-candidates">
               <summary className="cursor-pointer select-none px-2.5 py-1.5 font-medium text-muted-foreground hover:text-foreground">
-                Evaluated — no modeled path found ({noPath.length})
+                Evaluated — modeled dead end ({noPath.length})
               </summary>
               <div className="max-h-48 overflow-y-auto border-t border-border/60 p-2">
                 <ul className="space-y-1.5">
                   {noPath.map((candidate) => (
+                    <li key={candidate.workload_id} className="flex items-start justify-between gap-3 rounded px-1.5 py-1 hover:bg-muted/50">
+                      <span className="min-w-0 truncate text-foreground" title={`${candidate.workload_name} · ${candidate.workload_id}`}>
+                        {candidate.workload_name} · {candidate.workload_type} · {shortId(candidate.workload_id)}
+                      </span>
+                      <span className="shrink-0 text-muted-foreground">{evaluationLabel(candidate)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </details>
+          ) : null}
+
+          {notEvaluated.length > 0 ? (
+            <details open={Boolean(evaluationHeld)} className="mt-2 rounded-md border border-border/60 bg-background/60 text-[10px]" data-testid="atlas-not-evaluated-candidates">
+              <summary className="cursor-pointer select-none px-2.5 py-1.5 font-medium text-muted-foreground hover:text-foreground">
+                {evaluationHeld ? "Published footholds — not evaluated on this install" : "Not evaluated"} ({notEvaluated.length})
+              </summary>
+              <div className="max-h-48 overflow-y-auto border-t border-border/60 p-2">
+                <ul className="space-y-1.5">
+                  {notEvaluated.map((candidate) => (
                     <li key={candidate.workload_id} className="flex items-start justify-between gap-3 rounded px-1.5 py-1 hover:bg-muted/50">
                       <span className="min-w-0 truncate text-foreground" title={`${candidate.workload_name} · ${candidate.workload_id}`}>
                         {candidate.workload_name} · {candidate.workload_type} · {shortId(candidate.workload_id)}
@@ -173,6 +231,11 @@ export function AtlasLateralLensPanel({
             </p>
           ) : error ? (
             <p className="mt-2 text-[11px] text-amber-900 dark:text-amber-200">Simulation unavailable: {error}</p>
+          ) : response && !Array.isArray(response.chains) ? (
+            // AP201 (C5): a simulation body with no chains list is unreadable; it is never "No chain found".
+            <p className="mt-2 text-[11px] text-amber-900 dark:text-amber-200" data-testid="atlas-response-unreadable">
+              Simulation answer unreadable: the response carries no chains list, so no chain verdict is shown.
+            </p>
           ) : response ? (
             <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px]">
               <span className={response.chains.length > 0 ? "font-semibold text-red-700 dark:text-red-300" : "font-semibold text-emerald-700 dark:text-emerald-300"}>
@@ -180,7 +243,9 @@ export function AtlasLateralLensPanel({
                   ? `${response.chains.length} replay-validated attack chain${response.chains.length === 1 ? "" : "s"}`
                   : "No chain found within modeled scope"}
               </span>
-              <span className="text-muted-foreground">{response.dead_ends.length} dead ends explored</span>
+              <span className="text-muted-foreground">
+                {Array.isArray(response.dead_ends) ? `${response.dead_ends.length} dead ends explored` : "dead ends not reported"}
+              </span>
               {response.chains[0]?.reachable_damage ? (
                 <span className="font-semibold text-red-700 dark:text-red-300">
                   top damage {response.chains[0].reachable_damage.priority_score}/100 · {response.chains[0].reachable_damage.severity}
@@ -237,6 +302,14 @@ export function AtlasLateralChainCanvas({
   if (!response) {
     return <div className="flex h-full min-h-[360px] items-center justify-center text-[12px] text-muted-foreground">Simulation evidence unavailable.</div>
   }
+  if (!Array.isArray(response.chains)) {
+    // AP201 (C5): no chains list is an unreadable answer, not an empty one.
+    return (
+      <div className="flex h-full min-h-[360px] items-center justify-center text-[12px] text-amber-900 dark:text-amber-200" data-testid="atlas-canvas-unreadable">
+        Simulation answer unreadable: the response carries no chains list.
+      </div>
+    )
+  }
   if (response.chains.length === 0) {
     const noReachableSummary = evaluation
       && evaluation.evaluated_count === evaluation.eligible_count
@@ -255,7 +328,7 @@ export function AtlasLateralChainCanvas({
         <p className="mt-1 max-w-xl text-[11px] text-muted-foreground">
           {noReachableSummary
             ? noReachableSummary
-            : `This result applies only to the selected foothold. ATLAS explored ${response.dead_ends.length} dead ends under catalog ${response.catalog_version}.`}
+            : `This result applies only to the selected foothold. ATLAS explored ${Array.isArray(response.dead_ends) ? `${response.dead_ends.length} dead ends` : "an unreported number of dead ends"} under catalog ${response.catalog_version}.`}
         </p>
         {evaluation && evaluation.reachable_count > 0 && recommendedFoothold ? (
           <button

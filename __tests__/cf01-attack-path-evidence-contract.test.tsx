@@ -349,8 +349,21 @@ describe("held / unavailable IAP answers", () => {
     ).toMatchObject({ kind: "not_recorded" })
     // An answered SERVE catalog is its own truth.
     expect(
-      resolveRailIapHold({ serveJewelsRaw: { targets: [] }, serveJewelsError: null, jewelsEmpty: true, iapBody: body }),
+      resolveRailIapHold({
+        serveJewelsRaw: { serve_state: "READY", targets: [] },
+        serveJewelsError: null,
+        jewelsEmpty: true,
+        iapBody: body,
+      }),
     ).toBeNull()
+    // AP201 (M14): a 200 body that is not a catalog is not an answer; the rail names it unavailable (the IAP's own
+    // hold still wins when it has one).
+    expect(
+      resolveRailIapHold({ serveJewelsRaw: { targets: [] }, serveJewelsError: null, jewelsEmpty: true, iapBody: body }),
+    ).toMatchObject({ kind: "not_recorded" })
+    expect(
+      resolveRailIapHold({ serveJewelsRaw: { targets: [] }, serveJewelsError: null, jewelsEmpty: true, iapBody: null }),
+    ).toMatchObject({ kind: "unavailable", reason: expect.stringContaining("TARGET_CATALOG_UNREADABLE") })
     expect(
       resolveRailIapHold({ serveJewelsRaw: null, serveJewelsError: "HTTP 502", jewelsEmpty: false, iapBody: body }),
     ).toBeNull()

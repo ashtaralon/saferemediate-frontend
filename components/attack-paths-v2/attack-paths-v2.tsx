@@ -37,6 +37,7 @@ import type {
 } from "@/components/identity-attack-paths/types"
 import { BackToDashboard } from "@/components/back-to-dashboard"
 import { PathListGrouped } from "./path-list-grouped"
+import { CurrentAccessSourceList } from "./current-access-source-list"
 import { ExfilPathListColumn } from "./exfil-path-list-column"
 import type { ExfilPayload } from "./exfil-view-v3"
 import { useRetryFetch } from "@/lib/use-retry-fetch"
@@ -56,6 +57,19 @@ import {
   targetCatalogToJewelSummaries,
   type TargetCatalog,
 } from "@/lib/attack-paths/target-catalog"
+import {
+  LIFECYCLE_HELD_EXPLANATION,
+  NO_TARGET_COVERAGE_CAUSE,
+  heldPathsPhrase,
+  targetIncompleteCoverageNote,
+  targetZeroConclusion,
+} from "@/lib/attack-paths/lifecycle-coverage"
+import {
+  readConvergencePaths,
+  selectedPathCount,
+  selectedPathCountLines,
+  type SelectedPathCount,
+} from "@/lib/attack-paths/convergence-readiness"
 import { ConvergenceMapLoader } from "./convergence-map-loader"
 import { CrownJewelUnionViewLink } from "./crown-jewel-union-view-link"
 import { JewelExposurePanel } from "./jewel-exposure-panel"
@@ -86,7 +100,10 @@ import { Zoom0FanInPanel } from "./zoom0-fan-in-panel"
 import { PathCVEAssessmentPanel } from "./path-cve-assessment-panel"
 import { pathCVEsForMode } from "./path-cve-model"
 import { useAttackPathReport } from "./use-attack-path-report"
-import { buildConvergenceFetchUrl } from "@/lib/attack-paths/convergence-fetch-url"
+import { useBoundedAutoRetry } from "./use-bounded-auto-retry"
+import { buildConvergenceFetchUrl, buildTargetCatalogUrl } from "@/lib/attack-paths/convergence-fetch-url"
+import { attackPathReadClaims, scopeClaimsFrom, scopeClaimsKey } from "@/lib/attack-paths/scope-claims"
+import { AttackPathSystemIdentity } from "@/lib/attack-paths/read-scope-context"
 import type { CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
 import { matchConvergencePathId } from "@/lib/attack-paths/iap-to-convergence"
 import { useCrownJewelConvergence } from "@/lib/attack-paths/use-crown-jewel-convergence"
@@ -106,6 +123,13 @@ import {
   buildBlastRadiusUrl,
   normalizeBlastRadiusScope,
 } from "./blast-radius-scope"
+
+/** AP201: soft background-IAP auto-retries per outage (8 s apart) before only the manual Retry remains. */
+const IAP_AUTO_RETRY_LIMIT = 3
+const IAP_AUTO_RETRY_DELAY_MS = 8000
+/** Transport only (a cold backend). A 4xx or a typed hold is an answer and is never auto-retried. */
+const isIapTransportError = (error: unknown): boolean =>
+  String(error).includes("502") || String(error).includes("504")
 
 function isTrustEnvelope(x: any): x is { provenance: any; result: any } {
   return x && typeof x === "object" && "result" in x && "provenance" in x
@@ -180,7 +204,6 @@ export function AttackPathsV2({
     : urlSystemKey
       ? (searchParams?.get("account_id") || null)
       : null
-  const identityQuery = systemScopeQuery(identityKey, identityAccount)
   const identityCacheSuffix = identityKey ? `:key=${identityKey}:${identityAccount ?? ""}` : ""
   const selectedJewelId = searchParams?.get("jewel") ?? null
   const selectedPathId = searchParams?.get("path") ?? null
@@ -423,9 +446,25 @@ export function AttackPathsV2({
   //   3. full IAP 5×5 — background only; never bricks the path rail on 502
   // (Render wake happens via the catalog fetch + keep-warm cron — don't fire
   // the full keep-warm sweep from the browser on every tab open.)
-  const jewelsUrl = systemName
-    ? `/api/proxy/attack-paths/${encodeURIComponent(systemName)}/targets` + identityQuery.replace(/^&/, "?")
+  // AP201 (R11): the operator's tenant / account claims travel with every per-jewel read and key its client cache,
+  // so a control plane with several workload accounts is asked for the selected one and a cached catalog for one
+  // account is never painted for another. A7 B5: a page opened by key also names ONE system (key + its account).
+  // The same account scope feeds the blast-radius read below.
+  const accountScope = useAccountScope()
+  const selectedClaims = scopeClaimsFrom(accountScope)
+  // AP201 review S1: THE one claim rule (attackPathReadClaims); every component read gets the same claims from
+  // <AttackPathSystemIdentity> below (useAttackPathReadClaims), so no read names another account than this banner.
+  const scopeClaims = attackPathReadClaims(accountScope, { systemKey: identityKey, systemAccountId: identityAccount })
+  // When the system key's own account overrides a different selected account, the reads are scoped to the KEY's
+  // account (appendScopeClaims) -- the page says so instead of silently ignoring the selection.
+  const accountOverride = scopeClaims.systemAccountId && selectedClaims.accountId
+    && scopeClaims.systemAccountId !== selectedClaims.accountId
+    ? { readAccount: scopeClaims.systemAccountId, selectedAccount: selectedClaims.accountId }
     : null
+  const scopeClaimsCacheKey = scopeClaimsKey(scopeClaims)
+  // Review S2: the selected account keys every client cache it reaches; with no selection the keys stay as before.
+  const selectedClaimsCacheSuffix = selectedClaims.accountId ? `:${scopeClaimsCacheKey}` : ""
+  const jewelsUrl = systemName ? buildTargetCatalogUrl(systemName, scopeClaims) : null
   const {
     data: jewelsRaw,
     loading: jewelsLoading,
@@ -434,8 +473,7 @@ export function AttackPathsV2({
     isStale: jewelsIsStale,
     retry: retryJewels,
   } = useCachedFetch<TargetCatalog>(jewelsUrl, {
-    // B5: another key / account is another system's catalog -- never painted for this one (by name: as before).
-    cacheKey: `ap-targets:${systemName}${identityCacheSuffix}`,
+    cacheKey: `ap-targets:${systemName}${scopeClaimsCacheKey ? `:${scopeClaimsCacheKey}` : ""}`,
     maxStaleMs: 10 * 60 * 1000,
     // Never SWR-paint a cached NOT_READY / empty catalog — that is how the
     // rail stuck on "No crown jewels · showing cached" after SERVE recovered.
@@ -448,7 +486,8 @@ export function AttackPathsV2({
   // (materialized AttackPath rows). Keep a background 5×5 fetch for when it
   // succeeds (richer severity / damage), but do not block or hard-error on it.
   const fetchUrl = systemName
-    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&max_jewels=12&max_paths_per_jewel=8${identityQuery}`
+    // The IAP envelope is not an R11 read: it keeps A7 B5's rule (account only beside a key; Alon 2026-10-17).
+    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&max_jewels=12&max_paths_per_jewel=8${systemScopeQuery(identityKey, identityAccount)}`
     : null
   const {
     data: rawData,
@@ -474,7 +513,7 @@ export function AttackPathsV2({
   // refuses to infer scope and returns 503 on an unscoped GET. Bind the
   // fetch (and its SWR cache key) to the active Estate scope so a cached
   // response for one tenant/account can never paint another's session.
-  const blastRadiusScope = normalizeBlastRadiusScope(useAccountScope())
+  const blastRadiusScope = normalizeBlastRadiusScope(accountScope)
   const blastRadiusUrl = buildBlastRadiusUrl(systemName ?? "", blastRadiusScope)
   const { data: blastRadiusData } = useCachedFetch<BlastRadiusPayload>(blastRadiusUrl, {
     cacheKey: buildBlastRadiusCacheKey(systemName ?? "", blastRadiusScope),
@@ -508,18 +547,19 @@ export function AttackPathsV2({
   const serveJewelsOk = isServeJewelsAuthoritative(jewelsRaw, jewelsError)
 
   // Soft auto-retry of background IAP only — never surfaces in the path rail.
-  useEffect(() => {
-    if (!_iapBackgroundError || rawData || isLoading) return
-    if (
-      !String(_iapBackgroundError).includes("502") &&
-      !String(_iapBackgroundError).includes("504")
-    )
-      return
-    const t = setTimeout(() => {
-      retryFullIap()
-    }, 8000)
-    return () => clearTimeout(t)
-  }, [_iapBackgroundError, rawData, isLoading, retryFullIap])
+  // AP201: bounded (use-bounded-auto-retry.ts). Unbounded, a failed backend was re-read every 8 s for as long as the
+  // page stayed open (measured: 4 reads in 25 s, 25 in a session); after the limit the manual Retry remains.
+  useBoundedAutoRetry({
+    error: _iapBackgroundError,
+    data: rawData,
+    loading: isLoading,
+    retry: retryFullIap,
+    limit: IAP_AUTO_RETRY_LIMIT,
+    delayMs: IAP_AUTO_RETRY_DELAY_MS,
+    isTransient: isIapTransportError,
+    // a new system is a new read with its own budget
+    resetKey: fetchUrl,
+  })
 
   const fromProxyStale =
     Boolean((rawData as { fromStaleCache?: boolean } | null)?.fromStaleCache) ||
@@ -533,11 +573,13 @@ export function AttackPathsV2({
   const jewels: CrownJewelSummary[] = useMemo(
     () =>
       resolveJewelPickerList({
-        serveJewels: jewelsRaw != null ? liteJewels : null,
+        // AP201 (M14): one authority predicate. An unreadable 200 body is a failed catalog here too, so the IAP
+        // jewels may stand in exactly as they do after an HTTP failure.
+        serveJewels: serveJewelsOk ? liteJewels : null,
         serveJewelsError: jewelsError,
         iapJewels: data?.crown_jewels ?? null,
       }),
-    [jewelsRaw, liteJewels, jewelsError, data?.crown_jewels],
+    [serveJewelsOk, liteJewels, jewelsError, data?.crown_jewels],
   )
 
   // Trust gate: distinguish a real "0 crown jewels" from a cold/failed
@@ -582,11 +624,11 @@ export function AttackPathsV2({
   const showingStale =
     fromProxyStale || iapIsStale || jewelsIsStale
 
-  const blastRadiusPathCount = blastRadiusData?.verdict?.attack_paths
-  const reachableJewelCount = blastRadiusData?.verdict?.reachable_crown_jewels
-  const displayedPathCount = catalogTotals?.pathCount ?? blastRadiusPathCount
-  const displayedReachableJewelCount =
-    catalogTotals?.reachableTargetCount ?? reachableJewelCount
+  // AP201 (M13) + review S14: the header's totals are the CATALOG's only. The blast-radius totals are another model over
+  // another population (target-catalog.ts) and no longer stand in while the catalog loads: a loading catalog says
+  // "Loading crown-jewel targets…", and a NOT_READY, failed or unreadable one shows no count.
+  const displayedPathCount = catalogTotals?.pathCount
+  const displayedReachableJewelCount = catalogTotals?.reachableTargetCount
 
 
   // Paths for the currently-selected jewel. Empty list = no jewel
@@ -602,25 +644,26 @@ export function AttackPathsV2({
       ) ?? null,
     [jewels, selectedJewelId],
   )
+  // AP187: when the selected target's coverage is not complete, the header's count is its listed paths only and says
+  // so, with the row's own note (held, withheld, unreadable, coverage incomplete) beside it.
+  const selectedCoverageNote = selectedJewel
+    ? targetIncompleteCoverageNote(selectedJewel.target_state, selectedJewel.coverage_cause ?? NO_TARGET_COVERAGE_CAUSE)
+    : null
+  // AP188 (F4 P1): the rail's own Collapse notifies the page, so the aside itself narrows (it stayed 320px before).
+  const [railCollapsed, setRailCollapsed] = useState(false)
   const selectedJewelHasPaths = Number(selectedJewel?.path_count ?? 0) > 0
-  const selectedJewelZeroState = selectedJewel?.target_state
+  // AP182/AP183: a cause recorded on the selected target (lifecycle-held, a withheld receipt code, unreadable evidence)
+  // means its coverage is incomplete. It replaces both a "no route" claim and the missing-manifest copy. A target with
+  // nothing recorded keeps the established copy. AP195/AP196: one mapping with the path list and the Topology view
+  // (targetZeroConclusion), and a catalog count that could not be read is never "no route" either.
   const currentAccessZero =
-    !selectedJewelHasPaths &&
-    (selectedJewelZeroState === "no_modeled_route" ||
-      selectedJewelZeroState === "coverage_incomplete" ||
-      selectedJewelZeroState === "projection_not_ready")
-  const currentAccessZeroTitle =
-    selectedJewelZeroState === "no_modeled_route"
-      ? "No modeled current-access route"
-      : selectedJewelZeroState === "coverage_incomplete"
-        ? "Current-access coverage incomplete"
-        : "Attack-path projection not ready"
-  const currentAccessZeroSubtitle =
-    selectedJewelZeroState === "no_modeled_route"
-      ? "The active generation evaluated this crown jewel and found no compute-to-jewel route. Lateral and Exfiltration remain separate attacker-lens analyses."
-      : selectedJewelZeroState === "coverage_incomplete"
-        ? "The active generation has no evaluation manifest for this crown jewel, so Cyntro does not claim that no route exists."
-        : "No active Attack Paths generation can author a current-access conclusion yet."
+    selectedJewel && !selectedJewelHasPaths
+      ? targetZeroConclusion(
+          selectedJewel.target_state,
+          selectedJewel.coverage_cause ?? NO_TARGET_COVERAGE_CAUSE,
+          selectedJewel.catalog_path_count !== null,
+        )
+      : null
 
   const iapJewelPaths: ActivePathList<IdentityAttackPath> = useMemo(() => {
     if (!selectedJewelId) return filterActivePaths([])
@@ -641,6 +684,7 @@ export function AttackPathsV2({
     retrying: jewelSummaryRetrying,
     attempts: jewelSummaryAttempts,
     error: jewelSummaryError,
+    settled: jewelSummarySettled,
     retry: retryJewelSummary,
   } = useCrownJewelConvergence(
     selectedJewelHasPaths && selectedJewel ? systemName : null,
@@ -685,7 +729,9 @@ export function AttackPathsV2({
     !pathsPending &&
     jewelRail.source === "none" &&
     Boolean(jewelSummaryError) &&
-    jewelSummaryAttempts >= 3
+    // AP201 (M4): a settled answer (typed hold, final 4xx) ends at attempt 1 and is never retried; waiting for
+    // attempt 3 left the rail on "Loading paths…" with no Retry.
+    (jewelSummaryAttempts >= 3 || jewelSummarySettled)
 
   // IAP only when SERVE unreachable — label as non-authoritative.
   const pathsFromIapFallback = jewelRail.source === "iap_fallback"
@@ -697,6 +743,27 @@ export function AttackPathsV2({
     !pathsHardError &&
     jewelRail.source === "none" &&
     (jewelSummaryLoading || jewelSummaryRetrying || Boolean(jewelSummaryError))
+
+  // AP188: the header's count for the selected target, from the rail's own read state. A pending, failed, held or
+  // not-ready read is never a zero, and the catalog's count is said as the catalog's, never as loaded detail.
+  const selectedCount: SelectedPathCount | null = selectedJewel
+    ? selectedPathCount({
+        jewel: selectedJewel,
+        coverageNote: selectedCoverageNote,
+        railSource: jewelRail.source,
+        listedCount: jewelPaths.length,
+        serve: jewelSummaryConvergence,
+        loading: pathsPending || pathsWarming,
+        failed: pathsHardError,
+        error: jewelSummaryError,
+      })
+    : null
+  // AP189: a NOT_READY serve answer makes the path list's empty state "not ready", never "no attack paths today".
+  const selectedAnswerReading = jewelRail.source === "serve" ? readConvergencePaths(jewelSummaryConvergence) : null
+  const selectedAnswerNotReady = selectedAnswerReading?.kind === "not_ready"
+  // AP201 (M6): a listed answer that is not every path (coverage partial, truncated, ...) makes an empty list
+  // "incomplete", never "no attack paths today".
+  const selectedAnswerPartial = selectedAnswerReading?.kind === "paths" ? selectedAnswerReading.partial : null
 
   // ─── Exfil-paths fetch (parent-owned) ────────────────────────────
   // Single source of truth for both the center-column rail
@@ -752,8 +819,9 @@ export function AttackPathsV2({
 
   const convergenceFetchUrl = useMemo(() => {
     if (viewMode !== "convergence" || !systemName || !selectedJewel || !selectedJewelHasPaths) return null
-    return buildConvergenceFetchUrl(systemName, selectedJewel, identityKey, identityAccount)
-  }, [viewMode, systemName, selectedJewel, selectedJewelHasPaths, identityKey, identityAccount])
+    return buildConvergenceFetchUrl(systemName, selectedJewel, scopeClaims)
+    // Review S9: the URL carries the claims, so the claims are a dependency (one string of all four).
+  }, [viewMode, systemName, selectedJewel, selectedJewelHasPaths, scopeClaimsCacheKey])
 
   const {
     data: convergenceData,
@@ -761,7 +829,7 @@ export function AttackPathsV2({
     error: convergenceError,
     retry: convergenceRetry,
   } = useCachedFetch<CrownJewelConvergence>(convergenceFetchUrl, {
-    cacheKey: `cj-convergence:${systemName}:${selectedJewelId ?? ""}${identityCacheSuffix}`,
+    cacheKey: `cj-convergence:${systemName}:${selectedJewelId ?? ""}${identityCacheSuffix}${selectedClaimsCacheSuffix}`,
   })
 
   const convergenceSource = useMemo((): "live" | "fallback" => {
@@ -1166,10 +1234,15 @@ export function AttackPathsV2({
 
   // ─── Main 3-column layout ──────────────────────────────────────
   return (
-    <div className={`flex ${shellHeight} bg-background text-foreground overflow-hidden${embedded ? " rounded-xl border border-border" : ""}`}>
+    // AP188 (F4 P2): below lg the three panes stack and the shell scrolls, so the selected explanation is reached by
+    // ordinary scrolling; from lg up the row and its fixed columns are exactly as before. (AP192: below lg the fixed
+    // 320 + 400 columns left the graph pane 180px wide at 900 and 48px at 768, too narrow for any mode tab.)
+    // AP201 review B1/S1: every component read under the page names the same account (useAttackPathReadClaims).
+    <AttackPathSystemIdentity systemKey={identityKey} systemAccountId={identityAccount}>
+    <div className={`flex flex-col lg:flex-row ${shellHeight} bg-background text-foreground overflow-y-auto lg:overflow-hidden${embedded ? " rounded-xl border border-border" : ""}`}>
       {/* Column 1 — Crown jewels (hidden when path is maximized) */}
       <aside
-        className={`${isPathExpanded ? "hidden" : "w-[320px]"} shrink-0 border-r border-border bg-background overflow-y-auto`}
+        className={`${isPathExpanded ? "hidden" : railCollapsed ? "w-full lg:w-9" : "w-full lg:w-[320px]"} shrink-0 border-r border-border bg-background overflow-y-auto`}
       >
         <div className="px-4 py-3 border-b border-border">
           <div className="flex items-start gap-2">
@@ -1188,6 +1261,12 @@ export function AttackPathsV2({
                   the system is fixed by the dashboard's selection (the prop
                   wins over ?system), so we render a static label instead of
                   a switcher that would desync from the dashboard. */}
+              {accountOverride ? (
+                <div className="text-[10px] text-amber-800 dark:text-amber-300" data-testid="ap-read-account-override">
+                  Reads scoped to account {accountOverride.readAccount} (this system&apos;s own account), not the selected
+                  account {accountOverride.selectedAccount}.
+                </div>
+              ) : null}
               {embedded ? (
                 <div className="text-sm font-semibold text-foreground truncate">
                   {systemName}
@@ -1220,6 +1299,28 @@ export function AttackPathsV2({
                     : railIapHold
                       ? iapHoldTitle(railIapHold)
                       : `${jewels.length} targets${isLoading ? " · totals loading…" : ""}`}
+                {/* AP182: with a catalog the counts above ARE its listed paths (displayedPathCount =
+                    catalogTotals.pathCount). When some are held, or a target's coverage was withheld or served
+                    unreadable, say so beside them, never as a total. */}
+                {catalogTotals?.lifecycleHeld ? (
+                  <span title={LIFECYCLE_HELD_EXPLANATION} data-testid="catalog-held-not-counted">
+                    {` · ${heldPathsPhrase(catalogTotals.heldPathCount)}, not counted`}
+                  </span>
+                ) : null}
+                {catalogTotals && catalogTotals.withheldTargetCount > 0 ? (
+                  <span data-testid="catalog-coverage-withheld">
+                    {` · coverage withheld for ${catalogTotals.withheldTargetCount} target${
+                      catalogTotals.withheldTargetCount === 1 ? "" : "s"
+                    }`}
+                  </span>
+                ) : null}
+                {catalogTotals && catalogTotals.unreadableTargetCount > 0 ? (
+                  <span data-testid="catalog-coverage-unreadable">
+                    {` · coverage evidence unreadable for ${catalogTotals.unreadableTargetCount} target${
+                      catalogTotals.unreadableTargetCount === 1 ? "" : "s"
+                    }`}
+                  </span>
+                ) : null}
                 {showingStale ? " · showing cached" : ""}
               </div>
             </div>
@@ -1234,6 +1335,7 @@ export function AttackPathsV2({
           selectedJewelId={selectedJewelId}
           onSelect={handleSelectJewel}
           iapHold={railIapHold}
+          onCollapsedChange={setRailCollapsed}
         />
       </aside>
 
@@ -1242,7 +1344,7 @@ export function AttackPathsV2({
           paths). Operator can still get back to per-path view via the
           mode toggle in the right-column header. */}
       <section
-        className={`${isPathExpanded || viewMode === "exposure" || viewMode === "topology" || viewMode === "lateral" ? "hidden" : "w-[400px]"} shrink-0 border-r border-border overflow-y-auto bg-muted/30`}
+        className={`${isPathExpanded || viewMode === "exposure" || viewMode === "topology" || viewMode === "lateral" ? "hidden" : "w-full lg:w-[400px]"} shrink-0 border-r border-border overflow-y-auto bg-muted/30`}
       >
         {!selectedJewelId ? (
           <EmptyState
@@ -1272,9 +1374,9 @@ export function AttackPathsV2({
           <div className="m-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4">
             <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300 mb-2 text-sm font-semibold">
               <AlertTriangle className="h-4 w-4" />
-              Paths still warming
+              {jewelSummarySettled ? "Paths not served for this target" : "Paths still warming"}
             </div>
-            <div className="text-xs text-muted-foreground mb-3">
+            <div className="text-xs text-muted-foreground mb-3" data-testid="paths-hard-error-reason">
               {jewelSummaryError ||
                 "Backend was cold and didn’t answer in time. Retry — the next try is usually fast."}
             </div>
@@ -1309,6 +1411,8 @@ export function AttackPathsV2({
             onSelectPath={handleSelectExfilPath}
             jewelName={selectedJewel?.name ?? null}
             loading={exfilLoading}
+            error={exfilError}
+            answered={exfilData != null}
             notApplicableReason={
               exfilData?.applicability?.state === "NOT_APPLICABLE"
                 ? exfilData.applicability.reason
@@ -1323,12 +1427,29 @@ export function AttackPathsV2({
             loading={convergenceLoading && !effectiveConvergenceData}
           />
         ) : (
-          <PathListGrouped
-            paths={jewelPaths}
-            jewel={jewels.find((j) => j.id === selectedJewelId) ?? null}
-            selectedPathId={selectedPathId}
-            onSelectPath={handleSelectPath}
-          />
+          <>
+            {/* AP201 (CP-B): Current Access by SOURCE -- every compute the serve answer names, grouped by what the
+                server said about it; "Approval not recorded" on every row. Only over the serve answer (never the IAP
+                fallback); the path list below keeps every route. */}
+            {jewelRail.source === "serve" ? (
+              <CurrentAccessSourceList
+                data={jewelSummaryConvergence}
+                activePaths={jewelPaths}
+                jewelName={selectedJewel?.name ?? null}
+                jewelType={selectedJewel?.type ?? null}
+                selectedPathId={selectedPathId}
+                onSelectPath={handleSelectPath}
+              />
+            ) : null}
+            <PathListGrouped
+              paths={jewelPaths}
+              jewel={jewels.find((j) => j.id === selectedJewelId) ?? null}
+              selectedPathId={selectedPathId}
+              onSelectPath={handleSelectPath}
+              answerNotReady={selectedAnswerNotReady}
+              answerPartial={selectedAnswerPartial}
+            />
+          </>
         )}
           </>
         )}
@@ -1337,7 +1458,7 @@ export function AttackPathsV2({
       {/* Column 3 — Per-path analysis OR Exposure view, gated by mode */}
       <main
         ref={mainScrollRef}
-        className={`flex-1 bg-background ${
+        className={`flex-1 min-h-[70vh] lg:min-h-0 bg-background ${
           embedded && isPathExpanded
             ? "flex flex-col min-h-[78vh] overflow-visible"
             : isPathExpanded && (viewMode === "attacker_map" || viewMode === "attack-path")
@@ -1354,7 +1475,7 @@ export function AttackPathsV2({
               mode={viewMode}
               onChange={handleSetMode}
               jewelName={jewels.find((j) => j.id === selectedJewelId)?.name ?? null}
-              pathCount={jewelPaths.length}
+              count={selectedCount}
               isExpanded={isPathExpanded}
               onToggleExpand={handleToggleExpand}
               showBeta={showBeta}
@@ -1382,7 +1503,6 @@ export function AttackPathsV2({
               mode={viewMode}
               onChange={handleSetMode}
               jewelName={null}
-              pathCount={0}
               isExpanded={isPathExpanded}
               onToggleExpand={handleToggleExpand}
               showBeta={showBeta}
@@ -1398,15 +1518,15 @@ export function AttackPathsV2({
               mode={viewMode}
               onChange={handleSetMode}
               jewelName={jewels.find((j) => j.id === selectedJewelId)?.name ?? null}
-              pathCount={jewelPaths.length}
+              count={selectedCount}
               isExpanded={isPathExpanded}
               onToggleExpand={handleToggleExpand}
               showBeta={showBeta}
             />
             {currentAccessZero && ["attack-path", "attacker_map", "attacker_v2", "convergence"].includes(viewMode) ? (
               <EmptyState
-                title={currentAccessZeroTitle}
-                subtitle={currentAccessZeroSubtitle}
+                title={currentAccessZero.title}
+                subtitle={currentAccessZero.subtitle}
                 large
               />
             ) : viewMode === "exposure" ? (
@@ -1649,6 +1769,7 @@ export function AttackPathsV2({
         )}
       </main>
     </div>
+    </AttackPathSystemIdentity>
   )
 }
 
@@ -1663,7 +1784,7 @@ function ModeToggle({
   mode,
   onChange,
   jewelName,
-  pathCount,
+  count = null,
   isExpanded,
   onToggleExpand,
   showBeta = false,
@@ -1671,7 +1792,8 @@ function ModeToggle({
   mode: AttackPathsMode
   onChange: (next: AttackPathsMode) => void
   jewelName: string | null
-  pathCount: number
+  /** AP187/AP188: the selected target's path count as the page's read state supports it (convergence-readiness). */
+  count?: SelectedPathCount | null
   isExpanded: boolean
   onToggleExpand: () => void
   /** Gate for beta engineering canvases (?beta=1). */
@@ -1682,46 +1804,48 @@ function ModeToggle({
   const tabs = buildModeBarTabs(showBeta)
   const highlight = modeBarHighlight(mode)
   return (
-    <div className="px-6 py-3 border-b border-border bg-background/95 backdrop-blur sticky top-0 z-20 flex items-center gap-3 min-w-0 shrink-0">
+    // AP192: the bar wraps by the room the graph pane gives it, never by the viewport. The tab strip comes last and is
+    // sized by its content (flex-auto): it shares the first line only when every tab fits there, otherwise it takes a
+    // full line of its own and scrolls inside it. So the strip and the selected-target count are never 0px wide.
+    <div className="px-6 py-3 border-b border-border bg-background/95 backdrop-blur sticky top-0 z-20 flex flex-wrap items-center gap-3 min-w-0 shrink-0">
       {/* Freshness pill — graph age from CollectorRun.finished_at.
           Lives in the shared tab bar so every view tab inherits an
           honest "Graph synced X min ago" signal. Replaces the
           implicit "live" framing the tab subtitles use. */}
       <FreshnessBanner variant="pill" className="shrink-0" />
-      {/* ATLAS is an inline section at the bottom of the Attacker View
-          canvas (atlas-inline-section.tsx). EXFIL inverts the BFS
-          direction: jewel = SOURCE, external destinations = SINKS.
-          Topology shows the customer's architecture, not the
-          attacker's path. */}
-      <div className="min-w-0 flex-1 overflow-x-auto">
-        <div className="flex rounded-md border border-border overflow-hidden w-max max-w-full">
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => onChange(tab.key)}
-            title={tab.title}
-            className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider transition-colors border-r border-border last:border-r-0 ${
-              highlight === tab.key
-                ? "bg-primary/10 text-primary"
-                : "bg-card text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-        </div>
-      </div>
       {/* Quiet context — mode descriptions live in the tab tooltips. The
          path count is suppressed in topology mode because the canvas
          displays its own count from /by-crown-jewel (different endpoint,
          different number). Showing both invites confusion. */}
-      <div className="text-[10px] text-muted-foreground min-w-0 truncate hidden md:block max-w-[220px] shrink">
-        {jewelName
-          ? mode === "topology"
-            ? jewelName
-            : `${jewelName} · ${pathCount} path${pathCount === 1 ? "" : "s"}`
-          : null}
-      </div>
+      {/* AP187/AP188: the selected target's count in the words its read state supports (convergence-readiness): a
+          whole count keeps "<name> · N paths", a partial one says "listed", and loading / unavailable / not ready say
+          so, never a zero. A note line takes the first line's width and never widens the block (w-0 min-w-full), so
+          the tab strip beside it keeps its room. Full text in the titles. AP188 (F4/F5): shown at every width (it was
+          md-only); AP192: the bar wraps by its own room, so the count is never squeezed to 0px. */}
+      {(() => {
+        const lines = jewelName && mode !== "topology" && count ? selectedPathCountLines(jewelName, count) : null
+        if (lines?.secondary) {
+          return (
+            <div className="text-[10px] min-w-0 max-w-[220px] shrink" data-testid="mode-bar-target-count">
+              <div className="truncate text-muted-foreground" title={lines.title ? `${lines.primary} — ${lines.title}` : lines.primary}>
+                {lines.primary}
+              </div>
+              <div className="w-0 min-w-full truncate text-amber-700 dark:text-amber-400" title={lines.secondary} data-testid="mode-bar-coverage-note">
+                {lines.secondary}
+              </div>
+            </div>
+          )
+        }
+        return (
+          <div
+            className="text-[10px] text-muted-foreground min-w-0 truncate max-w-[220px] shrink"
+            data-testid="mode-bar-target-count"
+            title={lines?.title ?? undefined}
+          >
+            {jewelName ? (lines ? lines.primary : jewelName) : null}
+          </div>
+        )
+      })()}
       <button
         onClick={onToggleExpand}
         title={isExpanded ? "Collapse — restore jewels + paths columns" : "Expand canvas — hide jewels + paths columns"}
@@ -1740,6 +1864,36 @@ function ModeToggle({
           </>
         )}
       </button>
+      {/* ATLAS is an inline section at the bottom of the Attacker View
+          canvas (atlas-inline-section.tsx). EXFIL inverts the BFS
+          direction: jewel = SOURCE, external destinations = SINKS.
+          Topology shows the customer's architecture, not the
+          attacker's path. */}
+      {/* AP188 (F5): the row keeps its full width (w-max) inside the overflow-x-auto wrapper, so every tab is reachable
+          by scrolling or keyboard focus; with max-w-full it was clipped at the wrapper and the last tabs were
+          unreachable. AP192: the wrapper is flex-auto (its basis is the row's own width), so in the wrapping bar it
+          takes a full line whenever the first line has no room for every tab; a flex-1 item (basis 0) was squeezed to
+          58px below md and to 0px at 900 / 1024. */}
+      <div className="min-w-0 flex-auto overflow-x-auto" data-testid="mode-bar-tabs">
+        <div className="flex rounded-md border border-border overflow-hidden w-max">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => onChange(tab.key)}
+            // AP188 (F5): a tab reached by keyboard scrolls fully into view (focus alone left it partly clipped).
+            onFocus={(e) => e.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" })}
+            title={tab.title}
+            className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider transition-colors border-r border-border last:border-r-0 ${
+              highlight === tab.key
+                ? "bg-primary/10 text-primary"
+                : "bg-card text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+        </div>
+      </div>
     </div>
   )
 }

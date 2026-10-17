@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { getCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
-import { systemChoiceDetail } from "@/lib/server/proxy-error"
+import { forwardScopeClaims } from "@/lib/server/scope-claims"
+import { systemChoiceDetail, typedBackendAnswer } from "@/lib/server/proxy-error"
+import { isSemanticHoldPayload } from "@/lib/server/proxy-cache-hygiene"
 
 // =============================================================================
 // Lateral reach proxy —
@@ -39,15 +41,11 @@ export async function GET(
     )
   }
 
-  // A7 B5: a page opened by key names ONE system (backend ?system_key=, with the account for a tag / source key).
-  // Absent, the request -- and its cache key -- is byte-identical to before.
-  const systemKey = req.nextUrl.searchParams.get("system_key")
-  const accountId = req.nextUrl.searchParams.get("account_id")
-  const scope = systemKey ? `&system_key=${encodeURIComponent(systemKey)}${
-    accountId ? `&account_id=${encodeURIComponent(accountId)}` : ""}` : ""
-  const cacheKey = systemKey
-    ? `lateral-reach:${systemName}:${jewelType}:${jewelRef}:key=${systemKey}:${accountId ?? ""}`
-    : `lateral-reach:${systemName}:${jewelType}:${jewelRef}`
+  // AP201 (R11): the tenant / account claims travel with the read and are part of the cache key — one account's
+  // bands are never another's.
+  const claims = new URLSearchParams()
+  const claimsKey = forwardScopeClaims(req.nextUrl.searchParams, claims)
+  const cacheKey = `lateral-reach:${systemName}:${jewelType}:${jewelRef}${claimsKey ? `:${claimsKey}` : ""}`   // no claim: today's key
   const cached = getCached(cacheKey)
   if (cached) {
     return NextResponse.json(cached, {
@@ -62,7 +60,8 @@ export async function GET(
     const t0 = Date.now()
     const url =
       `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(systemName)}/jewel-lateral-reach` +
-      `?jewel_ref=${encodeURIComponent(jewelRef)}&jewel_type=${encodeURIComponent(jewelType)}${scope}`
+      `?jewel_ref=${encodeURIComponent(jewelRef)}&jewel_type=${encodeURIComponent(jewelType)}` +
+      (claimsKey ? `&${claimsKey}` : "")
     const res = await fetch(url, {
       headers: { Accept: "application/json" },
       cache: "no-store",
@@ -79,6 +78,9 @@ export async function GET(
       if (choice) {
         return NextResponse.json({ error: "lateral_reach_unavailable", detail: choice }, { status: 409 })
       }
+      // AP201 review B3: any other typed answer keeps its own status and body (a 422 stays 422), no-store, uncached.
+      const typed = typedBackendAnswer(text, res.status)
+      if (typed) return typed.response
       return NextResponse.json<ProxyError>(
         {
           error: "lateral_reach_unavailable",
@@ -88,6 +90,10 @@ export async function GET(
       )
     }
     const data = await res.json()
+    // A 200 hold is a status answer about right now: passed through no-store, never cached.
+    if (isSemanticHoldPayload(data)) {
+      return NextResponse.json(data, { headers: { "Cache-Control": "no-store", "X-Cache": "BYPASS-HOLD" } })
+    }
     setCached(cacheKey, data, TTL_STD)
     return NextResponse.json(data, {
       headers: {

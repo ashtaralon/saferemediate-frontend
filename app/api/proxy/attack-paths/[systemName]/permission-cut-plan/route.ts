@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { forwardScopeClaims } from "@/lib/server/scope-claims"
+import { typedBackendAnswer } from "@/lib/server/proxy-error"
 
 // =============================================================================
 // Permission-cut plan proxy —
@@ -53,13 +55,17 @@ export async function POST(
     )
   }
 
+  // AP201 (R11) review S1: the tenant / account claims travel with the request.
+  const claimsKey = forwardScopeClaims(req.nextUrl.searchParams, new URLSearchParams())
+
   try {
     const t0 = Date.now()
     const url =
       `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(systemName)}/permission-cut/plan` +
       `?jewel_ref=${encodeURIComponent(jewelRef)}` +
       `&role_arn=${encodeURIComponent(roleArn)}` +
-      `&jewel_type=${encodeURIComponent(jewelType)}`
+      `&jewel_type=${encodeURIComponent(jewelType)}` +
+      (claimsKey ? `&${claimsKey}` : "")
 
     const res = await fetch(url, {
       method: "POST",
@@ -74,6 +80,9 @@ export async function POST(
 
     if (!res.ok) {
       const text = await res.text().catch(() => "")
+      // AP201 review S11: a typed answer keeps its status and body (held, refused, unavailable), never a 502 wrapper.
+      const typed = typedBackendAnswer(text, res.status)
+      if (typed) return typed.response
       return NextResponse.json<ProxyError>(
         {
           error: "permission_cut_plan_unavailable",

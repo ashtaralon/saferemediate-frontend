@@ -245,7 +245,7 @@ export function PathAnalysisPanel({
   const [evidenceOpen, setEvidenceOpen] = useState(true)
 
   const { closure } = useClosurePreview(path)
-  const { report, loading: reportLoading, error: reportError, retry: reportRetry } =
+  const { report, loading: reportLoading, error: reportError, retry: reportRetry, stale: reportStale } =
     useAttackPathReport(path, jewel, closure)
 
   const sevTone = severityTone(path.severity?.severity)
@@ -597,6 +597,11 @@ export function PathAnalysisPanel({
         </div>
         {evidenceOpen && (
         <>
+        {report && reportStale ? (
+          <p className="px-6 pt-3 text-[11px] text-amber-800 dark:text-amber-300" data-testid="report-served-stale">
+            This report was served marked stale: its publication has been invalidated since it was written.
+          </p>
+        ) : null}
         {report && (
           <div className="px-6 pt-4">
             <DamageAwarePathCard

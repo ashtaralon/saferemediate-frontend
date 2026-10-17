@@ -118,6 +118,20 @@ interface ExfilPathListColumnProps {
   jewelName?: string | null
   loading?: boolean
   notApplicableReason?: string | null
+  /** The exfil read failed (no answer). Never rendered as "no exfiltration path". */
+  error?: string | null
+  /** True only when the server actually answered (so an empty list is the answer's own). Default false (review B5): a
+   *  caller that does not say the server answered gets "could not be read", never the server's empty answer. */
+  answered?: boolean
+}
+
+/** Rev 6 §3.12: the exfil answer is jewel-centric; it does not bind the selected compute (P6.1 binding is later). */
+function AggregateBinding() {
+  return (
+    <p className="px-2 text-[10px] text-amber-800 dark:text-amber-300" data-testid="exfil-aggregate-binding">
+      Jewel-wide destinations (aggregate). Not bound to the selected compute.
+    </p>
+  )
 }
 
 export function ExfilPathListColumn({
@@ -127,6 +141,8 @@ export function ExfilPathListColumn({
   jewelName,
   loading = false,
   notApplicableReason = null,
+  error = null,
+  answered = false,
 }: ExfilPathListColumnProps) {
   // Group paths by channel, preserving backend's traffic-sorted order
   // inside each group. Unknown channels fall into a synthetic "OTHER"
@@ -190,17 +206,31 @@ export function ExfilPathListColumn({
     )
   }
 
+  if (paths.length === 0 && (error || !answered)) {
+    return (
+      <div className="px-4 py-3 space-y-2" data-testid="exfil-rail-unread">
+        <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+          Paths to {jewelName ?? "this jewel"}
+        </div>
+        <div className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+          Exfiltration paths could not be read{error ? ` (${error})` : ""}. Unknown, not &ldquo;no exfiltration&rdquo;.
+        </div>
+        <AggregateBinding />
+      </div>
+    )
+  }
+
   if (paths.length === 0) {
     return (
       <div className="px-4 py-3 space-y-2">
         <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
           Paths to {jewelName ?? "this jewel"}
         </div>
-        <div className="text-xs text-muted-foreground leading-relaxed">
-          No exfil paths surfaced. Either no role currently reaches this
-          jewel via any of the four channels, or the collector hasn't
-          observed traffic yet.
+        <div className="text-xs text-muted-foreground leading-relaxed" data-testid="exfil-rail-empty">
+          The server&apos;s answer lists no exfiltration path for this jewel. That is not a &ldquo;no
+          exfiltration&rdquo; verdict: only the channels this answer evaluates are covered.
         </div>
+        <AggregateBinding />
       </div>
     )
   }
@@ -214,6 +244,7 @@ export function ExfilPathListColumn({
           {paths.length}
         </span>
       </div>
+      <AggregateBinding />
 
       {grouped.map(({ channel, paths: groupPaths }) => {
         const isCollapsed = collapsed.has(channel)

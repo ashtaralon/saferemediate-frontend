@@ -67,6 +67,7 @@ import { useZoom0Exfil } from "./use-zoom0-exfil"
 import { buildSelectedExfilArchitecture } from "./exfil-view-v3"
 import { CurrentAccessDossierPanel } from "./current-access-dossier-panel"
 import { pathEvidenceSummary } from "@/lib/attack-paths/path-evidence-view"
+import { CONVERGENCE_NOT_READY_MESSAGE, zoom0ServeCoverage } from "@/lib/attack-paths/convergence-readiness"
 import {
   AtlasLateralChainCanvas,
   AtlasLateralLensPanel,
@@ -177,18 +178,9 @@ export function zoom0RiskSummary(
   return data.risk_summary
 }
 
-/** Authoritative coverage/serve from response root or risk_summary. */
-export function zoom0ServeCoverage(data: CrownJewelConvergence | null): {
-  serve_state: string | null
-  coverage_state: string | null
-} {
-  if (!data) return { serve_state: null, coverage_state: null }
-  return {
-    serve_state: data.serve_state ?? data.risk_summary?.serve_state ?? null,
-    coverage_state:
-      data.coverage_state ?? data.risk_summary?.coverage_state ?? null,
-  }
-}
+// AP188: the serve / coverage reader moved, unchanged, to lib/attack-paths/convergence-readiness.ts -- one reader for
+// this canvas, the header's selected-target count and the union-view link. Re-exported for existing importers.
+export { zoom0ServeCoverage }
 
 /**
  * Resolve what the canvas may show.
@@ -220,8 +212,7 @@ export function zoom0EmptyCanvasMessage(
   if (serve_state === "NOT_READY" || coverage_state === "NOT_READY") {
     return {
       state: "NOT_READY",
-      message:
-        "Attack-path materialization is not ready for this system. Paths are unknown — not absent.",
+      message: CONVERGENCE_NOT_READY_MESSAGE,
     }
   }
   if (coverage_state === "ERROR") {
@@ -859,6 +850,8 @@ export function Zoom0FanInPanel({
               candidatesLoading={atlasLateral.candidatesLoading}
               simulationLoading={atlasLateral.simulationLoading}
               error={atlasLateral.error}
+              evaluationHeld={atlasLateral.evaluationHeld}
+              emptyAnswer={atlasLateral.emptyAnswer}
               onSelectFoothold={atlasLateral.selectFoothold}
               onRetry={atlasLateral.retry}
             />

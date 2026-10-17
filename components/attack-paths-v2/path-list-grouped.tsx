@@ -16,6 +16,12 @@ import type {
 } from "@/components/identity-attack-paths/types"
 import type { ActivePathList } from "@/lib/active-filters"
 import { initialAccessCategoryFromBackend } from "@/lib/attack-paths/initial-access-from-backend"
+import { CONVERGENCE_NOT_READY_MESSAGE } from "@/lib/attack-paths/convergence-readiness"
+import {
+  NO_TARGET_COVERAGE_CAUSE,
+  targetZeroConclusion,
+  targetZeroCoverageSubtitle,
+} from "@/lib/attack-paths/lifecycle-coverage"
 import { getServiceMeta, ServiceTypeBadge } from "@/lib/service-type"
 import type { PathListRow } from "./attack-path-report-types"
 import { compilePathListRow } from "./compile-path-list-row"
@@ -27,6 +33,12 @@ interface PathListGroupedProps {
   jewel: CrownJewelSummary | null
   selectedPathId: string | null
   onSelectPath: (pathId: string) => void
+  /** AP189: the by-crown-jewel answer behind these paths says its projection is not ready, so an empty list is
+   *  unknown, never "no attack paths today". */
+  answerNotReady?: boolean
+  /** AP201 (M6): why the by-crown-jewel answer is not every path (coverage partial, more paths than returned, ...).
+   *  An empty list under such an answer is incomplete, never "no attack paths today". */
+  answerPartial?: string | null
 }
 
 function endpointLabel(row: PathListRow, side: "from" | "to"): string {
@@ -72,6 +84,8 @@ export function PathListGrouped({
   jewel,
   selectedPathId,
   onSelectPath,
+  answerNotReady = false,
+  answerPartial = null,
 }: PathListGroupedProps) {
   const rows = useMemo<PathListRow[]>(() => {
     return paths
@@ -86,6 +100,60 @@ export function PathListGrouped({
   }, [paths, jewel])
 
   if (rows.length === 0) {
+    // AP183: a cause recorded on the target (lifecycle-held, a withheld receipt code, unreadable evidence) means its
+    // coverage is incomplete. It replaces both the "no route" claim and the missing-manifest copy, exactly as the
+    // page's own empty state does. A target with nothing recorded keeps the established copy below.
+    const recordedCause =
+      jewel?.target_state === "no_modeled_route" || jewel?.target_state === "coverage_incomplete"
+        ? targetZeroCoverageSubtitle(jewel.coverage_cause ?? NO_TARGET_COVERAGE_CAUSE)
+        : null
+    if (recordedCause === null && answerNotReady) {
+      return (
+        <div className="px-4 py-6" data-testid="paths-not-ready-state">
+          <div className="text-xs font-medium text-amber-700 dark:text-amber-300">Paths not ready</div>
+          <div className="mt-1.5 text-[11px] text-muted-foreground">{CONVERGENCE_NOT_READY_MESSAGE}</div>
+        </div>
+      )
+    }
+    if (recordedCause === null && answerPartial) {
+      return (
+        <div className="px-4 py-6" data-testid="paths-partial-state">
+          <div className="text-xs font-medium text-amber-700 dark:text-amber-300">No path listed · coverage incomplete</div>
+          <div className="mt-1.5 text-[11px] text-muted-foreground">
+            The active generation listed no path to this crown jewel, but its answer is not complete ({answerPartial}).
+            Cyntro does not claim that no route exists.
+          </div>
+        </div>
+      )
+    }
+    if (recordedCause !== null) {
+      return (
+        <div
+          className="px-4 py-6"
+          data-testid="coverage-incomplete-state"
+          data-coverage-cause={jewel?.coverage_cause?.kind}
+        >
+          <div className="text-xs font-medium text-amber-700 dark:text-amber-300">
+            Coverage incomplete
+          </div>
+          <div className="mt-1.5 text-[11px] text-muted-foreground">{recordedCause}</div>
+        </div>
+      )
+    }
+    // AP196: a no_modeled_route target whose catalog count could not be read is not proved to have no route; the
+    // page's empty state and the Topology view say the same, from the one mapping (targetZeroConclusion).
+    const countUnreadable =
+      jewel?.target_state === "no_modeled_route" && jewel.catalog_path_count === null
+        ? targetZeroConclusion(jewel.target_state, NO_TARGET_COVERAGE_CAUSE, false)
+        : null
+    if (countUnreadable !== null) {
+      return (
+        <div className="px-4 py-6" data-testid="path-count-unreadable-state">
+          <div className="text-xs font-medium text-amber-700 dark:text-amber-300">{countUnreadable.title}</div>
+          <div className="mt-1.5 text-[11px] text-muted-foreground">{countUnreadable.subtitle}</div>
+        </div>
+      )
+    }
     if (jewel?.target_state === "no_modeled_route") {
       return (
         <div className="px-4 py-6" data-testid="no-modeled-route-state">

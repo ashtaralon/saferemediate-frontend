@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import capturedSection from "@/__tests__/fixtures/ap182-lifecycle/target-catalog-section.json"
 import {
   isTargetCatalogCacheable,
   isTargetCatalogPayload,
@@ -79,10 +80,27 @@ describe("targetEntryToJewelSummary", () => {
     }))
     expect(jewel.target_state).toBe("no_modeled_route")
     expect(jewel.severity).toBeNull()
-    expect(jewel.highest_risk_score).toBe(0)
+    // AP201 (I3): no path, no score -- null, never a risk score of 0.
+    expect(jewel.highest_risk_score).toBeNull()
     expect(jewel.priority_score).toBe(0)
     expect(jewel.path_count).toBe(0)
     expect(jewel.paths_not_computed).toBe(false)
+  })
+
+  it("AP201 (I3): the risk score is the served number or null, never a coerced 0 beside a label", () => {
+    // a label with no numeric score (the backend omitted / nulled max_severity) is 'not reported'
+    const unscored = targetEntryToJewelSummary(
+      entry({ max_severity: undefined as unknown as number, max_severity_label: "HIGH" }),
+    )
+    expect(unscored.severity).toBe("HIGH")
+    expect(unscored.highest_risk_score).toBeNull()
+    const nulled = targetEntryToJewelSummary(entry({ max_severity: null as unknown as number }))
+    expect(nulled.highest_risk_score).toBeNull()
+    const malformed = targetEntryToJewelSummary(entry({ max_severity: "70" as unknown as number }))
+    expect(malformed.highest_risk_score).toBeNull()
+    // a served number is kept as served
+    expect(targetEntryToJewelSummary(entry({ max_severity: 0 })).highest_risk_score).toBe(0)
+    expect(targetEntryToJewelSummary(entry({ max_severity: 70 })).highest_risk_score).toBe(70)
   })
 
   it("never derives a severity label client-side", () => {
@@ -165,14 +183,155 @@ describe("targetCatalogTotals", () => {
       ],
     })
 
+    // AP182: a catalog with no recorded cause names no held path and no withheld target (resolved / legacy).
     expect(targetCatalogTotals(value)).toEqual({
       pathCount: 5,
       reachableTargetCount: 2,
+      lifecycleHeld: false,
+      heldPathCount: null,
+      withheldTargetCount: 0,
+      unreadableTargetCount: 0,
     })
   })
 
   it("does not quote totals from a projection that is not ready", () => {
     expect(targetCatalogTotals(catalog({ serve_state: "NOT_READY" }))).toBeNull()
+  })
+
+  // AP193: Codex's reproduction (ap191-child-b-review/residual-source/review.test.tsx) as cases. The backend model
+  // always serialises path_count (TargetCatalogEntry.path_count: int = 0), so absence is no supported legacy shape.
+  it("AP193 CONTROL: a served 0 is a zero, and a complete one", () => {
+    expect(targetCatalogTotals(catalog({ targets: [entry({ target_id: "a", path_count: 0 })] })))
+      .toMatchObject({ pathCount: 0, reachableTargetCount: 0, unreadableTargetCount: 0 })
+  })
+
+  it.each([["bad"], [-1], [1.5], [null], [undefined], ["3"]])(
+    "AP193 CONSTRUCTED path_count %j: flagged unreadable, in no total, never NaN",
+    (raw) => {
+      const value = catalog({ targets: [
+        entry({ target_id: "a", path_count: 2 }),
+        { ...entry({ target_id: "b" }), path_count: raw as never },
+      ] })
+      if (raw === undefined) delete (value.targets[1] as Partial<TargetCatalogEntry>).path_count
+      const totals = targetCatalogTotals(value)
+      expect(totals).toMatchObject({ pathCount: 2, reachableTargetCount: 1, unreadableTargetCount: 1 })
+      expect(Number.isFinite(totals!.pathCount)).toBe(true)
+    },
+  )
+
+  it("AP193 a target unreadable on BOTH its cause and its count is counted once", () => {
+    const value = catalog({ targets: [{ ...entry({ target_id: "a" }), path_count: "bad" as never, held_path_count: 0 }] })
+    expect(targetCatalogTotals(value)).toMatchObject({ pathCount: 0, reachableTargetCount: 0, unreadableTargetCount: 1 })
+  })
+})
+
+// ── AP182: lifecycle-held and withheld targets, over the captured section (__tests__/fixtures/ap182-lifecycle) ───
+
+describe("AP182 · the catalog's recorded causes reach the rail and the totals", () => {
+  const captured = capturedSection as unknown as TargetCatalog
+  const byName = (rows: ReturnType<typeof targetCatalogToJewelSummaries>, name: string) => rows.find((r) => r.name === name)!
+
+  it("each target carries its own cause, judged from its raw fields", () => {
+    const rows = targetCatalogToJewelSummaries(captured)
+    const mixed = byName(rows, "bucket-1")
+    expect([mixed.path_count, mixed.coverage_cause, mixed.target_state]).toEqual(
+      [1, { kind: "lifecycle", held: 2 }, "observed"])
+    const allHeld = byName(rows, "empty-bucket")
+    expect([allHeld.path_count, allHeld.coverage_cause, allHeld.target_state]).toEqual(
+      [0, { kind: "lifecycle", held: 1 }, "coverage_incomplete"])
+    expect(byName(rows, "aurora-a").coverage_cause).toEqual({
+      kind: "withheld", code: "database_eni_binding_not_in_normalized_inventory", held: "none" })
+  })
+
+  it("a target with nothing recorded maps exactly as before: no new key", () => {
+    const legacy = captured.targets.find((t) => t.name === "db-1")!
+    const mapped = targetEntryToJewelSummary(legacy)
+    expect("coverage_cause" in mapped).toBe(false)
+    expect(Object.keys(targetEntryToJewelSummary(entry())).sort()).toEqual(Object.keys(mapped).sort())
+    // the non-install route's documented null reason is nothing recorded too
+    expect("coverage_cause" in targetEntryToJewelSummary(entry({ coverage_withheld_reason: null }))).toBe(false)
+  })
+
+  it("AP183-R2 CONSTRUCTED malformed presence survives the adapter as UNREADABLE (never dropped, never 0)", () => {
+    for (const overrides of [
+      { held_path_count: "bad" as never }, { held_path_count: 0 }, { coverage_withheld_reason: {} as never },
+      { coverage_withheld_reason: null, held_path_count: null as never },
+    ]) {
+      expect(targetEntryToJewelSummary(entry(overrides)).coverage_cause, JSON.stringify(overrides))
+        .toEqual({ kind: "unreadable" })
+    }
+    // a malformed count beside a readable reason: held, the count not reported
+    expect(targetEntryToJewelSummary(entry({ coverage_withheld_reason: "lifecycle_held", held_path_count: "2" as never }))
+      .coverage_cause).toEqual({ kind: "lifecycle", held: "unreported" })
+  })
+
+  it("totals: listed paths only, with the held count and the withheld targets beside them", () => {
+    expect(targetCatalogTotals(captured)).toEqual({
+      pathCount: 2,               // bucket-1 (1) + aurora-a (1): the eligible, listed paths
+      reachableTargetCount: 2,
+      lifecycleHeld: true,
+      heldPathCount: 3,           // bucket-1 2 + empty-bucket 1, each the target's own count
+      withheldTargetCount: 3,     // the three RDS clusters the stage receipt withheld
+      unreadableTargetCount: 0,
+    })
+  })
+
+  it("non-install shape (derived by REMOVING every held_path_count): still held, the count unknown", () => {
+    const nonInstall = {
+      ...captured,
+      targets: captured.targets.map(({ held_path_count: _drop, ...rest }) => rest),
+    } as TargetCatalog
+    expect(targetCatalogTotals(nonInstall)).toMatchObject({ pathCount: 2, lifecycleHeld: true, heldPathCount: null })
+  })
+
+  it("CONSTRUCTED receipt-withheld target that is ALSO held: withheld and held both count", () => {
+    const value = catalog({ targets: [
+      entry({ target_id: "a", path_count: 1, coverage_withheld_reason: "some_receipt_code", held_path_count: 2 }),
+      entry({ target_id: "b", path_count: 1, coverage_withheld_reason: "lifecycle_held", held_path_count: 1 }),
+      entry({ target_id: "c", path_count: 0, coverage_withheld_reason: "lifecycle_held", held_path_count: "x" as never }),
+    ] })
+    expect(targetCatalogTotals(value)).toEqual({
+      pathCount: 2, reachableTargetCount: 2, lifecycleHeld: true,
+      heldPathCount: null,          // target c is held but reports no well-formed count: the sum is unknown
+      withheldTargetCount: 1,
+      unreadableTargetCount: 0,
+    })
+    expect(targetCatalogTotals(catalog({ targets: value.targets.slice(0, 2) }))).toMatchObject({ heldPathCount: 3 })
+  })
+
+  it("AP183-R2 CONSTRUCTED unreadable targets are counted apart: never held, never complete", () => {
+    const value = catalog({ targets: [
+      entry({ target_id: "a", path_count: 2 }),
+      entry({ target_id: "b", path_count: 0, held_path_count: 0 }),
+      entry({ target_id: "c", path_count: 1, coverage_withheld_reason: {} as never }),
+    ] })
+    expect(targetCatalogTotals(value)).toEqual({
+      pathCount: 3, reachableTargetCount: 2, lifecycleHeld: false, heldPathCount: null, withheldTargetCount: 0,
+      unreadableTargetCount: 2,
+    })
+  })
+
+  it("AP184-2 CONSTRUCTED receipt code + malformed count: withheld and unreadable, never held, never summed", () => {
+    for (const count of ["bad", null, 0]) {
+      const value = catalog({ targets: [
+        entry({ target_id: "a", path_count: 1, coverage_withheld_reason: "target_coverage_withheld_unreadable",
+                held_path_count: count as never }),
+        entry({ target_id: "b", path_count: 1, coverage_withheld_reason: "lifecycle_held", held_path_count: 2 }),
+      ] })
+      expect(targetCatalogTotals(value), String(count)).toEqual({
+        pathCount: 2, reachableTargetCount: 2,
+        lifecycleHeld: true, heldPathCount: 2,          // target b's own count only: a adds no held path
+        withheldTargetCount: 1, unreadableTargetCount: 1,
+      })
+    }
+    // a valid count beside the receipt code is held and summed
+    expect(targetCatalogTotals(catalog({ targets: [
+      entry({ target_id: "a", path_count: 1, coverage_withheld_reason: "target_coverage_withheld_unreadable", held_path_count: 3 }),
+    ] }))).toMatchObject({ lifecycleHeld: true, heldPathCount: 3, withheldTargetCount: 1, unreadableTargetCount: 0 })
+  })
+
+  it("a captured section keeps its cache rule: READY with targets", () => {
+    expect(isTargetCatalogCacheable(captured)).toBe(true)
   })
 })
 

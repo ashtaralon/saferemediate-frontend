@@ -1,0 +1,78 @@
+{
+  "analysis_complete": false,
+  "coverage": null,
+  "critical_paths": null,
+  "crown_jewels": [
+    {
+      "canonical_id": "arn:aws:s3:::bucket-1",
+      "class_counts": {
+        "unclassified": 2
+      },
+      "crown_jewel_source": null,
+      "data_classification": null,
+      "highest_risk_score": 6,
+      "id": "arn:aws:s3:::bucket-1",
+      "is_internet_exposed": false,
+      "materialized_path_count": 2,
+      "materialized_path_count_total": 2,
+      "name": "bucket-1",
+      "out_of_scope_path_count": 0,
+      "path_count": 2,
+      "priority_score": 6,
+      "severity": "LOW",
+      "system_key": "authored_system:ord",
+      "system_keys": [
+        "authored_system:ord",
+        "authored_system:pay"
+      ],
+      "system_name": "Orders",
+      "system_names": [
+        "Orders",
+        "Payments"
+      ],
+      "type": "S3Bucket"
+    }
+  ],
+  "crown_jewels_partial": true,
+  "errors": [],
+  "exposed_jewels": null,
+  "graph_version": "inventory.resource_state.v1/4/run-4",
+  "high_paths": null,
+  "legacy_unverified_systems": [],
+  "lifecycle_unverified_systems": [
+    "Payments (authored_system:pay): jewel_coverage_record_missing"
+  ],
+  "not_ready_reason": "1 published system row(s) without a verifiable lifecycle record",
+  "paths": [],
+  "provenance": {
+    "computed": 0,
+    "from_snapshot": 2,
+    "publication": "iap"
+  },
+  "read_model": "iap_publication",
+  "scanned_totals": {
+    "critical_paths": 0,
+    "exposed_jewels": 0,
+    "high_paths": 0,
+    "total_jewels": 1,
+    "total_paths": 2
+  },
+  "semantic_status": "populated",
+  "serve_state": "PARTIAL",
+  "snapshot_age_seconds": {
+    "newest": 0,
+    "oldest": 0
+  },
+  "snapshot_generations": [
+    "inventory.resource_state.v1/4/run-4"
+  ],
+  "source_generation": "inventory.resource_state.v1/4/run-4",
+  "system_name": "all",
+  "systems_discovered": 2,
+  "systems_scanned": 2,
+  "systems_uncomputed": 0,
+  "timestamp": "2026-10-16T16:25:34.541198+00:00",
+  "total_jewels": null,
+  "total_paths": null,
+  "uncomputed": []
+}

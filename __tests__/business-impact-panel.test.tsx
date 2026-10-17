@@ -58,6 +58,31 @@ beforeEach(() => {
 })
 
 describe("BusinessImpactPanel", () => {
+  // AP201 Rev 6 §3.4 (AP201-CP-A-READ-1): an OMITTED array is "not reported", distinct from an explicit empty one.
+  it("says an explicit empty components / regulatory / comparables list is empty", async () => {
+    render(<BusinessImpactPanel systemName="payments-prod" pathId="path-1" />)
+    fireEvent.click(await screen.findByRole("button", { name: /Calculation, assumptions, and regulatory exposure/ }))
+    expect(screen.getByTestId("bi-components-empty").textContent).toBe("No monetary components are defined yet.")
+    expect(screen.getByTestId("bi-regulatory-empty").textContent).toBe("No potentially applicable rule pack is selected for this scenario.")
+    expect(screen.getByTestId("bi-comparables-empty").textContent).toBe("No high-provenance comparable is matched yet.")
+  })
+
+  it("says an omitted components / regulatory / comparables field is not reported, never empty", async () => {
+    const base = await (global.fetch as unknown as () => Promise<{ json: () => Promise<Record<string, unknown>> }>)().then((r) => r.json())
+    const scenario = { ...(base.scenarios as Array<Record<string, unknown>>)[0] }
+    delete scenario.regulatory_exposure
+    delete scenario.comparable_incidents
+    const loss = { ...(scenario.conditional_loss as Record<string, unknown>) }
+    delete loss.components
+    scenario.conditional_loss = loss
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ...base, scenarios: [scenario] }) }) as unknown as typeof fetch
+    render(<BusinessImpactPanel systemName="payments-prod" pathId="path-1" />)
+    fireEvent.click(await screen.findByRole("button", { name: /Calculation, assumptions, and regulatory exposure/ }))
+    expect(screen.getByTestId("bi-components-empty").textContent).toBe("Loss components not reported by the server.")
+    expect(screen.getByTestId("bi-regulatory-empty").textContent).toBe("Regulatory exposure not reported by the server.")
+    expect(screen.getByTestId("bi-comparables-empty").textContent).toBe("Comparable incidents not reported by the server.")
+  })
+
   it("keeps technical exposure separate from conditional loss", async () => {
     render(<BusinessImpactPanel systemName="payments-prod" pathId="path-1" />)
 

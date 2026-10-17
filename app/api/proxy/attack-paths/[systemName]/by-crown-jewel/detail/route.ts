@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
-import { systemChoiceDetail } from "@/lib/server/proxy-error"
+import { forwardScopeClaims } from "@/lib/server/scope-claims"
+import { systemChoiceDetail, typedBackendAnswer } from "@/lib/server/proxy-error"
+import { isSemanticHoldPayload } from "@/lib/server/proxy-cache-hygiene"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -34,14 +36,7 @@ export async function GET(
   const qs = new URLSearchParams({ path_id: pathId })
   if (cjArn) qs.set("cj_arn", cjArn)
   if (cjName) qs.set("cj_name", cjName)
-  // A7 B5: a page opened by key names ONE system (backend ?system_key=, with the account for a tag / source key).
-  // Absent, the request -- and the edge cache's URL -- is byte-identical to before.
-  const systemKey = searchParams.get("system_key")
-  const accountId = searchParams.get("account_id")
-  if (systemKey) {
-    qs.set("system_key", systemKey)
-    if (accountId) qs.set("account_id", accountId)
-  }
+  forwardScopeClaims(searchParams, qs)   // AP201 (R11): the tenant / account claims travel with the read
 
   try {
     const url = `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(systemName)}/by-crown-jewel/detail?${qs}`
@@ -55,6 +50,9 @@ export async function GET(
       console.error(`[by-crown-jewel/detail] backend ${res.status}: ${body.slice(0, 200)}`)
       // A7 B5: the 409 system choice is relayed (typed) so the page can offer it; every other refusal answers as before.
       const choice = systemChoiceDetail(body)
+      // AP201 review B3: any other typed answer passes through as the server gave it, no-store.
+      const typed = choice ? null : typedBackendAnswer(body, res.status)
+      if (typed) return typed.response
       return NextResponse.json(
         { error: "Failed to load crown jewel path detail", status: res.status, ...(choice ? { detail: choice } : {}) },
         { status: res.status },
@@ -64,8 +62,12 @@ export async function GET(
     // (cj, path_id) tuple is its own cache key, so spotlight users
     // toggling between paths on the same jewel get instant responses
     // after the first hit. 4h graph turnover dwarfs the 60s freshness
-    // window; stale-while-revalidate keeps the page warm.
-    return NextResponse.json(await res.json(), {
+    // window; stale-while-revalidate keeps the page warm. A 200 hold is a status answer about right now: no-store.
+    const data = await res.json()
+    if (isSemanticHoldPayload(data)) {
+      return NextResponse.json(data, { headers: { "Cache-Control": "no-store", "X-Cache": "BYPASS-HOLD" } })
+    }
+    return NextResponse.json(data, {
       headers: {
         "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
       },

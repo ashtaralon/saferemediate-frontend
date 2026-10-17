@@ -174,7 +174,8 @@ function damageVerbsFromPath(path: IdentityAttackPath): string[] {
     (fromDirect && fromDirect.length > 0 ? fromDirect : []) ??
     []
   const order = ["admin", "delete", "exfiltrate", "write", "read", "encrypt", "corrupt"]
-  const set = new Set(types.map((t) => t.toLowerCase()))
+  // AP201 (C6): a served entry that is not a string is not a damage verb; skipped, never dereferenced.
+  const set = new Set(types.filter((t): t is string => typeof t === "string").map((t) => t.toLowerCase()))
   const out: string[] = []
   for (const o of order) {
     if (set.has(o)) out.push(o === "exfiltrate" ? "EXFIL" : o.toUpperCase())

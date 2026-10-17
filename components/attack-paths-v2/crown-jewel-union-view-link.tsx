@@ -9,6 +9,9 @@ import {
   filterRealConvergencePaths,
   jewelIdForNavigation,
 } from "@/lib/attack-paths/crown-jewel-v2-navigation"
+import { readConvergencePaths } from "@/lib/attack-paths/convergence-readiness"
+import { useAttackPathReadClaims } from "@/lib/attack-paths/read-scope-context"
+import { scopeClaimsKey } from "@/lib/attack-paths/scope-claims"
 
 export function CrownJewelUnionViewLink({
   systemName,
@@ -24,6 +27,15 @@ export function CrownJewelUnionViewLink({
   jewel: CrownJewelSummary | null
 }) {
   const [realPathCount, setRealPathCount] = useState<number | null>(null)
+  // AP188: why the count is not every path to the jewel (an install's capped publication is always PARTIAL), or null.
+  const [countPartial, setCountPartial] = useState<string | null>(null)
+  // AP190: the request the count and its reason answer. Evidence about another system or jewel is never shown: while
+  // a new jewel's read is pending, or after it fails, is held or is not ready, there is no count.
+  const requestKey = jewel && systemName ? [systemName, jewel.id, jewel.canonical_id ?? "", jewel.name ?? ""].join("\u0000") : null
+  const [countKey, setCountKey] = useState<string | null>(null)
+  // AP201 review S1/S2: the summary read carries the page's claims (selected account; a key's own account wins).
+  const claims = useAttackPathReadClaims({ systemKey, systemAccountId })
+  const claimsKey = scopeClaimsKey(claims)
 
   useEffect(() => {
     if (!jewel || !systemName) {
@@ -31,18 +43,26 @@ export function CrownJewelUnionViewLink({
       return
     }
     let cancelled = false
+    const key = requestKey
     void (async () => {
-      const summary = await fetchConvergenceSummary(systemName, jewel, systemKey, systemAccountId)
+      const summary = await fetchConvergenceSummary(systemName, jewel, claims)
       if (cancelled) return
-      const n = summary ? filterRealConvergencePaths(summary.paths).length : 0
-      setRealPathCount(n)
-    })()
+      // AP188: a count only from an answer that lists paths; a hold, a refusal, a not-ready or pathless body has none.
+      const reading = readConvergencePaths(summary)
+      setRealPathCount(reading.kind === "paths" ? filterRealConvergencePaths(reading.paths).length : null)
+      setCountPartial(reading.kind === "paths" ? reading.partial : null)
+      setCountKey(key)
+    })().catch(() => {
+      if (cancelled) return
+      setRealPathCount(null)                            // a failed read is no count, never an unhandled rejection
+      setCountKey(key)
+    })
     return () => {
       cancelled = true
     }
-  }, [systemName, jewel?.id, jewel?.canonical_id, jewel?.name, systemKey, systemAccountId])
+  }, [systemName, jewel?.id, jewel?.canonical_id, jewel?.name, claimsKey])
 
-  if (!jewel || realPathCount === null || realPathCount <= 1) return null
+  if (!jewel || countKey !== requestKey || realPathCount === null || realPathCount <= 1) return null
 
   const href = buildTfmSpotlightUrl(systemName, jewelIdForNavigation(jewel), systemKey, systemAccountId)
 
@@ -50,9 +70,16 @@ export function CrownJewelUnionViewLink({
     <Link
       href={href}
       className="text-[11px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline shrink-0"
-      title="Open Traffic Flow Map union view — all workloads reaching this jewel"
+      title={
+        countPartial
+          ? `Open Traffic Flow Map union view. ${realPathCount} paths were listed for this jewel (${countPartial}); more may exist.`
+          : "Open Traffic Flow Map union view — all workloads reaching this jewel"
+      }
+      data-count-partial={countPartial ?? undefined}
     >
-      Advanced: {realPathCount} paths to this jewel — view all
+      {countPartial
+        ? `Advanced: ${realPathCount} listed paths to this jewel (more may exist) — view all`
+        : `Advanced: ${realPathCount} paths to this jewel — view all`}
     </Link>
   )
 }

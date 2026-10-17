@@ -7,6 +7,7 @@ import {
   TTL_FAST,
   TTL_SLOW,
 } from "@/lib/server/proxy-cache"
+import { forwardScopeClaims } from "@/lib/server/scope-claims"
 import { systemChoiceDetail } from "@/lib/server/proxy-error"
 
 export const runtime = "nodejs"
@@ -34,16 +35,10 @@ export async function GET(
   { params }: { params: Promise<{ systemName: string }> },
 ) {
   const { systemName } = await params
-  // A7 B5: a page opened by key names ONE system (backend ?system_key=, with the account for a tag / source key).
-  // Absent, the request -- and its cache key -- is byte-identical to before.
-  const { searchParams } = new URL(req.url)
-  const systemKey = searchParams.get("system_key")
-  const accountId = searchParams.get("account_id")
-  const scope = systemKey ? `&system_key=${encodeURIComponent(systemKey)}${
-    accountId ? `&account_id=${encodeURIComponent(accountId)}` : ""}` : ""
-  const cacheKey = systemKey
-    ? `iap-jewels:${systemName}:key=${systemKey}:${accountId ?? ""}`
-    : `iap-jewels:${systemName}`
+  // AP201 (R11): the tenant / account claims travel with the read and key the cache — never another account's list.
+  const upstream = new URLSearchParams({ max_jewels: "12" })
+  const claimsKey = forwardScopeClaims(req.nextUrl.searchParams, upstream)
+  const cacheKey = claimsKey ? `iap-jewels:${systemName}:${claimsKey}` : `iap-jewels:${systemName}`   // no claim: today's key
   const cached = getCached(cacheKey)
   // Never serve a cached empty list as a HIT — empty was often a cold
   // SERVE / freeze artifact and poisons the Attack Paths rail for TTL_SLOW.
@@ -57,7 +52,7 @@ export async function GET(
   }
 
   try {
-    const url = `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(systemName)}/jewels?max_jewels=12${scope}`
+    const url = `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(systemName)}/jewels?${upstream}`
     const res = await fetch(url, {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",

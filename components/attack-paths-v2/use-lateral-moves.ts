@@ -1,6 +1,9 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { useAttackPathReadClaims } from "@/lib/attack-paths/read-scope-context"
+import { heldRouteMessage } from "@/lib/attack-paths/held-route-message"
+import { appendScopeClaims } from "@/lib/attack-paths/scope-claims"
 
 export type LateralMoveEvidence = "OBSERVED" | "CONFIGURED" | "BLOCKED" | "UNKNOWN"
 export type LateralMoveRisk = "REAL_DAMAGE" | "CAPABILITY" | "PIVOT" | "CONTAINED" | "UNKNOWN"
@@ -54,6 +57,9 @@ export function useLateralMoves(
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<LateralMovesPayload | null>(null)
+  // AP201 review S1: a held reader carries THE page's claims too (selected account; a system key's own account wins),
+  // so the day its route is admitted it names the account the page names. 
+  const claims = useAttackPathReadClaims()
   const limit = opts?.limit ?? 5
 
   const fetchMoves = useCallback(
@@ -62,6 +68,7 @@ export function useLateralMoves(
       setError(null)
       try {
         const params = new URLSearchParams({ limit: String(limit) })
+        appendScopeClaims(params, claims)
         if (t.jewelId) params.set("jewel_id", t.jewelId)
         const url = `/api/proxy/identity-attack-paths/${encodeURIComponent(t.systemName)}/identity/${encodeURIComponent(t.identityId)}/lateral-moves?${params.toString()}`
         const res = await fetch(url, { cache: "no-store" })
@@ -70,7 +77,9 @@ export function useLateralMoves(
           detail?: string
         }
         if (!res.ok) {
-          throw new Error(body.detail || body.error || `HTTP ${res.status}`)
+          // Review S11: a typed hold's detail is an OBJECT ({code, reason}); `body.detail || ...` made it
+          // "[object Object]". The shared message says a held route is held, and a plain detail as it is.
+          throw new Error(heldRouteMessage(body, res.status, "Lateral moves"))
         }
         // Soft failures (overall_timeout, degraded sections) arrive as 200
         // with error/degraded set — keep the payload so the UI can show a
@@ -83,7 +92,7 @@ export function useLateralMoves(
         setLoading(false)
       }
     },
-    [limit],
+    [limit, claims],
   )
 
   useEffect(() => {

@@ -9,6 +9,9 @@
 import { useState } from "react"
 import { Crown, Globe, Network, UserCircle, Skull, ShieldAlert, Wrench, Zap, Database, ChevronDown, ChevronRight } from "lucide-react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
+import { buildJewelSurfaceUrl } from "@/lib/attack-paths/convergence-fetch-url"
+import { useAttackPathReadClaims } from "@/lib/attack-paths/read-scope-context"
+import { scopeClaimsKey } from "@/lib/attack-paths/scope-claims"
 
 interface JewelSurfaceData {
   system_name: string
@@ -88,11 +91,13 @@ export function CrownJewelSurfaceCard({ systemName, jewelId }: Props) {
   // refresh fails (backend 502/504 cold), the stale data stays put
   // with an isStale=true signal — operator's still productive, never
   // looking at a blank error screen.
-  const url = systemName && jewelId
-    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}/jewel-surface/${encodeURIComponent(jewelId)}`
-    : null
+  // AP201 (R11): the operator's tenant / account claims travel with the read and key its client cache; no provider
+  // (the card outside the app shell) = no claims, the URL and key as before.
+  // Review S1: THE page's claims, so a page opened by system key reads the key's own account here too.
+  const claims = useAttackPathReadClaims()
+  const url = systemName && jewelId ? buildJewelSurfaceUrl(systemName, jewelId, claims) : null
   const { data, isStale, loading, error } = useCachedFetch<JewelSurfaceData>(url, {
-    cacheKey: `jewel-surface:${systemName}:${jewelId}`,
+    cacheKey: `jewel-surface:${systemName}:${jewelId}:${scopeClaimsKey(claims)}`,
   })
 
   if (!jewelId) return null

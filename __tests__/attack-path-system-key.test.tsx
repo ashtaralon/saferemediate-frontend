@@ -251,7 +251,25 @@ describe("the attack-path proxies", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)           // the keyed answer never served the by-name request
   })
 
-  it.each(PROXIES)("$name forwards no account without a key (the account rides only beside a key)", async (p) => {
+  // CONTRACT CHANGE (Alon, 2026-10-17: AP201 R11 wins over the A7 B5 "account only beside a key" rule). On a control plane
+  // with several workload accounts the backend refuses an unnamed per-jewel read, so a NAMED account is a claim and is
+  // forwarded on its own. The page sends account_id only when a system key names one (the key's account wins) or when a
+  // 12-digit account is selected; neither, it sends none (the by-name case below stays byte-identical). A proxy never
+  // invents a system key.
+  // The nine per-jewel reads R11 covers (each carries the claims); the IAP envelope and the identity facade are not R11
+  // reads and keep A7 B5's original rule below.
+  const R11_READS = new Set(["attack-paths by-crown-jewel", "attack-paths by-crown-jewel/detail", "attack-paths by-crown-jewel/summary",
+    "attack-paths jewel-footholds", "attack-paths jewel-lateral-reach", "attack-paths targets", "identity-attack-paths jewels",
+    "identity-attack-paths jewel", "identity-attack-paths jewel-surface"])
+  it.each(PROXIES.filter((p) => R11_READS.has(p.name)))(
+    "$name forwards a named account claim on its own and never invents a key (R11 over A7 B5)", async (p) => {
+      const fetchMock = vi.fn().mockImplementation(async () => json(p.body))
+      vi.stubGlobal("fetch", fetchMock)
+      await call(p, `${p.query}${p.query ? "&" : ""}account_id=${ACCOUNT}`)
+      const sent = new URL(String(fetchMock.mock.calls[0][0])).searchParams
+      expect([sent.has("system_key"), sent.get("account_id")]).toEqual([false, ACCOUNT])
+    })
+  it.each(PROXIES.filter((p) => !R11_READS.has(p.name)))("$name forwards no account without a key (the account rides only beside a key)", async (p) => {
     const fetchMock = vi.fn().mockImplementation(async () => json(p.body))
     vi.stubGlobal("fetch", fetchMock)
     await call(p, `${p.query}${p.query ? "&" : ""}account_id=${ACCOUNT}`)
@@ -346,14 +364,14 @@ describe("the attack-path URL builders name ONE system by key, and are byte-iden
       .toBe(`/api/proxy/attack-paths/Payments/by-crown-jewel/summary?${CJ}`)
     expect(buildConvergenceDetailUrl("Payments", jewel, "p1"))
       .toBe(`/api/proxy/attack-paths/Payments/by-crown-jewel/detail?${CJ}&path_id=p1`)
-    expect(buildConvergenceFetchUrl("Payments", jewel, KEY, ACCOUNT))
+    expect(buildConvergenceFetchUrl("Payments", jewel, { customerId: null, accountId: null, systemKey: KEY, systemAccountId: ACCOUNT }))
       .toBe(`/api/proxy/attack-paths/Payments/by-crown-jewel?${CJ}${systemScopeQuery(KEY, ACCOUNT)}`)
-    expect(buildConvergenceSummaryUrl("Payments", jewel, KEY, null))
+    expect(buildConvergenceSummaryUrl("Payments", jewel, { customerId: null, accountId: null, systemKey: KEY, systemAccountId: null }))
       .toBe(`/api/proxy/attack-paths/Payments/by-crown-jewel/summary?${CJ}${systemScopeQuery(KEY, null)}`)
-    expect(buildConvergenceDetailUrl("Payments", jewel, "p1", KEY, ACCOUNT))
+    expect(buildConvergenceDetailUrl("Payments", jewel, "p1", { customerId: null, accountId: null, systemKey: KEY, systemAccountId: ACCOUNT }))
       .toBe(`/api/proxy/attack-paths/Payments/by-crown-jewel/detail?${CJ}&path_id=p1${systemScopeQuery(KEY, ACCOUNT)}`)
     // An account alone names nothing (systemScopeQuery's rule).
-    expect(buildConvergenceSummaryUrl("Payments", jewel, null, ACCOUNT))
+    expect(buildConvergenceSummaryUrl("Payments", jewel, { customerId: null, accountId: null, systemKey: null, systemAccountId: ACCOUNT }))
       .toBe(`/api/proxy/attack-paths/Payments/by-crown-jewel/summary?${CJ}`)
   })
 

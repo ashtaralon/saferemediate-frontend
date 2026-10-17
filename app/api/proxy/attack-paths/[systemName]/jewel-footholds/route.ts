@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { forwardScopeClaims } from "@/lib/server/scope-claims"
 import { systemChoiceDetail } from "@/lib/server/proxy-error"
 
 export const runtime = "nodejs"
@@ -33,14 +34,7 @@ export async function GET(
       const value = req.nextUrl.searchParams.get(name)
       if (value !== null) backendParams.set(name, value)
     }
-    // A7 B5: a page opened by key names ONE system (backend ?system_key=, with the account for a tag / source key).
-    // Absent, the request is byte-identical to before.
-    const systemKey = req.nextUrl.searchParams.get("system_key")
-    const accountId = req.nextUrl.searchParams.get("account_id")
-    if (systemKey) {
-      backendParams.set("system_key", systemKey)
-      if (accountId) backendParams.set("account_id", accountId)
-    }
+    forwardScopeClaims(req.nextUrl.searchParams, backendParams)   // AP201 (R11): tenant / account claims
     const url = `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(systemName)}/jewel-footholds?${backendParams}`
     const response = await fetch(url, {
       cache: "no-store",

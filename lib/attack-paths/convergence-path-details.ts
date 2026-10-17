@@ -15,6 +15,8 @@
  *     authoritative empty network spine.
  */
 
+import { heldRouteMessage } from "@/lib/attack-paths/held-route-message"
+import { typedReaderUnavailable, typedServingRefusal } from "@/lib/semantic-hold"
 import type {
   ConvergencePath,
   CrownJewelConvergence,
@@ -112,6 +114,12 @@ export function isRetryableDetailFailure(
   )
 }
 
+/** A typed server answer, as the proxies now relay it (lib/server/proxy-error.ts typedBackendAnswer's rule). */
+function typedDetailAnswer(body: unknown, status: number): boolean {
+  if (typedServingRefusal(body) || typedReaderUnavailable(body)) return true
+  return status < 500 && typeof (body as { detail?: { code?: unknown } } | null)?.detail?.code === "string"
+}
+
 export type FetchConvergenceDetailResult =
   | { ok: true; path: ConvergencePath }
   | { ok: false; error: string; status?: number }
@@ -170,6 +178,12 @@ export async function fetchConvergencePathDetail(params: {
         return { ok: true, path: body.path }
       }
       lastStatus = res.status
+      // AP201 review S10: a typed answer (a held route, a scope refusal such as 422 ACCOUNT_SCOPE_REQUIRED, an
+      // unavailable read) is said with its own reason and settles -- never the generic proxy `error`, never retried
+      // as if the backend were cold.
+      if (!res.ok && typedDetailAnswer(body, res.status)) {
+        return { ok: false, error: heldRouteMessage(body, res.status, "Path detail"), status: res.status }
+      }
       lastError = body?.error ?? `detail ${res.status}`
       if (!isRetryableDetailFailure(res.status, lastError)) {
         return { ok: false, error: lastError, status: res.status }
@@ -301,6 +315,10 @@ export function mergeSummaryWithPathDetails(
       live_traffic_promoted: Boolean(p.live_traffic_promoted),
       path_bound_observations: p.path_bound_observations ?? [],
       feasibility: p.feasibility ?? null,
+      // AP201 (CP-B): the server's evidence contract (classification, gates, per-plane runtime evidence, permission
+      // coverage) is what the Current Access source list reads; without this line it died at this whitelist and the
+      // list said "not measured" for every source on the real page while the unit tests over the raw summary passed.
+      evidence_contract: p.evidence_contract ?? null,
     }
 
     const rec = detailsByPathId[p.path_id]

@@ -8,6 +8,7 @@ import {
   type BusinessImpactScenario,
 } from "@/lib/business-impact"
 import { BusinessImpactSettings } from "./business-impact-settings"
+import { heldRouteMessage } from "@/lib/attack-paths/held-route-message"
 
 function ExposureCard({ scenario }: { scenario: BusinessImpactScenario }) {
   const [expanded, setExpanded] = useState(false)
@@ -18,7 +19,7 @@ function ExposureCard({ scenario }: { scenario: BusinessImpactScenario }) {
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded bg-violet-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-violet-700">{scenario.title}</span>
-            <span className="rounded bg-slate-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-600">Confidence {scenario.confidence.toLowerCase()}</span>
+            <span className="rounded bg-slate-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-600">Confidence {scenario.confidence ? scenario.confidence.toLowerCase() : "not reported"}</span>
           </div>
           <p className="mt-3 text-sm leading-6 text-slate-700">{scenario.business_effect}</p>
           <div className="mt-3 text-[11px] text-slate-500">{scenario.crown_jewel_name || scenario.crown_jewel_id} · {scenario.path_count} enabling path{scenario.path_count === 1 ? "" : "s"}</div>
@@ -27,7 +28,7 @@ function ExposureCard({ scenario }: { scenario: BusinessImpactScenario }) {
         <div className="space-y-3 border-l border-slate-200 pl-4">
           <div>
             <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-400">Technical exposure</div>
-            <div className="mt-1 text-sm font-semibold text-slate-900">{scenario.technical_exposure.replace(/_/g, " ")}</div>
+            <div className="mt-1 text-sm font-semibold text-slate-900">{scenario.technical_exposure ? scenario.technical_exposure.replace(/_/g, " ") : "not reported"}</div>
             <p className="mt-1 text-[10px] leading-4 text-slate-500">{scenario.technical_exposure_basis}</p>
           </div>
           <div className="border-t border-slate-200 pt-3">
@@ -53,16 +54,16 @@ function ExposureCard({ scenario }: { scenario: BusinessImpactScenario }) {
         <div className="grid gap-5 border-t border-slate-200 p-4 lg:grid-cols-3">
           <div>
             <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Loss components</h4>
-            {estimate?.components.length ? <div className="mt-2 space-y-2">{estimate.components.map((component) => <div key={component.key} className="rounded-md border border-slate-100 bg-slate-50 p-2"><div className="flex justify-between gap-3 text-xs"><span className="font-semibold text-slate-700">{component.label}</span><span className="font-mono text-slate-600">{formatImpactMoney(component.low, estimate.currency)}–{formatImpactMoney(component.high, estimate.currency)}</span></div><div className="mt-1 text-[9px] text-slate-400">{component.source}</div></div>)}</div> : <p className="mt-2 text-xs text-slate-500">No monetary components are defined yet.</p>}
-            {scenario.missing_inputs.length ? <div className="mt-3 text-[10px] leading-4 text-amber-800"><b>Missing inputs:</b> {scenario.missing_inputs.map((item) => item.replace(/_/g, " ")).join(", ")}</div> : null}
+            {estimate?.components?.length ?<div className="mt-2 space-y-2">{estimate.components.map((component) => <div key={component.key} className="rounded-md border border-slate-100 bg-slate-50 p-2"><div className="flex justify-between gap-3 text-xs"><span className="font-semibold text-slate-700">{component.label}</span><span className="font-mono text-slate-600">{formatImpactMoney(component.low, estimate.currency)}–{formatImpactMoney(component.high, estimate.currency)}</span></div><div className="mt-1 text-[9px] text-slate-400">{component.source}</div></div>)}</div> : <p className="mt-2 text-xs text-slate-500" data-testid="bi-components-empty">{Array.isArray(estimate?.components) ? "No monetary components are defined yet." : "Loss components not reported by the server."}</p>}
+            {scenario.missing_inputs?.length ?<div className="mt-3 text-[10px] leading-4 text-amber-800"><b>Missing inputs:</b> {scenario.missing_inputs.map((item) => item.replace(/_/g, " ")).join(", ")}</div> : null}
           </div>
           <div>
             <h4 className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500"><Landmark className="h-3.5 w-3.5" />Regulatory and contractual exposure</h4>
-            {scenario.regulatory_exposure.length ? <div className="mt-2 space-y-2">{scenario.regulatory_exposure.map((item, index) => { const applicability = item.applicability || "POTENTIAL"; const missingInputs = item.missing_inputs || []; return <div key={`${item.regime}-${index}`} className="rounded-md border border-slate-200 p-2"><div className="flex items-start justify-between gap-2"><div className="text-xs font-semibold text-slate-800">{item.regime} · {item.exposure_type}</div><span className={`rounded px-1.5 py-0.5 text-[8px] font-bold ${applicability === "CONFIRMED" ? "bg-emerald-50 text-emerald-700" : applicability === "NEEDS_CONFIRMATION" ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-500"}`}>{applicability.replace(/_/g, " ")}</span></div><div className="mt-1 text-[11px] font-semibold text-slate-700">{item.amount != null && item.currency ? formatImpactMoney(item.amount, item.currency) : item.low != null && item.high != null && item.currency ? `${formatImpactMoney(item.low, item.currency)}–${formatImpactMoney(item.high, item.currency)}` : item.formula}</div>{item.calculation_status === "INPUT_REQUIRED" && missingInputs.length ? <div className="mt-1 text-[9px] text-amber-700">Required: {missingInputs.map((value) => value.replace(/_/g, " ")).join(", ")}</div> : null}<p className="mt-1 text-[9px] leading-4 text-slate-400">{item.conditions.join(" ")}</p><div className="mt-1 text-[9px] text-slate-400">{item.rule_version} · source checked {item.source_checked_at}</div><a href={item.source_url} target="_blank" rel="noreferrer" className="text-[9px] font-semibold text-violet-700 underline">Primary source</a></div> })}</div> : <p className="mt-2 text-xs text-slate-500">No potentially applicable rule pack is selected for this scenario.</p>}
+            {scenario.regulatory_exposure?.length ?<div className="mt-2 space-y-2">{scenario.regulatory_exposure.map((item, index) => { const applicability = item.applicability || "POTENTIAL"; const missingInputs = item.missing_inputs || []; return <div key={`${item.regime}-${index}`} className="rounded-md border border-slate-200 p-2"><div className="flex items-start justify-between gap-2"><div className="text-xs font-semibold text-slate-800">{item.regime} · {item.exposure_type}</div><span className={`rounded px-1.5 py-0.5 text-[8px] font-bold ${applicability === "CONFIRMED" ? "bg-emerald-50 text-emerald-700" : applicability === "NEEDS_CONFIRMATION" ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-500"}`}>{applicability.replace(/_/g, " ")}</span></div><div className="mt-1 text-[11px] font-semibold text-slate-700">{item.amount != null && item.currency ? formatImpactMoney(item.amount, item.currency) : item.low != null && item.high != null && item.currency ? `${formatImpactMoney(item.low, item.currency)}–${formatImpactMoney(item.high, item.currency)}` : item.formula}</div>{item.calculation_status === "INPUT_REQUIRED" && missingInputs.length ? <div className="mt-1 text-[9px] text-amber-700">Required: {missingInputs.map((value) => value.replace(/_/g, " ")).join(", ")}</div> : null}<p className="mt-1 text-[9px] leading-4 text-slate-400">{(item.conditions ?? []).join(" ")}</p><div className="mt-1 text-[9px] text-slate-400">{item.rule_version} · source checked {item.source_checked_at}</div><a href={item.source_url} target="_blank" rel="noreferrer" className="text-[9px] font-semibold text-violet-700 underline">Primary source</a></div> })}</div> : <p className="mt-2 text-xs text-slate-500" data-testid="bi-regulatory-empty">{Array.isArray(scenario.regulatory_exposure) ? "No potentially applicable rule pack is selected for this scenario." : "Regulatory exposure not reported by the server."}</p>}
           </div>
           <div>
             <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Comparable public outcomes</h4>
-            {scenario.comparable_incidents.length ? <div className="mt-2 space-y-2">{scenario.comparable_incidents.map((incident) => <div key={incident.incident_id} className="rounded-md border border-slate-200 p-2"><div className="text-xs font-semibold text-slate-800">{incident.title}</div><p className="mt-1 text-[11px] leading-4 text-slate-600">{incident.financial_outcome}</p><div className="mt-1 text-[9px] text-slate-400">{incident.similarity_reasons.join(" · ")}</div><a href={incident.source_url} target="_blank" rel="noreferrer" className="text-[9px] font-semibold text-violet-700 underline">{incident.source_kind}</a></div>)}</div> : <p className="mt-2 text-xs text-slate-500">No high-provenance comparable is matched yet.</p>}
+            {scenario.comparable_incidents?.length ?<div className="mt-2 space-y-2">{scenario.comparable_incidents.map((incident) => <div key={incident.incident_id} className="rounded-md border border-slate-200 p-2"><div className="text-xs font-semibold text-slate-800">{incident.title}</div><p className="mt-1 text-[11px] leading-4 text-slate-600">{incident.financial_outcome}</p><div className="mt-1 text-[9px] text-slate-400">{(incident.similarity_reasons ?? []).join(" · ")}</div><a href={incident.source_url} target="_blank" rel="noreferrer" className="text-[9px] font-semibold text-violet-700 underline">{incident.source_kind}</a></div>)}</div> : <p className="mt-2 text-xs text-slate-500" data-testid="bi-comparables-empty">{Array.isArray(scenario.comparable_incidents) ? "No high-provenance comparable is matched yet." : "Comparable incidents not reported by the server."}</p>}
             <p className="mt-2 text-[9px] leading-4 text-slate-400">Context only. Public outcomes never become automatic multipliers or predictions.</p>
           </div>
         </div>
@@ -91,11 +92,11 @@ export function BusinessImpactPanel({ systemName, pathId, environment, criticali
       const response = await fetch(`/api/proxy/business-impact/scenarios/${encodeURIComponent(systemName)}${query}`, { cache: "no-store" })
       const payload = await response.json().catch(() => null) as BusinessImpactResponse | { detail?: string; error?: string } | null
       if (!response.ok) {
-        const backendMessage = payload && "detail" in payload
-          ? payload.detail || payload.error
+        const typedOrText = payload && typeof payload === "object" && "detail" in payload
+          ? heldRouteMessage(payload, response.status, "Business impact")
           : null
         throw new Error(
-          backendMessage ||
+          typedOrText ||
           "Business impact is temporarily unavailable. Technical exposure and CVE analysis remain available.",
         )
       }

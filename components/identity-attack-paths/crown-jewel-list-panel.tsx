@@ -3,6 +3,15 @@
 import { useState } from "react"
 import { Shield, Globe, ChevronLeft, ChevronRight, PauseCircle } from "lucide-react"
 import { iapHoldTitle, type IapHold } from "@/lib/attack-paths/path-evidence-view"
+import {
+  NO_TARGET_COVERAGE_CAUSE,
+  TARGET_COUNT_UNREADABLE_DESCRIPTION,
+  displayedTargetState,
+  displayedTargetStateCounts,
+  targetCoverageDescription,
+  targetCoverageNote,
+  targetZeroLabel,
+} from "@/lib/attack-paths/lifecycle-coverage"
 import { MaterializedScopeBadge } from "@/components/attack-paths-v2/materialized-scope-badge"
 import { ServiceTypeBadge, getServiceMeta } from "@/lib/service-type"
 import { TARGET_STATE_CONFIG, type TargetState } from "@/lib/types"
@@ -33,15 +42,20 @@ interface CrownJewelListPanelProps {
 
 /** Explicit target state chip (AP3-104). Exact backend strings; a state the
  *  config does not know is not rendered rather than guessed. */
-function TargetStateChip({ state }: { state: TargetState }) {
+function TargetStateChip({
+  state, rawState, description,
+}: { state: TargetState; rawState?: TargetState; description?: string | null }) {
   const cfg = TARGET_STATE_CONFIG[state]
   if (!cfg) return null
   return (
     <span
       className="inline-flex items-center rounded border px-1.5 py-px text-[9.5px] font-medium leading-tight"
       style={{ color: cfg.color, backgroundColor: cfg.bgColor, borderColor: cfg.color }}
-      title={cfg.description}
-      data-target-state={state}
+      // AP182: a recorded cause (lifecycle-held, a withheld receipt code) explains this target; otherwise the state's.
+      title={description ?? cfg.description}
+      // AP184: the served state stays the row's identity; the shown one is named apart only when they differ.
+      data-target-state={rawState ?? state}
+      {...(rawState !== undefined && rawState !== state ? { "data-displayed-state": state } : {})}
     >
       {cfg.label}
     </span>
@@ -53,6 +67,15 @@ const ZERO_STATE_ORDER: TargetState[] = [
   "coverage_incomplete",
   "projection_not_ready",
 ]
+
+/** "1 no modeled route · 7 coverage incomplete"; "" when no zero state has a target. */
+function zeroStateSummary(counts: Partial<Record<TargetState, number>>): string {
+  return ZERO_STATE_ORDER
+    .map((state) => ({ state, n: counts[state] ?? 0 }))
+    .filter(({ n }) => n > 0)
+    .map(({ state, n }) => `${n} ${TARGET_STATE_CONFIG[state].label}`)
+    .join(" · ")
+}
 
 /** Crown-jewel names carry a trailing `-<12-digit account id>`; strip it for a
  *  cleaner rail (full name stays in the title attr). Type icon + color now come
@@ -128,14 +151,29 @@ export function CrownJewelListPanel({
           {stateCounts && (() => {
             // Zero states are product truth: say how many targets have no
             // route, were never considered, or wait on the projection.
-            const parts = ZERO_STATE_ORDER
-              .map((state) => ({ state, n: stateCounts[state] ?? 0 }))
-              .filter(({ n }) => n > 0)
-              .map(({ state, n }) => `${n} ${TARGET_STATE_CONFIG[state].label}`)
-            if (!parts.length) return null
+            // AP187: in the states the rows are SHOWN in (a recorded cause is never "no route"); the served counts
+            // stay on the element, and in its title when they differ. Counts that cannot account for the rows: none.
+            const shown = displayedTargetStateCounts(
+              stateCounts,
+              (jewels ?? []).map((j) => ({
+                state: j.target_state,
+                cause: j.coverage_cause ?? NO_TARGET_COVERAGE_CAUSE,
+                countReadable: j.catalog_path_count !== null,
+              })),
+            )
+            const served = zeroStateSummary(stateCounts)
+            const summary = shown ? zeroStateSummary(shown) : ""
+            if (!summary) return null
             return (
-              <div className="text-[10px] text-muted-foreground mt-0.5" data-testid="target-zero-states">
-                {parts.join(" · ")}
+              <div
+                className="text-[10px] text-muted-foreground mt-0.5"
+                data-testid="target-zero-states"
+                data-served-zero-states={served}
+                {...(summary !== served
+                  ? { title: `Served: ${served || "none"}. A target with a recorded coverage cause or an unreadable path count is shown as coverage incomplete, as its row is.` }
+                  : {})}
+              >
+                {summary}
               </div>
             )
           })()}
@@ -175,18 +213,30 @@ export function CrownJewelListPanel({
           // score, never a default LOW.
           const sev = jewel.severity ?? null
           const hasSeverity = !notComputed && sev != null
-          const score = Math.round(jewel.highest_risk_score ?? 0)
+          // AP201 (I3): the score is shown only when the server reported one; a severity label alone shows "—".
+          const hasScore =
+            hasSeverity && typeof jewel.highest_risk_score === "number" && Number.isFinite(jewel.highest_risk_score)
+          const score = hasScore ? Math.round(jewel.highest_risk_score as number) : null
           const sevColor = !hasSeverity ? "#64748b" :
             sev === "CRITICAL" ? "#ef4444" :
             sev === "HIGH" ? "#f97316" :
             sev === "MEDIUM" ? "#eab308" : "#22c55e"
           const targetState = jewel.target_state
-          const zeroLabel =
-            targetState === "no_modeled_route" ? "NO PATH" :
-            targetState === "coverage_incomplete" ? "PENDING" :
-            targetState === "projection_not_ready" ? "WAIT" : "—"
-          const zeroDescription = targetState
-            ? TARGET_STATE_CONFIG[targetState]?.description
+          // AP182/AP183: the target's own recorded cause, judged by the adapter from the catalog's raw fields.
+          const coverageCause = jewel.coverage_cause ?? NO_TARGET_COVERAGE_CAUSE
+          // AP196: a catalog count that could not be read never supports "no route" (only a validated zero does).
+          const countReadable = jewel.catalog_path_count !== null
+          const coverageDescription =
+            targetCoverageDescription(coverageCause) ??
+            (targetState === "no_modeled_route" && !countReadable ? TARGET_COUNT_UNREADABLE_DESCRIPTION : null)
+          const coverageNote = targetCoverageNote(coverageCause)
+          // AP184: a recorded cause on a "no modeled route" target is shown as coverage incomplete, as the page and the
+          // path list show it; so (AP196) is an unreadable count. The served state stays the row's identity (the chip's
+          // data-target-state).
+          const shownState = targetState ? displayedTargetState(targetState, coverageCause, countReadable) : undefined
+          const zeroLabel = targetZeroLabel(shownState) ?? "—"
+          const zeroDescription = shownState
+            ? coverageDescription ?? TARGET_STATE_CONFIG[shownState]?.description
             : "No path severity is available for this target."
           const svc = getServiceMeta(jewel.type)
 
@@ -207,9 +257,9 @@ export function CrownJewelListPanel({
                 <div
                   className={`${hasSeverity ? "w-9 text-base" : "w-12 text-[9px] tracking-wide"} shrink-0 text-right font-semibold tabular-nums leading-none pt-0.5`}
                   style={{ color: sevColor }}
-                  aria-label={hasSeverity ? `Risk score ${score}` : zeroDescription}
+                  aria-label={hasScore ? `Risk score ${score}` : hasSeverity ? "Risk score not reported" : zeroDescription}
                 >
-                  {hasSeverity ? score : zeroLabel}
+                  {hasScore ? score : hasSeverity ? "—" : zeroLabel}
                 </div>
 
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -227,8 +277,8 @@ export function CrownJewelListPanel({
                     >
                       {svc.short}
                     </span>
-                    {targetState ? (
-                      <TargetStateChip state={targetState} />
+                    {shownState ? (
+                      <TargetStateChip state={shownState} rawState={targetState} description={coverageDescription} />
                     ) : notComputed ? (
                       <span
                         className="text-[10px] text-muted-foreground"
@@ -237,7 +287,18 @@ export function CrownJewelListPanel({
                         not computed
                       </span>
                     ) : null}
-                    {!notComputed && (() => {
+                    {/* AP193: a catalog row whose served path_count is missing or malformed (catalog_path_count null)
+                        says so; its coerced path_count would read "NaN paths", or nothing at all for -1 / null. */}
+                    {!notComputed && jewel.catalog_path_count === null && (
+                      <span
+                        className="text-[10px] text-amber-700 dark:text-amber-400"
+                        title="The target catalog served a path count that could not be read, so this target's paths are unknown."
+                        data-testid="target-path-count-unreadable"
+                      >
+                        path count unreadable
+                      </span>
+                    )}
+                    {!notComputed && jewel.catalog_path_count !== null && (() => {
                       const cc = jewel.class_counts
                       const inSystem = cc != null ? (cc.in_system ?? 0) : (jewel.path_count ?? 0)
                       if (inSystem <= 0) return null
@@ -247,7 +308,7 @@ export function CrownJewelListPanel({
                         </span>
                       )
                     })()}
-                    {!notComputed && (
+                    {!notComputed && jewel.catalog_path_count !== null && (
                       <MaterializedScopeBadge
                         surfaced={jewel.path_count ?? 0}
                         graphTotal={jewel.materialized_path_count}
@@ -277,6 +338,17 @@ export function CrownJewelListPanel({
                       </div>
                     )
                   })()}
+                  {coverageNote && (
+                    // AP182: this target's own held count / withheld cause, never another scope's.
+                    <div
+                      className="text-[9.5px] text-amber-700 dark:text-amber-400 mt-0.5"
+                      title={coverageDescription ?? undefined}
+                      data-testid="target-coverage-note"
+                      data-coverage-cause={coverageCause.kind}
+                    >
+                      {coverageNote}
+                    </div>
+                  )}
                 </div>
               </div>
             </button>

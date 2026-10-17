@@ -1,3 +1,4 @@
+import type { TargetCoverageCause } from "@/lib/attack-paths/lifecycle-coverage"
 import type { TargetState } from "@/lib/types"
 
 export interface SeverityBreakdown {
@@ -758,7 +759,9 @@ export interface CrownJewelSummary {
    *  severity exists (AP3-104 zero states); never default to LOW. */
   severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | null
   path_count: number
-  highest_risk_score: number
+  /** The server's maximum path severity score. null = not reported (AP201 I3: the catalog row carried a severity
+   *  label but no `max_severity`); never rendered as 0. */
+  highest_risk_score: number | null
   /** null = the collector did not record exposure; never rendered as false. */
   is_internet_exposed: boolean | null
   data_classification: string | null
@@ -771,6 +774,13 @@ export interface CrownJewelSummary {
   /** false = reachable_only target that is not in this system's inventory. */
   inventory_present?: boolean
   data_classification_source?: "tag" | "unknown"
+  /** AP182/AP183: the catalog's recorded cause of incomplete coverage (lifecycle-held, a withheld receipt code, or
+   *  unreadable evidence), judged from the row's raw `coverage_withheld_reason` / `held_path_count` by
+   *  lib/attack-paths/lifecycle-coverage.ts. Absent when nothing is recorded. */
+  coverage_cause?: TargetCoverageCause
+  /** AP190: the catalog row's own `path_count` as served, when it is a finite non-negative whole number; null when it
+   *  is missing or malformed (`path_count` above is coerced for display and must not prove a zero). Catalog rows only. */
+  catalog_path_count?: number | null
   // "reachable_only" = jewel isn't tagged to this system but the system's
   // IAM roles reach it via observed edges (shared-bucket-across-systems
   // pattern). Absent/null for in-system jewels.

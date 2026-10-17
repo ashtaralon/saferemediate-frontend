@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { getCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
-import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
+import { backendError, fromCaughtError, typedBackendAnswer } from "@/lib/server/proxy-error"
 import { coerceProxyErrorMessage } from "@/lib/proxy-error-message"
+import { forwardScopeClaims } from "@/lib/server/scope-claims"
+import { isSemanticHoldPayload } from "@/lib/server/proxy-cache-hygiene"
 
 // =============================================================================
 // AttackPathReport proxy — GET /api/proxy/attack-paths/path/<pathId>/report
@@ -54,9 +56,7 @@ function parseBackendErrorBody(text: string, status: number): { code: string; de
         ? "ATTACK_PATH_NOT_FOUND"
         : status === 404
           ? "ATTACK_PATH_NOT_FOUND"
-          : status === 503
-            ? "NEO4J_UNAVAILABLE"
-            : "REPORT_UNAVAILABLE"
+          : "REPORT_UNAVAILABLE"
     return { code, detail }
   } catch {
     return {
@@ -79,7 +79,12 @@ export async function GET(
     })
   }
 
-  const cacheKey = `attack-path-report:${pathId}`
+  // AP201 Rev 6 Day 4.3: the tenant / account claims travel with the read (an install with several workload
+  // accounts needs the account named) and the cache is keyed by them.
+  const upstream = new URLSearchParams()
+  const claimsKey = forwardScopeClaims(req.nextUrl.searchParams, upstream)
+  const query = upstream.toString()
+  const cacheKey = `attack-path-report:${pathId}:${claimsKey}`
   const cached = getCached(cacheKey)
   if (cached) {
     return NextResponse.json(cached, {
@@ -90,7 +95,7 @@ export async function GET(
   try {
     const t0 = Date.now()
     const res = await fetch(
-      `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(pathId)}/report`,
+      `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(pathId)}/report${query ? `?${query}` : ""}`,
       { headers: { Accept: "application/json" }, cache: "no-store", signal: AbortSignal.timeout(55_000) },
     )
     console.log(
@@ -98,6 +103,10 @@ export async function GET(
     )
     if (!res.ok) {
       const text = await res.text().catch(() => "")
+      // A typed answer from the server (a held route, a refused or unavailable read, a scope refusal) is passed
+      // through with its own status and body, never cached and never relabelled as an outage.
+      const typed = typedBackendAnswer(text, res.status)
+      if (typed) return typed.response
       const { code, detail } = parseBackendErrorBody(text, res.status)
       return reportError(
         pathId,
@@ -108,6 +117,11 @@ export async function GET(
       )
     }
     const data = await res.json()
+    // A 200 hold (semantic_status not_recorded / unavailable) and a report served marked stale are status answers
+    // about right now: passed through no-store, never cached or shared.
+    if (isSemanticHoldPayload(data) || (data && typeof data === "object" && (data as { fromStaleCache?: unknown }).fromStaleCache === true)) {
+      return NextResponse.json(data, { headers: { "Cache-Control": "no-store", "X-Cache": "BYPASS-HOLD" } })
+    }
     setCached(cacheKey, data, TTL_STD)
     return NextResponse.json(data, {
       headers: { "X-Cache": "MISS", "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300" },

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { normalizeJewelArn } from "@/lib/server/normalize-jewel-id"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { forwardScopeClaims } from "@/lib/server/scope-claims"
 import { systemChoiceDetail } from "@/lib/server/proxy-error"
 
 const BACKEND_URL = getBackendBaseUrl()
@@ -23,7 +24,9 @@ export async function GET(
     accountId ? `&account_id=${encodeURIComponent(accountId)}` : ""}` : ""
 
   try {
-    const query = `?max_paths=${maxPaths}${scope}`
+    const upstream = new URLSearchParams({ max_paths: maxPaths })
+    forwardScopeClaims(searchParams, upstream)   // AP201 (R11): the tenant / account claims travel with the read
+    const query = `?${upstream}`
     const response = await fetch(
       `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(systemName)}/jewel/${encodeURIComponent(jewelId)}${query}`,
       {
