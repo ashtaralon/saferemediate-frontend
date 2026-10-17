@@ -43,8 +43,14 @@ describe("attack-paths-v2 rail", () => {
   it("does not fetch or spin a current-access map for an authoritative zero", () => {
     expect(src).toContain("const selectedJewelHasPaths")
     expect(src).toContain("selectedJewelHasPaths && selectedJewel ? systemName : null")
-    expect(src).toContain("currentAccessZeroTitle")
-    expect(src).toContain("No modeled current-access route")
+    // AP195: the conclusion's copy moved to the one mapping the page shares with the Topology view. AP196: the page
+    // passes the catalog count's validity, so an unreadable count never reaches the "no route" copy.
+    expect(src).toContain("targetZeroConclusion(")
+    expect(src).toContain("selectedJewel.catalog_path_count !== null")
+    expect(src).toContain("title={currentAccessZero.title}")
+    const coverage = read("lib/attack-paths/lifecycle-coverage.ts")
+    expect(coverage).toContain("No modeled current-access route")
+    expect(coverage).toContain('if (state === "no_modeled_route" && !countReadable)')
   })
 })
 
@@ -69,8 +75,11 @@ describe("crown-jewel rail panel", () => {
 
   it("names zero states instead of showing an unexplained dash", () => {
     // AP184: the zero label reads the SHOWN state (displayedTargetState), so a recorded cause is never "NO PATH".
-    expect(src).toContain('shownState === "no_modeled_route" ? "NO PATH"')
-    expect(src).toContain('shownState === "coverage_incomplete" ? "PENDING"')
+    // AP194: the mapping moved to targetZeroLabel, which the Topology view's rail shares.
+    expect(src).toContain("const zeroLabel = targetZeroLabel(shownState)")
+    const coverage = read("lib/attack-paths/lifecycle-coverage.ts")
+    expect(coverage).toContain('shownState === "no_modeled_route" ? "NO PATH"')
+    expect(coverage).toContain('shownState === "coverage_incomplete" ? "PENDING"')
     expect(src).toContain("{hasSeverity ? score : zeroLabel}")
   })
 })

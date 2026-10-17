@@ -5,10 +5,12 @@ import { Shield, Globe, ChevronLeft, ChevronRight, PauseCircle } from "lucide-re
 import { iapHoldTitle, type IapHold } from "@/lib/attack-paths/path-evidence-view"
 import {
   NO_TARGET_COVERAGE_CAUSE,
+  TARGET_COUNT_UNREADABLE_DESCRIPTION,
   displayedTargetState,
   displayedTargetStateCounts,
   targetCoverageDescription,
   targetCoverageNote,
+  targetZeroLabel,
 } from "@/lib/attack-paths/lifecycle-coverage"
 import { MaterializedScopeBadge } from "@/components/attack-paths-v2/materialized-scope-badge"
 import { ServiceTypeBadge, getServiceMeta } from "@/lib/service-type"
@@ -153,7 +155,11 @@ export function CrownJewelListPanel({
             // stay on the element, and in its title when they differ. Counts that cannot account for the rows: none.
             const shown = displayedTargetStateCounts(
               stateCounts,
-              (jewels ?? []).map((j) => ({ state: j.target_state, cause: j.coverage_cause ?? NO_TARGET_COVERAGE_CAUSE })),
+              (jewels ?? []).map((j) => ({
+                state: j.target_state,
+                cause: j.coverage_cause ?? NO_TARGET_COVERAGE_CAUSE,
+                countReadable: j.catalog_path_count !== null,
+              })),
             )
             const served = zeroStateSummary(stateCounts)
             const summary = shown ? zeroStateSummary(shown) : ""
@@ -164,7 +170,7 @@ export function CrownJewelListPanel({
                 data-testid="target-zero-states"
                 data-served-zero-states={served}
                 {...(summary !== served
-                  ? { title: `Served: ${served || "none"}. A target with a recorded coverage cause is shown as coverage incomplete, as its row is.` }
+                  ? { title: `Served: ${served || "none"}. A target with a recorded coverage cause or an unreadable path count is shown as coverage incomplete, as its row is.` }
                   : {})}
               >
                 {summary}
@@ -215,15 +221,17 @@ export function CrownJewelListPanel({
           const targetState = jewel.target_state
           // AP182/AP183: the target's own recorded cause, judged by the adapter from the catalog's raw fields.
           const coverageCause = jewel.coverage_cause ?? NO_TARGET_COVERAGE_CAUSE
-          const coverageDescription = targetCoverageDescription(coverageCause)
+          // AP196: a catalog count that could not be read never supports "no route" (only a validated zero does).
+          const countReadable = jewel.catalog_path_count !== null
+          const coverageDescription =
+            targetCoverageDescription(coverageCause) ??
+            (targetState === "no_modeled_route" && !countReadable ? TARGET_COUNT_UNREADABLE_DESCRIPTION : null)
           const coverageNote = targetCoverageNote(coverageCause)
           // AP184: a recorded cause on a "no modeled route" target is shown as coverage incomplete, as the page and the
-          // path list show it; the served state stays the row's identity (the chip's data-target-state).
-          const shownState = targetState ? displayedTargetState(targetState, coverageCause) : undefined
-          const zeroLabel =
-            shownState === "no_modeled_route" ? "NO PATH" :
-            shownState === "coverage_incomplete" ? "PENDING" :
-            shownState === "projection_not_ready" ? "WAIT" : "—"
+          // path list show it; so (AP196) is an unreadable count. The served state stays the row's identity (the chip's
+          // data-target-state).
+          const shownState = targetState ? displayedTargetState(targetState, coverageCause, countReadable) : undefined
+          const zeroLabel = targetZeroLabel(shownState) ?? "—"
           const zeroDescription = shownState
             ? coverageDescription ?? TARGET_STATE_CONFIG[shownState]?.description
             : "No path severity is available for this target."

@@ -28,11 +28,21 @@
 import { useEffect, useMemo, useState } from "react"
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react"
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
+import {
+  NO_TARGET_COVERAGE_CAUSE,
+  displayedTargetState,
+  targetCoverageNote,
+  targetIncompleteCoverageNote,
+  targetZeroConclusion,
+  targetZeroLabel,
+} from "@/lib/attack-paths/lifecycle-coverage"
+import { TARGET_STATE_CONFIG } from "@/lib/types"
 import type {
   ConvergenceHop,
   ConvergencePath,
 } from "@/lib/attack-paths/convergence-types"
-import { useCrownJewelConvergence } from "@/lib/attack-paths/use-crown-jewel-convergence"
+import { CONVERGENCE_NOT_READY_MESSAGE, readConvergencePaths } from "@/lib/attack-paths/convergence-readiness"
+import { hasAuthoritativeZeroPaths, useCrownJewelConvergence } from "@/lib/attack-paths/use-crown-jewel-convergence"
 import { useAwsTopology, type AwsTopology, type TopologyVpc, type TopologySubnet } from "@/lib/attack-paths/use-aws-topology"
 
 // ─── theme tokens (mirroring the mockup CSS variables) ──────────────────────
@@ -2153,9 +2163,21 @@ function CrownJewelRail({
       </h3>
       {sorted.map((j) => {
         const active = j.id === selectedId
-        const sev = j.severity?.toUpperCase() ?? "MEDIUM"
+        // AP194: the same honest row as the Attack Paths rail (crown-jewel-list-panel), from the same jewels: no severity
+        // is invented (it was "MEDIUM" for a null severity), a target with no path shows the state it is SHOWN in, its
+        // recorded cause keeps its note, and a catalog count that could not be read is never a number.
+        const sev = j.severity ? j.severity.toUpperCase() : null
         const sevColor =
-          sev === "CRITICAL" ? T.sevCritical : sev === "HIGH" ? T.sevHigh : sev === "LOW" ? T.sevLow : T.sevMedium
+          sev === null ? T.textMuted
+            : sev === "CRITICAL" ? T.sevCritical : sev === "HIGH" ? T.sevHigh : sev === "LOW" ? T.sevLow : T.sevMedium
+        const cause = j.coverage_cause ?? NO_TARGET_COVERAGE_CAUSE
+        const countUnreadable = j.catalog_path_count === null
+        // AP196: an unreadable count is not "no route" either (displayedTargetState), as on the Attack Paths rail.
+        const shownState = j.target_state ? displayedTargetState(j.target_state, cause, !countUnreadable) : undefined
+        const coverageNote = targetCoverageNote(cause)
+        const listed = j.class_counts != null ? (j.class_counts.in_system ?? 0) : (j.path_count ?? 0)
+        const zeroLabel = targetZeroLabel(shownState)
+        const stateChip = sev === null && shownState ? TARGET_STATE_CONFIG[shownState]?.label ?? null : null
         return (
           <button
             key={j.id}
@@ -2175,7 +2197,12 @@ function CrownJewelRail({
               <span className="flex-1 truncate font-mono text-[11px] leading-tight" style={{ wordBreak: "break-all" }}>
                 {j.name || j.id}
               </span>
-              <span className="font-mono text-[17px] font-extrabold" style={{ color: sevColor }}>
+              <span
+                className="font-mono text-[17px] font-extrabold"
+                style={{ color: sevColor }}
+                data-testid="topology-rail-count"
+                {...(countUnreadable ? { title: "The target catalog served a path count that could not be read." } : {})}
+              >
                 {/* P0.5 — primary count = in_system only. Cross-system
                     paths surface in the secondary line below so the
                     headline never lies (e.g. saferemediate-access-logs
@@ -2184,15 +2211,30 @@ function CrownJewelRail({
                     in_system, render 0 — the truth. Only fall back
                     to legacy path_count when class_counts is entirely
                     absent (BE pre-P0.5 deploy / migration window). */}
-                {(j.class_counts != null
-                  ? (j.class_counts.in_system ?? 0)
-                  : (j.path_count ?? 0))}
+                {/* AP194: an unreadable catalog count is "—"; a target with no path shows its state's label. */}
+                {countUnreadable ? "—" : listed > 0 || zeroLabel === null ? listed : zeroLabel}
               </span>
             </div>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
-              <Chip text={sev} bg={`${sevColor}26`} ink={sevColor} />
+              {sev !== null ? <Chip text={sev} bg={`${sevColor}26`} ink={sevColor} /> : null}
+              {stateChip ? <Chip text={stateChip} bg={T.surface2} ink={T.textMuted} border={T.border} /> : null}
               <Chip text={j.type} bg={T.surface2} ink={T.textMuted} border={T.border} />
             </div>
+            {coverageNote ? (
+              <div className="mt-1 text-[9.5px] leading-[1.5]" style={{ color: T.sevMedium }} data-testid="topology-rail-coverage-note">
+                {coverageNote}
+              </div>
+            ) : null}
+            {countUnreadable ? (
+              <div
+                className="mt-1 text-[9.5px] leading-[1.5]"
+                style={{ color: T.sevMedium }}
+                data-testid="topology-rail-count-unreadable"
+                title="The target catalog served a path count that could not be read, so this target's paths are unknown."
+              >
+                path count unreadable
+              </div>
+            ) : null}
             {(() => {
               // P0.5 secondary line — cross-system breakdown.
               const cc = j.class_counts ?? {}
@@ -2386,9 +2428,12 @@ function PathRail({
 function NarrativeStrip({
   path,
   onPulse,
+  idleText,
 }: {
   path: ConvergencePath | null
   onPulse: (nodeId: string | null) => void
+  /** AP195: what the strip says with no path when there is no path to pick (a settled or not-ready target). */
+  idleText?: string
 }) {
   const steps = useMemo<NarrativeStep[]>(
     () => (path ? buildNarrative(path) : []),
@@ -2404,7 +2449,7 @@ function NarrativeStrip({
           borderBottom: `1px solid ${T.border}`,
         }}
       >
-        Pick a path on the right rail to see its kill chain.
+        {idleText ?? "Pick a path on the right rail to see its kill chain."}
       </div>
     )
   }
@@ -2521,6 +2566,35 @@ export function TopologyAttackGraph({ systemName, initialJewel, jewels }: Topolo
     setSelectedPathIdx(bestIdx)
   }, [data, selectedPathIdx])
 
+  // AP195: a target the catalog settles with no listed path. The hook makes no request for it (its own
+  // hasAuthoritativeZeroPaths), so data, error and loading all stay empty: that is the catalog's conclusion (held,
+  // withheld, unreadable, not ready, or no modeled route), never an outage to retry and never an empty answer. It depends
+  // on the selected target alone, so it also holds for the render before the hook clears an earlier target's answer.
+  const catalogCause = selectedJewel.coverage_cause ?? NO_TARGET_COVERAGE_CAUSE
+  // AP196: the hook settles a coerced display zero too (a null catalog count), so the count's own validity is passed.
+  const catalogZero = hasAuthoritativeZeroPaths(selectedJewel)
+    ? targetZeroConclusion(selectedJewel.target_state, catalogCause, selectedJewel.catalog_path_count !== null)
+    : null
+  const catalogNote = targetIncompleteCoverageNote(selectedJewel.target_state, catalogCause)
+  const reading = !catalogZero && data !== null ? readConvergencePaths(data) : null
+  // AP189: a NOT_READY answer's paths are unknown, not absent: never "0 paths", never an empty map, and (AP196) never
+  // a path in the narrative, even when the answer still carries one.
+  const answerNotReady = reading?.kind === "not_ready"
+  // AP196: the stage count is the paths this answer lists, in the header's words (selectedPathCountLines): with every
+  // reason they are not the whole list -- the row's own note, and the answer's partial reason (coverage partial or
+  // withheld, an unrecognised serve state, more paths than returned, an unreadable cardinality) -- they are "listed".
+  const stagePartial = reading?.kind === "paths" ? [catalogNote, reading.partial].filter(Boolean).join(" · ") || null : null
+  const stageListed = reading?.kind === "paths" ? reading.paths.length : 0
+  // The settled state's label stays short: the center, the narrative and the right rail carry the conclusion, and in a
+  // narrow center column (1024 wide: 122px) a long label covered it.
+  const stageCount = catalogZero
+    ? selectedJewel.catalog_path_count === null ? " — path count unreadable" : " — no listed path"
+    : answerNotReady
+      ? " — paths unknown, projection not ready"
+      : reading?.kind === "paths"
+        ? ` — ${stageListed} ${stagePartial ? "listed " : ""}path${stageListed === 1 ? "" : "s"}${stagePartial ? ` · ${stagePartial}` : ""}${topology && !topologyError ? " · placed on real VPC topology" : " · topology snapshot pending"}`
+        : ""
+
   return (
     <div
       data-testid="topology-attack-graph"
@@ -2574,21 +2648,48 @@ export function TopologyAttackGraph({ systemName, initialJewel, jewels }: Topolo
         style={{ background: `radial-gradient(1200px 700px at 60% -10%, #11283d 0%, transparent 60%), ${T.bg}` }}
       >
         <NarrativeStrip
-          path={data && selectedPathIdx != null ? data.paths[selectedPathIdx] ?? null : null}
+          path={!catalogZero && !answerNotReady && data && selectedPathIdx != null ? data.paths[selectedPathIdx] ?? null : null}
           onPulse={setPulsedNodeId}
+          idleText={
+            catalogZero ? `${catalogZero.title}: no listed path to show.`
+              : answerNotReady ? "Paths unknown — projection not ready." : undefined
+          }
         />
         <div className="relative flex-1 overflow-hidden">
           <div
             className="absolute top-2.5 left-4 z-10 rounded-md border px-3 py-1.5 font-mono text-[11.5px]"
             style={{ background: "rgba(13,27,42,0.65)", borderColor: T.border, color: T.textMuted }}
+            data-testid="topology-stage-label"
           >
             <span className="font-bold" style={{ color: T.text }}>{shortLabel(selectedJewel.name, 40)}</span>
-            {data ? ` — ${data.paths_total} paths${topology && !topologyError ? " · placed on real VPC topology" : " · topology snapshot pending"}` : ""}
+            {stageCount}
           </div>
-          {loading && !data ? (
+          {catalogZero ? (
+            // Padded clear of the absolute stage / snapshot labels, and scrollable (my-auto centres it only when it fits,
+            // so a narrow column never pushes its top out of reach).
+            <div
+              className="flex h-full flex-col overflow-y-auto px-6 pt-28 pb-44 text-center"
+              style={{ color: T.textMuted }}
+              data-testid="topology-catalog-conclusion"
+            >
+              <div className="my-auto flex flex-col items-center gap-2">
+                <p className="text-[13px] font-semibold" style={{ color: T.text }}>{catalogZero.title}</p>
+                <p className="max-w-md text-[12px]">{catalogZero.subtitle}</p>
+              </div>
+            </div>
+          ) : !data && (loading || !error) ? (
+            // Loading, or the read has not started yet (the render before the hook's effect): never "unavailable".
             <div className="flex h-full flex-col items-center justify-center gap-2" style={{ color: T.textMuted }}>
               <Loader2 className="h-5 w-5 animate-spin" />
               <span className="text-[12px]">Loading topology…</span>
+            </div>
+          ) : answerNotReady ? (
+            <div
+              className="flex h-full flex-col overflow-y-auto px-6 pt-28 pb-44 text-center"
+              style={{ color: T.textMuted }}
+              data-testid="topology-not-ready"
+            >
+              <p className="my-auto max-w-md self-center text-[12px]">{CONVERGENCE_NOT_READY_MESSAGE}</p>
             </div>
           ) : error || !data ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-center" style={{ color: T.textMuted }}>
@@ -2626,7 +2727,26 @@ export function TopologyAttackGraph({ systemName, initialJewel, jewels }: Topolo
       </div>
 
       {/* right rail */}
-      {data ? (
+      {catalogZero || answerNotReady ? (
+        <aside
+          className="overflow-y-auto"
+          style={{ background: T.surface, color: T.textMuted, borderLeft: `1px solid ${T.border}` }}
+          data-testid="topology-path-rail-state"
+        >
+          <h3 className="px-4 pt-3.5 pb-2 text-[10.5px] font-bold uppercase tracking-[0.13em]" style={{ color: T.textMuted }}>
+            Paths to {shortLabel(selectedJewel.name || selectedJewel.id, 28)}
+          </h3>
+          {catalogZero ? (
+            <div className="px-4 text-[11px] leading-[1.5]">
+              <p className="font-semibold" style={{ color: T.text }}>{catalogZero.title}</p>
+              <p className="mt-1">No path is listed for this crown jewel.</p>
+              {catalogNote ? <p className="mt-1" data-testid="topology-path-rail-note">{catalogNote}</p> : null}
+            </div>
+          ) : (
+            <p className="px-4 text-[11px] leading-[1.5]">{CONVERGENCE_NOT_READY_MESSAGE}</p>
+          )}
+        </aside>
+      ) : data ? (
         <PathRail
           paths={data.paths}
           jewelName={selectedJewel.name || selectedJewel.id}
@@ -2635,7 +2755,8 @@ export function TopologyAttackGraph({ systemName, initialJewel, jewels }: Topolo
         />
       ) : (
         <aside className="overflow-y-auto p-4 text-[11px]" style={{ background: T.surface, color: T.textMuted, borderLeft: `1px solid ${T.border}` }}>
-          {loading ? "Loading paths…" : error ? "Paths unavailable — see canvas." : "No paths available."}
+          {/* AP195: with no answer, the read is loading, not started yet, or failed. It is never "no paths". */}
+          {loading || !error ? "Loading paths…" : "Paths unavailable — see canvas."}
         </aside>
       )}
     </div>

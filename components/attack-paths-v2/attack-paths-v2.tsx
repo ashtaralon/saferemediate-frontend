@@ -61,7 +61,7 @@ import {
   NO_TARGET_COVERAGE_CAUSE,
   heldPathsPhrase,
   targetIncompleteCoverageNote,
-  targetZeroCoverageSubtitle,
+  targetZeroConclusion,
 } from "@/lib/attack-paths/lifecycle-coverage"
 import {
   readConvergencePaths,
@@ -566,34 +566,18 @@ export function AttackPathsV2({
   // AP188 (F4 P1): the rail's own Collapse notifies the page, so the aside itself narrows (it stayed 320px before).
   const [railCollapsed, setRailCollapsed] = useState(false)
   const selectedJewelHasPaths = Number(selectedJewel?.path_count ?? 0) > 0
-  const selectedJewelZeroState = selectedJewel?.target_state
-  const currentAccessZero =
-    !selectedJewelHasPaths &&
-    (selectedJewelZeroState === "no_modeled_route" ||
-      selectedJewelZeroState === "coverage_incomplete" ||
-      selectedJewelZeroState === "projection_not_ready")
   // AP182/AP183: a cause recorded on the selected target (lifecycle-held, a withheld receipt code, unreadable evidence)
   // means its coverage is incomplete. It replaces both a "no route" claim and the missing-manifest copy. A target with
-  // nothing recorded keeps the established copy.
-  const selectedCoverageSubtitle =
-    selectedJewelZeroState === "no_modeled_route" || selectedJewelZeroState === "coverage_incomplete"
-      ? targetZeroCoverageSubtitle(selectedJewel?.coverage_cause ?? NO_TARGET_COVERAGE_CAUSE)
+  // nothing recorded keeps the established copy. AP195/AP196: one mapping with the path list and the Topology view
+  // (targetZeroConclusion), and a catalog count that could not be read is never "no route" either.
+  const currentAccessZero =
+    selectedJewel && !selectedJewelHasPaths
+      ? targetZeroConclusion(
+          selectedJewel.target_state,
+          selectedJewel.coverage_cause ?? NO_TARGET_COVERAGE_CAUSE,
+          selectedJewel.catalog_path_count !== null,
+        )
       : null
-  const currentAccessZeroTitle =
-    selectedCoverageSubtitle !== null
-      ? "Current-access coverage incomplete"
-      : selectedJewelZeroState === "no_modeled_route"
-        ? "No modeled current-access route"
-        : selectedJewelZeroState === "coverage_incomplete"
-          ? "Current-access coverage incomplete"
-          : "Attack-path projection not ready"
-  const currentAccessZeroSubtitle =
-    selectedCoverageSubtitle ??
-    (selectedJewelZeroState === "no_modeled_route"
-      ? "The active generation evaluated this crown jewel and found no compute-to-jewel route. Lateral and Exfiltration remain separate attacker-lens analyses."
-      : selectedJewelZeroState === "coverage_incomplete"
-        ? "The active generation has no evaluation manifest for this crown jewel, so Cyntro does not claim that no route exists."
-        : "No active Attack Paths generation can author a current-access conclusion yet.")
 
   const iapJewelPaths: ActivePathList<IdentityAttackPath> = useMemo(() => {
     if (!selectedJewelId) return filterActivePaths([])
@@ -1419,8 +1403,8 @@ export function AttackPathsV2({
             />
             {currentAccessZero && ["attack-path", "attacker_map", "attacker_v2", "convergence"].includes(viewMode) ? (
               <EmptyState
-                title={currentAccessZeroTitle}
-                subtitle={currentAccessZeroSubtitle}
+                title={currentAccessZero.title}
+                subtitle={currentAccessZero.subtitle}
                 large
               />
             ) : viewMode === "exposure" ? (

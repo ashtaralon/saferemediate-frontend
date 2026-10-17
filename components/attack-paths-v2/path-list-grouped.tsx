@@ -17,7 +17,11 @@ import type {
 import type { ActivePathList } from "@/lib/active-filters"
 import { initialAccessCategoryFromBackend } from "@/lib/attack-paths/initial-access-from-backend"
 import { CONVERGENCE_NOT_READY_MESSAGE } from "@/lib/attack-paths/convergence-readiness"
-import { NO_TARGET_COVERAGE_CAUSE, targetZeroCoverageSubtitle } from "@/lib/attack-paths/lifecycle-coverage"
+import {
+  NO_TARGET_COVERAGE_CAUSE,
+  targetZeroConclusion,
+  targetZeroCoverageSubtitle,
+} from "@/lib/attack-paths/lifecycle-coverage"
 import { getServiceMeta, ServiceTypeBadge } from "@/lib/service-type"
 import type { PathListRow } from "./attack-path-report-types"
 import { compilePathListRow } from "./compile-path-list-row"
@@ -118,6 +122,20 @@ export function PathListGrouped({
             Coverage incomplete
           </div>
           <div className="mt-1.5 text-[11px] text-muted-foreground">{recordedCause}</div>
+        </div>
+      )
+    }
+    // AP196: a no_modeled_route target whose catalog count could not be read is not proved to have no route; the
+    // page's empty state and the Topology view say the same, from the one mapping (targetZeroConclusion).
+    const countUnreadable =
+      jewel?.target_state === "no_modeled_route" && jewel.catalog_path_count === null
+        ? targetZeroConclusion(jewel.target_state, NO_TARGET_COVERAGE_CAUSE, false)
+        : null
+    if (countUnreadable !== null) {
+      return (
+        <div className="px-4 py-6" data-testid="path-count-unreadable-state">
+          <div className="text-xs font-medium text-amber-700 dark:text-amber-300">{countUnreadable.title}</div>
+          <div className="mt-1.5 text-[11px] text-muted-foreground">{countUnreadable.subtitle}</div>
         </div>
       )
     }

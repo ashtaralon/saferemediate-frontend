@@ -26,6 +26,7 @@ import {
   targetHasHeldPaths,
   targetHeldCount,
   targetIncompleteCoverageNote,
+  targetZeroConclusion,
   targetZeroCoverageSubtitle,
   unverifiedReasonText,
 } from "@/lib/attack-paths/lifecycle-coverage"
@@ -349,6 +350,48 @@ describe("deriveAllLifecycleCoverage over the captured /all answers", () => {
       const text = unverifiedReasonText(code)
       expect(typeof text, code).toBe("string")
       expect(text, code).toBe("its lifecycle coverage could not be verified")
+    }
+  })
+})
+
+describe("AP196: only a validated catalog zero supports 'no route'", () => {
+  const NONE = { kind: "none" as const }
+
+  it("an unreadable count SHOWS a no_modeled_route target as coverage incomplete; the default call is unchanged", () => {
+    expect(displayedTargetState("no_modeled_route", NONE, false)).toBe("coverage_incomplete")
+    expect(displayedTargetState("no_modeled_route", NONE, true)).toBe("no_modeled_route")
+    expect(displayedTargetState("no_modeled_route", NONE)).toBe("no_modeled_route")
+    for (const state of ["observed", "configured_only", "coverage_incomplete", "projection_not_ready"]) {
+      expect(displayedTargetState(state, NONE, false), state).toBe(state)
+    }
+  })
+
+  it("the shown state counts move a row with an unreadable count, and only that row", () => {
+    expect(displayedTargetStateCounts({ no_modeled_route: 2, coverage_incomplete: 1 }, [
+      { state: "no_modeled_route", cause: NONE, countReadable: false },
+      { state: "no_modeled_route", cause: NONE, countReadable: true },
+      { state: "no_modeled_route", cause: NONE },
+    ])).toEqual({ no_modeled_route: 1, coverage_incomplete: 2 })
+  })
+
+  it("targetZeroConclusion: a readable zero with nothing recorded is the only 'no route'", () => {
+    expect(targetZeroConclusion("no_modeled_route", NONE, true)?.title).toBe("No modeled current-access route")
+    const unreadable = targetZeroConclusion("no_modeled_route", NONE, false)
+    expect(unreadable?.title).toBe("Path count unreadable")
+    expect(unreadable?.subtitle).toMatch(/does not claim that no route exists/)
+    // A recorded cause speaks first, whatever the count.
+    for (const readable of [true, false]) {
+      const held = targetZeroConclusion("no_modeled_route", { kind: "lifecycle", held: 1 }, readable)
+      expect(held?.title, String(readable)).toBe("Current-access coverage incomplete")
+      expect(held?.subtitle, String(readable)).toMatch(/is held \(1 path held\)/)
+    }
+    // The other zero states never claim "no route"; their copy does not depend on the count.
+    for (const readable of [true, false]) {
+      expect(targetZeroConclusion("coverage_incomplete", NONE, readable)?.subtitle).toMatch(/no evaluation manifest/)
+      expect(targetZeroConclusion("projection_not_ready", NONE, readable)?.title).toBe("Attack-path projection not ready")
+    }
+    for (const state of [undefined, "observed", "configured_only"]) {
+      expect(targetZeroConclusion(state, NONE, true), String(state)).toBeNull()
     }
   })
 })

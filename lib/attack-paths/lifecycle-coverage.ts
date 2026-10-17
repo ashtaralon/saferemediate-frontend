@@ -100,10 +100,22 @@ export function targetEvidenceUnreadable(cause: TargetCoverageCause): boolean {
 
 /** (AP184) The state a target is SHOWN in. A `no_modeled_route` target that carries a recorded cause (lifecycle-held,
  *  withheld, unreadable) is not shown as "no route": its coverage is incomplete, the conclusion the page's empty state
- *  and the path list also show. Any other state, or no recorded cause, is shown as served. The raw state is unchanged. */
-export function displayedTargetState<S extends string>(state: S, cause: TargetCoverageCause): S | "coverage_incomplete" {
-  return state === "no_modeled_route" && cause.kind !== "none" ? "coverage_incomplete" : state
+ *  and the path list also show. Any other state, or no recorded cause, is shown as served. The raw state is unchanged.
+ *  (AP196) Neither is one whose catalog path count could not be read (`countReadable` false: the adapter's
+ *  `catalog_path_count` is null): only a validated zero supports "no route". Default: readable, the call as before. */
+export function displayedTargetState<S extends string>(
+  state: S,
+  cause: TargetCoverageCause,
+  countReadable = true,
+): S | "coverage_incomplete" {
+  return state === "no_modeled_route" && (cause.kind !== "none" || !countReadable) ? "coverage_incomplete" : state
 }
+
+/** (AP196) The row / chip explanation for a `no_modeled_route` target with nothing recorded whose catalog path count
+ *  could not be read (it is shown as coverage incomplete, displayedTargetState). */
+export const TARGET_COUNT_UNREADABLE_DESCRIPTION =
+  "The target catalog served this target's path count in a shape that could not be read, so its paths are unknown and " +
+  "no route conclusion is drawn."
 
 /** A served per-state target count: a finite, non-negative whole number. */
 function isTargetCount(value: unknown): value is number {
@@ -117,10 +129,12 @@ function isTargetCount(value: unknown): value is number {
  *  (AP188) The served counts arrive unvalidated from the catalog response. A state ABSENT from them has no target (the
  *  catalog's documented shape). A state PRESENT with anything but a count -- `null`, `"7"`, `-2`, `1.5` -- makes the
  *  whole answer unknown, untouched states included: null. So does a body that is not an object, and counts that cannot
- *  account for a moved target (its served state has none to move). No value is ever coerced. */
+ *  account for a moved target (its served state has none to move). No value is ever coerced.
+ *
+ *  (AP196) A row's `countReadable` (absent: readable) moves it as its row is shown (displayedTargetState). */
 export function displayedTargetStateCounts(
   served: unknown,
-  rows: ReadonlyArray<{ state: string | undefined; cause: TargetCoverageCause }>,
+  rows: ReadonlyArray<{ state: string | undefined; cause: TargetCoverageCause; countReadable?: boolean }>,
 ): Partial<Record<string, number>> | null {
   if (served === null || typeof served !== "object" || Array.isArray(served)) return null
   // A Map, never an object index: a served key such as "__proto__" stays a plain key (AP183-R3).
@@ -129,9 +143,9 @@ export function displayedTargetStateCounts(
     if (!isTargetCount(count)) return null
     shown.set(state, count)
   }
-  for (const { state, cause } of rows) {
+  for (const { state, cause, countReadable } of rows) {
     if (state === undefined) continue
-    const to = displayedTargetState(state, cause)
+    const to = displayedTargetState(state, cause, countReadable ?? true)
     if (to === state) continue
     const from = shown.get(state) ?? 0
     if (from < 1) return null
@@ -146,6 +160,15 @@ export function displayedTargetStateCounts(
  *  coverage incomplete. Null otherwise: nothing served says the count is partial. */
 export function targetIncompleteCoverageNote(state: string | undefined, cause: TargetCoverageCause): string | null {
   return targetCoverageNote(cause) ?? (state === "coverage_incomplete" ? "coverage incomplete" : null)
+}
+
+/** (AP194) The short label a target row shows in place of a count or score when it has no path: NO PATH, PENDING
+ *  (coverage incomplete) or WAIT (projection not ready), from the state the row is SHOWN in; null for any other
+ *  state. One mapping for both rails (the Attack Paths rail and the Topology view's rail). */
+export function targetZeroLabel(shownState: string | undefined): "NO PATH" | "PENDING" | "WAIT" | null {
+  return shownState === "no_modeled_route" ? "NO PATH"
+    : shownState === "coverage_incomplete" ? "PENDING"
+      : shownState === "projection_not_ready" ? "WAIT" : null
 }
 
 /** The well-formed held count of a cause, or null (none held, count not reported, or unreadable). */
@@ -206,6 +229,55 @@ export function targetZeroCoverageSubtitle(cause: TargetCoverageCause): string |
     `The active generation withheld coverage of this crown jewel (${cause.code}), so Cyntro does not claim that no ` +
     "route exists."
   )
+}
+
+export interface TargetZeroConclusion {
+  title: string
+  subtitle: string
+}
+
+/** (AP195) The current-access conclusion of a selected target that lists no path, from the target catalog alone, or
+ *  null when the catalog does not settle it (any state but no_modeled_route / coverage_incomplete /
+ *  projection_not_ready). A recorded cause is coverage incomplete, never "no route" (AP182/AP183). (AP196) Neither is a
+ *  catalog count that could not be read (`countReadable` false: the adapter's `catalog_path_count` is null): only a
+ *  validated zero supports "no route" (AP190). One mapping for the Attack Paths page's empty state, its path list and
+ *  the Topology view's center and right rail (the copy the page had inline). */
+export function targetZeroConclusion(
+  state: string | undefined,
+  cause: TargetCoverageCause,
+  countReadable: boolean,
+): TargetZeroConclusion | null {
+  if (state !== "no_modeled_route" && state !== "coverage_incomplete" && state !== "projection_not_ready") return null
+  const causeSubtitle = state === "projection_not_ready" ? null : targetZeroCoverageSubtitle(cause)
+  if (causeSubtitle !== null) return { title: "Current-access coverage incomplete", subtitle: causeSubtitle }
+  if (state === "no_modeled_route" && !countReadable) {
+    return {
+      title: "Path count unreadable",
+      subtitle:
+        "The target catalog served this crown jewel's path count in a shape that could not be read, so Cyntro does " +
+        "not claim that no route exists.",
+    }
+  }
+  if (state === "no_modeled_route") {
+    return {
+      title: "No modeled current-access route",
+      subtitle:
+        "The active generation evaluated this crown jewel and found no compute-to-jewel route. Lateral and " +
+        "Exfiltration remain separate attacker-lens analyses.",
+    }
+  }
+  if (state === "coverage_incomplete") {
+    return {
+      title: "Current-access coverage incomplete",
+      subtitle:
+        "The active generation has no evaluation manifest for this crown jewel, so Cyntro does not claim that no " +
+        "route exists.",
+    }
+  }
+  return {
+    title: "Attack-path projection not ready",
+    subtitle: "No active Attack Paths generation can author a current-access conclusion yet.",
+  }
 }
 
 // ── per system (/all) ───────────────────────────────────────────────────────────────────────────────────────────
