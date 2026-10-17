@@ -127,7 +127,7 @@ export function CurrentAccessSourceList({ data, activePaths, jewelName, jewelTyp
         <div className="min-w-0">
           <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Current access · by source</div>
           <div className="text-xs text-foreground" data-testid="current-access-header">
-            {plural(observedCount, "compute source")} with observed activity toward {jewel} · {windowText(sources)}
+            {plural(observedCount, "compute source")} with observed activity (whole route or some planes) toward {jewel} · {windowText(sources)}
           </div>
           <div className="text-[10px] text-muted-foreground" data-testid="current-access-totals">
             {plural(sources.sourceCount, "compute source")} · {plural(sources.routeCount, "compute route")} listed
@@ -217,7 +217,7 @@ export function CurrentAccessSourceList({ data, activePaths, jewelName, jewelTyp
             Other origins ({sources.nonCompute.length})
           </div>
           <p className="text-[10px] text-muted-foreground">
-            Routes whose point A the server says is not a compute (standing access, identity, external, unknown). They stay in the path list below.
+            Routes whose point A is not a registered compute; the server&apos;s origin class is shown where it sent one. They stay in the path list below.
           </p>
           <ul className="mt-1 space-y-0.5">
             {sources.nonCompute.map((row) => (
@@ -345,7 +345,7 @@ function SourceRow({
                     <span key={p.plane} className="mr-2 inline-block">
                       <span className="text-muted-foreground">{p.plane}</span>{" "}
                       <span className={p.state === "observed" ? "text-emerald-700 dark:text-emerald-300" : ""}>{p.state.replace(/_/g, " ")}</span>
-                      {p.state === "observed" ? ` · ${p.hitCount != null ? plural(p.hitCount, "hit") : "hits not reported"}` : ""}
+                      {p.state === "observed" ? ` · ${p.hitCount != null ? `${plural(p.hitCount, "hit")} (server plane total)` : "hits not reported"}` : ""}
                       {p.state === "observed" && p.kinds.length ? ` (${p.kinds.join(", ")})` : ""}
                     </span>
                   ))

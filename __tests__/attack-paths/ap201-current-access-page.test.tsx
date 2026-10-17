@@ -82,8 +82,8 @@ describe("Current Access by source on the mounted page (captured acme-data summa
     // The contract survives the hook's summary/detail MERGE (a field-by-field rebuild): the observed row shows the
     // served per-plane hits on the real page, not "not measured". This is the assertion the first cut lacked.
     const observed = within(list).getAllByTestId("current-access-source").find((r) => r.getAttribute("data-section") === "observed")!
-    await waitFor(() => expect(within(observed).getByTestId("current-access-planes").textContent).toMatch(/identity observed · 3 hits \(cloudtrail_api\)/))
-    expect(within(observed).getByTestId("current-access-qualifier").textContent).toBe("observed — the evidence contract classifies the route observed")
+    await waitFor(() => expect(within(observed).getByTestId("current-access-planes").textContent).toMatch(/identity observed · 3 hits \(server plane total\) \(cloudtrail_api\)/))
+    expect(within(observed).getByTestId("current-access-qualifier").textContent).toBe("observed — observed on every plane (runtime evidence)")
     // Rev 6 §3.1 / §3.7 on the mounted page: activity sections only; the inferred route with unavailable planes is Unknown.
     expect(within(list).queryByTestId("current-access-section-not_observed")).toBeNull()
     expect(within(within(list).getByTestId("current-access-section-unknown")).getAllByTestId("current-access-source").length).toBe(2)

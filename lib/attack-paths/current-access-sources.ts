@@ -6,10 +6,13 @@
  *
  * Three INDEPENDENT states per route, each from served fields (Rev 6 §3.7):
  * - ACTIVITY in the window -- `feasibility.activity_state` (OBSERVED | PARTIALLY_OBSERVED | NOT_OBSERVED | UNKNOWN)
- *   with its `activity_detail` when the server composed it. Without feasibility, the route's own contract words:
- *   `classification: observed` is observed; per-plane `runtime_evidence` states are relayed (some plane observed =
- *   observed on that plane; every plane `not_observed` = not observed); anything else is UNKNOWN with the reason.
- *   UNKNOWN is never "not observed" and never zero.
+ *   with its `activity_detail` when the server composed it. Without feasibility, ONLY the contract's per-plane
+ *   `runtime_evidence` (built from path-bound observations, as the backend's feasibility is): every plane observed =
+ *   observed; some = observed on those planes; never the gate-based `classification` or legacy `evidence` word (an
+ *   OPEN_OBSERVED gate can be estate-wide, not this route). NOT_OBSERVED needs COMPLETE coverage: every plane
+ *   `not_observed` with coverage words all in the backend's collected set (path_evidence `_COLLECTED_COVERAGE`); a
+ *   served NOT_OBSERVED whose planes report NOT_READY / NO_DATA is shown as UNKNOWN with those words. UNKNOWN is never
+ *   "not observed" and never zero.
  * - ACCESS NOW -- `feasibility.path_state` (REACHABLE | UNVERIFIED | BLOCKED | OUT_OF_SCOPE) with its `reason`;
  *   without feasibility only a served blocked classification says BLOCKED; everything else is UNKNOWN. Observation never
  *   upgrades access, and a blocked route keeps its activity ("observed in window, blocked now" is a valid row).
@@ -191,6 +194,8 @@ export const DATA_PLANE_JEWEL_TYPES: ReadonlySet<string> = new Set([
   "S3Bucket", "DynamoDBTable", "KMSKey", "Secret", "SecretsManagerSecret",
 ])
 const DATA_ACCESS_SUMMARY_ABSENT = "DATA_ACCESS_SUMMARY_ABSENT"
+/** The backend's own "collected" coverage words (cyntro_data/semantic/path_evidence.py `_COLLECTED_COVERAGE`). */
+const COLLECTED_COVERAGE: ReadonlySet<string> = new Set(["OBSERVED", "NO_OBSERVATION", "COLLECTED", "COMPLETE"])
 
 /** Activity grade, only to order a source's routes and to group sources: the server's own words, strongest first. */
 const ACTIVITY_GRADE: Record<RouteActivity, number> = { OBSERVED: 0, PARTIALLY_OBSERVED: 1, NOT_OBSERVED: 2, UNKNOWN: 3 }
@@ -233,41 +238,52 @@ function planesOf(contract: PathEvidenceContract | null): RoutePlane[] | null {
 
 const words = (s: string) => s.replace(/_/g, " ")
 
+/** Planes whose not-observed is not backed by complete collection: `<plane> <coverage words or state>`. */
+function incompleteCoverage(planes: RoutePlane[]): string[] {
+  return planes
+    .filter((p) => p.state !== "observed")
+    .filter((p) => p.state !== "not_observed" || p.coverageStates.length === 0
+      || p.coverageStates.some((c) => !COLLECTED_COVERAGE.has(c.toUpperCase())))
+    .map((p) => `${p.plane} ${p.coverageStates.length ? p.coverageStates.join("/") : words(p.state)}`)
+}
+
 /** ACTIVITY of one route, from the server's words only. */
 export function routeActivity(path: ConvergencePath): { activity: RouteActivity; basis: SourceRoute["activityBasis"]; detail: string } {
+  const contract = contractOf(path)
+  const planes = planesOf(contract)
   const served = up(path.feasibility?.activity_state)
   if (served && ACTIVITY_WORDS.has(served)) {
-    return {
-      activity: served as RouteActivity,
-      basis: "feasibility",
-      detail: str(path.feasibility?.activity_detail) ?? `${words(served.toLowerCase())} (server feasibility)`,
+    const detail = str(path.feasibility?.activity_detail) ?? `${words(served.toLowerCase())} (server feasibility)`
+    if (served === "NOT_OBSERVED" && planes) {
+      const gaps = incompleteCoverage(planes)
+      if (gaps.length > 0) {
+        return { activity: "UNKNOWN", basis: "feasibility",
+          detail: `the server says not observed, but coverage is incomplete: ${gaps.join(", ")}` }
+      }
     }
+    return { activity: served as RouteActivity, basis: "feasibility", detail }
   }
-  const contract = contractOf(path)
+  if (planes) {
+    const observed = planes.filter((p) => p.state === "observed").map((p) => p.plane)
+    if (observed.length === PLANES.length) {
+      return { activity: "OBSERVED", basis: "contract", detail: "observed on every plane (runtime evidence)" }
+    }
+    if (observed.length > 0) {
+      return { activity: "PARTIALLY_OBSERVED", basis: "contract",
+        detail: `observed on ${observed.join(", ")}; not every plane of this route was observed` }
+    }
+    const gaps = incompleteCoverage(planes)
+    if (gaps.length === 0) {
+      return { activity: "NOT_OBSERVED", basis: "contract", detail: "every plane collected, nothing observed" }
+    }
+    return { activity: "UNKNOWN", basis: "contract", detail: `activity not established: ${gaps.join(", ")}` }
+  }
   if (contract) {
-    if (contract.classification === "observed") {
-      return { activity: "OBSERVED", basis: "contract", detail: "the evidence contract classifies the route observed" }
-    }
-    const planes = planesOf(contract)
-    if (planes) {
-      const observed = planes.filter((p) => p.state === "observed").map((p) => p.plane)
-      if (observed.length > 0) {
-        return {
-          activity: "PARTIALLY_OBSERVED",
-          basis: "contract",
-          detail: `observed on ${observed.join(", ")}; not every plane of this route was observed`,
-        }
-      }
-      if (planes.every((p) => p.state === "not_observed")) {
-        return { activity: "NOT_OBSERVED", basis: "contract", detail: "every plane reports not observed" }
-      }
-      const unseen = planes.filter((p) => p.state !== "not_observed").map((p) => `${p.plane} ${words(p.state)}`)
-      return { activity: "UNKNOWN", basis: "contract", detail: `activity not established: ${unseen.join(", ")}` }
-    }
     return { activity: "UNKNOWN", basis: "contract", detail: "the evidence contract carries no runtime evidence" }
   }
   if (low(path.evidence) === "observed") {
-    return { activity: "OBSERVED", basis: "legacy", detail: "the server's legacy whole-path evidence word is observed" }
+    return { activity: "UNKNOWN", basis: "legacy",
+      detail: "the legacy evidence word is observed (gate-based); activity on this route is not established" }
   }
   return { activity: "UNKNOWN", basis: "none", detail: "the server sent no activity for this route" }
 }
@@ -282,17 +298,6 @@ export function routeAccess(path: ConvergencePath): { access: RouteAccess; basis
     return { access: "BLOCKED", basis: "classification", reason: "the server classifies the route blocked" }
   }
   return { access: "UNKNOWN", basis: "none", reason: "access now not composed by the server for this route" }
-}
-
-/** The list section of one route (its activity). Exported for the honesty-rule tests. */
-export function routeSection(path: ConvergencePath): SourceSection {
-  return sectionOf(routeActivity(path).activity)
-}
-
-function sectionOf(activity: RouteActivity): SourceSection {
-  if (activity === "OBSERVED" || activity === "PARTIALLY_OBSERVED") return "observed"
-  if (activity === "NOT_OBSERVED") return "not_observed"
-  return "unknown"
 }
 
 function observationsOf(path: ConvergencePath): { resolved: SourceObservation[]; shared: boolean; dataAbsent: boolean } {
@@ -495,7 +500,10 @@ export function currentAccessSources(
 
   for (const source of bySource.values()) {
     source.routes.sort((a, b) => ACTIVITY_GRADE[a.activity] - ACTIVITY_GRADE[b.activity] || a.pathId.localeCompare(b.pathId))
-    source.section = sectionOf(source.routes[0].activity)
+    // Grouped by ALL routes: observed if any route was observed; not observed only when EVERY route is; else unknown.
+    const acts = source.routes.map((r) => r.activity)
+    source.section = acts.some((a) => a === "OBSERVED" || a === "PARTIALLY_OBSERVED") ? "observed"
+      : acts.every((a) => a === "NOT_OBSERVED") ? "not_observed" : "unknown"
     source.primaryPathId = source.routes[0].pathId
     source.impactHeadline = source.routes.find((r) => r.impactHeadline)?.impactHeadline ?? null
     const seen = source.routes.map((r) => {

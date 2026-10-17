@@ -51,7 +51,7 @@ describe("CurrentAccessSourceList over the captured summary", () => {
 
   it("the header says the observed-source count with its unit and window, and the generation / as-of the answer served", () => {
     mount(SUMMARY)
-    expect(screen.getByTestId("current-access-header").textContent).toBe("3 compute sources with observed activity toward acme-data · observation window not reported")
+    expect(screen.getByTestId("current-access-header").textContent).toBe("3 compute sources with observed activity (whole route or some planes) toward acme-data · observation window not reported")
     expect(screen.getByTestId("current-access-totals").textContent).toBe(
       `5 compute sources · 5 compute routes listed · as of ${SUMMARY.as_of} · generation ${SUMMARY.generation}`)
     expect(screen.getByTestId("current-access-section-count-observed").textContent).toBe("(3 compute sources · observation window not reported)")
@@ -83,10 +83,10 @@ describe("CurrentAccessSourceList over the captured summary", () => {
     const planes = observed.evidence_contract!.runtime_evidence
     expect(within(row).getByTestId("current-access-seen").textContent).toBe(`first seen ${planes.identity.first_seen!.slice(0, 10)} · last seen ${planes.identity.last_seen!.slice(0, 10)}`)
     const evidence = within(row).getByTestId("current-access-planes").textContent ?? ""
-    expect(evidence).toMatch(/identity observed · 3 hits \(cloudtrail_api\)/)
-    expect(evidence).toMatch(/network observed · 3 hits \(flow_log_hit\)/)
+    expect(evidence).toMatch(/identity observed · 3 hits \(server plane total\) \(cloudtrail_api\)/)
+    expect(evidence).toMatch(/network observed · 3 hits \(server plane total\) \(flow_log_hit\)/)
     expect(evidence).not.toMatch(/9 hits/)
-    expect(within(row).getByTestId("current-access-qualifier").textContent).toBe("observed — the evidence contract classifies the route observed")
+    expect(within(row).getByTestId("current-access-qualifier").textContent).toBe("observed — observed on every plane (runtime evidence)")
     expect(within(row).getByTestId("current-access-actions").textContent).toMatch(/s3:GetObject · observed/)
     expect(within(row).getByTestId("current-access-damage").textContent).toMatch(/assessed capability under this foothold/)
     expect(within(row).getByTestId("current-access-identity").textContent).toBe(`identity: ${observed.identity_name}`)

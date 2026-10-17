@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useOptionalAccountScope } from "@/lib/account-scope-context"
 import { buildJewelFootholdsUrl } from "@/lib/attack-paths/convergence-fetch-url"
-import { typedServingRefusal } from "@/lib/semantic-hold"
+import { semanticHoldMessage, semanticStatusHold, typedServingRefusal } from "@/lib/semantic-hold"
 import { heldRouteMessage } from "@/lib/attack-paths/held-route-message"
 import { scopeClaimsFrom } from "@/lib/attack-paths/scope-claims"
 
@@ -183,6 +183,8 @@ export interface UseAtlasLateralResult {
   /** Set when the server holds the live ATLAS evaluation (`evaluate=true` answered SERVING_ROUTE_HELD): the hook then
    *  shows the published foothold reach (`evaluate=false`) and this is the server's own coded reason. */
   evaluationHeld: string | null
+  /** The served foothold answer says `semantic_status: empty`: no compute in scope (an answer, not a gap). */
+  emptyAnswer: boolean
   retry: () => void
 }
 
@@ -206,6 +208,7 @@ export function useAtlasLateral({
   const [simulationLoading, setSimulationLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [evaluationHeld, setEvaluationHeld] = useState<string | null>(null)
+  const [emptyAnswer, setEmptyAnswer] = useState(false)
   const [nonce, setNonce] = useState(0)
   const retry = useCallback(() => setNonce((n) => n + 1), [])
   const scopeKey = enabled && systemName && jewelRef ? `${systemName}\u0000${jewelRef}` : null
@@ -224,11 +227,13 @@ export function useAtlasLateral({
       setLoadedScope(null)
       setError(null)
       setEvaluationHeld(null)
+      setEmptyAnswer(false)
       return
     }
     let cancelled = false
     setCandidatesLoading(true)
     setEvaluationHeld(null)
+    setEmptyAnswer(false)
     setLoadedScope(null)
     setResponse(null)
     setEvaluation(null)
@@ -236,6 +241,12 @@ export function useAtlasLateral({
     setError(null)
     const claimsArg = { customerId: claimedCustomer, accountId: claimedAccount }
     let heldNow = false
+    // A 200 hold (`semantic_status: not_recorded` / `unavailable`) is not a candidate list: say it, never "no compute".
+    const answerOf = (raw: unknown, capability: string): FootholdPayload => {
+      const hold = semanticStatusHold(raw)
+      if (hold) throw new Error(`${capability}: ${semanticHoldMessage(hold)}`)
+      return raw as FootholdPayload
+    }
     const read = async (evaluate: boolean) => {
       const r = await fetch(
         buildJewelFootholdsUrl(
@@ -258,17 +269,18 @@ export function useAtlasLateral({
           const published = await read(false)
           if (!published.r.ok || !published.body) throw new Error(heldRouteMessage(published.body, published.r.status, "Published foothold reach"))
           // No server ranking exists without the evaluation: nothing is "recommended", and no live search is started
-          // on the operator's behalf (the install holds that search too). The operator picks a foothold.
+          // on the operator's behalf (the install holds that search too); the panel lists them as not evaluated.
           heldNow = true
-          return published.body as FootholdPayload
+          return answerOf(published.body, "Published foothold reach")
         }
         if (!r.ok || !body) throw new Error(heldRouteMessage(body, r.status, "Lateral footholds"))
-        return body as FootholdPayload
+        return answerOf(body, "Lateral footholds")
       })
       .then((body) => {
         if (cancelled) return
         const next = body.candidates ?? []
         const recommendedId = heldNow ? null : selectRecommendedFootholdId(body)
+        setEmptyAnswer((body as { semantic_status?: unknown }).semantic_status === "empty")
         setCandidates(next)
         setEvaluation(body.evaluation ?? null)
         setLoadedScope(scopeKey)
@@ -375,6 +387,7 @@ export function useAtlasLateral({
     simulationLoading,
     error,
     evaluationHeld,
+    emptyAnswer,
     retry,
   }
 }

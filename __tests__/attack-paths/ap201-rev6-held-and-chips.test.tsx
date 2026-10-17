@@ -61,6 +61,52 @@ describe("Lateral: a held live evaluation shows the published reach and says eva
     expect(result.current.error).toBe("Lateral footholds could not be read (HTTP 500).")
   })
 
+  it("review B2: a 200 not_recorded published answer is said as a hold, never 'no compute'; an empty one is an empty answer", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes("evaluate=true")) return respond(503, HELD)
+      return respond(200, { semantic_status: "not_recorded", hold_reason: "JEWEL_FOOTHOLDS_PUBLICATION_NOT_RECORDED" })
+    }))
+    const { result } = renderHook(() => useAtlasLateral({ systemName: "payments", jewelRef: "arn:aws:s3:::acme-data", enabled: true }))
+    await waitFor(() => expect(result.current.candidatesLoading).toBe(false))
+    expect(result.current.error).toBe("Published foothold reach: Not recorded yet — JEWEL_FOOTHOLDS_PUBLICATION_NOT_RECORDED")
+    expect(result.current.emptyAnswer).toBe(false)
+    vi.unstubAllGlobals()
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) =>
+      String(input).includes("evaluate=true") ? respond(503, HELD) : respond(200, { semantic_status: "empty", candidates: [] })))
+    const second = renderHook(() => useAtlasLateral({ systemName: "payments", jewelRef: "arn:aws:s3:::acme-other", enabled: true }))
+    await waitFor(() => expect(second.result.current.candidatesLoading).toBe(false))
+    expect(second.result.current).toMatchObject({ error: null, emptyAnswer: true, candidates: [] })
+  })
+
+  it("review B1: with evaluation held the panel lists the published footholds as not evaluated — no green verdict, no 'no path'", async () => {
+    await act(async () => {
+      render(<AtlasLateralLensPanel candidates={[CANDIDATE as never, { ...CANDIDATE, workload_id: "i-2", workload_name: "web-2" } as never]}
+        selectedFootholdId={null} selectedFoothold={null} response={null} evaluation={null} candidatesLoading={false}
+        simulationLoading={false} error={null} evaluationHeld="SERVING_ROUTE_HELD: READ_MODEL_MISSING"
+        onSelectFoothold={() => undefined} onRetry={() => undefined} />)
+    })
+    expect(screen.queryByTestId("atlas-none-reached")).toBeNull()
+    expect(screen.queryByTestId("atlas-no-path-candidates")).toBeNull()
+    expect(screen.getByTestId("atlas-reach-not-established").textContent).toBe("2 published footholds, not evaluated on this install.")
+    expect(screen.getByTestId("atlas-not-evaluated-candidates").textContent).toMatch(/^Published footholds — not evaluated on this install \(2\)/)
+    expect(document.body.textContent).not.toMatch(/No evaluated service reached|no modeled path/i)
+  })
+
+  it("the green 'none reached' verdict needs every eligible candidate evaluated; a partly evaluated set is not a verdict", async () => {
+    const dead = { ...CANDIDATE, atlas_evaluation: { state: "DEAD_END" } }
+    const unevaluated = { ...CANDIDATE, workload_id: "i-2" }
+    const panel = (candidates: unknown[], evaluation: unknown) => render(<AtlasLateralLensPanel candidates={candidates as never}
+      selectedFootholdId={null} selectedFoothold={null} response={null} evaluation={evaluation as never} candidatesLoading={false}
+      simulationLoading={false} error={null} onSelectFoothold={() => undefined} onRetry={() => undefined} />)
+    panel([dead, unevaluated], { reachable_count: 0, evaluated_count: 1, eligible_count: 2, error_count: 0 })
+    expect(screen.queryByTestId("atlas-none-reached")).toBeNull()
+    expect(screen.getByTestId("atlas-reach-not-established").textContent).toBe("No foothold was evaluated as reaching this jewel; 1 not evaluated.")
+    cleanup()
+    panel([dead], { reachable_count: 0, evaluated_count: 1, eligible_count: 1, error_count: 0 })
+    expect(screen.getByTestId("atlas-none-reached")).toBeInTheDocument()
+  })
+
   it("the panel says evaluation is held and that no result is not 'no lateral movement'", async () => {
     await act(async () => {
       render(<AtlasLateralLensPanel candidates={[CANDIDATE as never]} selectedFootholdId={null} selectedFoothold={null}

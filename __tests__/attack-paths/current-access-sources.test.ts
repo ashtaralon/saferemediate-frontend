@@ -55,9 +55,10 @@ describe("Rev 6 §3.1 · REACHABLE with UNKNOWN or missing activity is Unknown, 
     expect(byName(s, "web-2").routes[0]).toMatchObject({ activity: "UNKNOWN", activityBasis: "none" })
   })
 
-  it("only a served NOT_OBSERVED (or every plane not_observed) is 'Allowed, no observed activity'", () => {
+  it("only a served NOT_OBSERVED (or every plane not_observed with collected coverage) is 'Allowed, no observed activity'", () => {
+    const covered = { state: "not_observed", coverage_states: ["NO_OBSERVATION"] }
     const contract = { classification: "inferred", evidence: "configured", whole_path_observed: false, gates: {},
-      runtime_evidence: { identity: { state: "not_observed" }, network: { state: "not_observed" }, data: { state: "not_observed" } },
+      runtime_evidence: { identity: covered, network: covered, data: covered },
       permission_coverage: { actions: {}, evaluated_actions: [], complete: false } } as never
     const s = currentAccessSources(body([
       path({ path_id: "a", source_compute: compute(1), feasibility: feas("REACHABLE", "NOT_OBSERVED", { activity_detail: "covered, nothing seen on this path" }) }),
@@ -81,7 +82,8 @@ describe("Rev 6 §3.7 · activity, access now and approval are three independent
     expect(s.observed.map((x) => x.name)).toEqual(["acme-web-1", "acme-web-2", "acme-web-5"])
     expect(byName(s, "acme-web-2").routes[0]).toMatchObject({ activity: "PARTIALLY_OBSERVED",
       activityDetail: "observed on identity, network; not every plane of this route was observed" })
-    expect(byName(s, "acme-web-1").routes[0]).toMatchObject({ activity: "OBSERVED", activityBasis: "contract" })
+    expect(byName(s, "acme-web-1").routes[0]).toMatchObject({ activity: "OBSERVED", activityBasis: "contract",
+      activityDetail: "observed on every plane (runtime evidence)" })
   })
 
   it("observed in the window, blocked now: listed under Observed activity with access now BLOCKED (UI-10 / UI-47)", () => {
@@ -220,5 +222,45 @@ describe("conservation and holds", () => {
 
   it("names why the list is not every route (the captured answer is coverage PARTIAL)", () => {
     expect(currentAccessSources(SUMMARY)!.partial).toBeTruthy()
+  })
+})
+
+describe("review R1 (frozen c0c05ceb) · section from all routes; activity never from gates; not-observed needs coverage", () => {
+  const contractWith = (classification: string, planes: Record<string, unknown>) => ({ classification, evidence: "configured",
+    whole_path_observed: false, gates: {}, runtime_evidence: planes,
+    permission_coverage: { actions: {}, evaluated_actions: [], complete: false } }) as never
+  const covered = { state: "not_observed", coverage_states: ["NO_OBSERVATION"] }
+
+  it("SF1: one NOT_OBSERVED route and one UNKNOWN route is Unknown, never 'Allowed, no observed activity'", () => {
+    const s = currentAccessSources(body([
+      path({ path_id: "p1", source_compute: compute(1), feasibility: feas("REACHABLE", "NOT_OBSERVED") }),
+      path({ path_id: "p2", source_compute: compute(1), feasibility: feas("REACHABLE", "UNKNOWN") }),
+    ]))!
+    expect(sectionOf(s, "web-1")).toBe("unknown")
+  })
+
+  it("SF2: a gate-based 'observed' classification with no observed plane is Unknown; three observed planes are observed whatever the class", () => {
+    const unavailable = { state: "unavailable" }
+    const s = currentAccessSources(body([
+      path({ path_id: "a", source_compute: compute(1), evidence_contract: contractWith("observed", { identity: unavailable, network: unavailable, data: unavailable }) }),
+      path({ path_id: "b", source_compute: compute(2), evidence_contract: contractWith("inferred", { identity: { state: "observed" }, network: { state: "observed" }, data: { state: "observed" } }) }),
+      path({ path_id: "c", source_compute: compute(3), evidence: "observed", confidence: "observed" }),
+    ]))!
+    expect(byName(s, "web-1").routes[0].activity).toBe("UNKNOWN")
+    expect(byName(s, "web-2").routes[0]).toMatchObject({ activity: "OBSERVED", activityDetail: "observed on every plane (runtime evidence)" })
+    expect(byName(s, "web-3").routes[0]).toMatchObject({ activity: "UNKNOWN", activityBasis: "legacy" })
+  })
+
+  it("SF3: not observed with NOT_READY / NO_DATA coverage is Unknown with those words, served or not", () => {
+    const planes = { identity: covered, network: { state: "not_observed", coverage_states: ["NOT_READY"] }, data: { state: "not_observed", coverage_states: ["NO_DATA"] } }
+    const s = currentAccessSources(body([
+      path({ path_id: "a", source_compute: compute(1), evidence_contract: contractWith("inferred", planes) }),
+      path({ path_id: "b", source_compute: compute(2), evidence_contract: contractWith("inferred", planes),
+        feasibility: feas("REACHABLE", "NOT_OBSERVED", { activity_detail: "covered, nothing seen on this path" }) }),
+    ]))!
+    expect(s.notObserved).toEqual([])
+    expect(byName(s, "web-1").routes[0]).toMatchObject({ activity: "UNKNOWN", activityDetail: "activity not established: network NOT_READY, data NO_DATA" })
+    expect(byName(s, "web-2").routes[0]).toMatchObject({ activity: "UNKNOWN",
+      activityDetail: "the server says not observed, but coverage is incomplete: network NOT_READY, data NO_DATA" })
   })
 })
