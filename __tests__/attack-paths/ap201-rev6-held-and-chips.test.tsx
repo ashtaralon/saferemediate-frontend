@@ -120,7 +120,8 @@ describe("Lateral: a held live evaluation shows the published reach and says eva
 
 describe("Exfiltration: aggregate, not bound to the selected compute; empty is not 'no exfiltration'", () => {
   it("labels the rail aggregate when paths exist and when none exist", () => {
-    render(<ExfilPathListColumn paths={[]} selectedPathId={null} onSelectPath={() => undefined} jewelName="acme-data" />)
+    // Review B5: the server's empty answer is said only when the caller says the server answered (the page does).
+    render(<ExfilPathListColumn paths={[]} selectedPathId={null} onSelectPath={() => undefined} jewelName="acme-data" answered />)
     expect(screen.getByTestId("exfil-aggregate-binding").textContent).toBe("Jewel-wide destinations (aggregate). Not bound to the selected compute.")
     expect(screen.getByTestId("exfil-rail-empty").textContent).toMatch(/not a “no\s+exfiltration” verdict/)
     expect(document.body.textContent).not.toMatch(/No exfil paths surfaced/)

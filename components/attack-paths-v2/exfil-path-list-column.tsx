@@ -120,7 +120,8 @@ interface ExfilPathListColumnProps {
   notApplicableReason?: string | null
   /** The exfil read failed (no answer). Never rendered as "no exfiltration path". */
   error?: string | null
-  /** True only when the server actually answered (so an empty list is the answer's own). */
+  /** True only when the server actually answered (so an empty list is the answer's own). Default false (review B5): a
+   *  caller that does not say the server answered gets "could not be read", never the server's empty answer. */
   answered?: boolean
 }
 
@@ -141,7 +142,7 @@ export function ExfilPathListColumn({
   loading = false,
   notApplicableReason = null,
   error = null,
-  answered = true,
+  answered = false,
 }: ExfilPathListColumnProps) {
   // Group paths by channel, preserving backend's traffic-sorted order
   // inside each group. Unknown channels fall into a synthetic "OTHER"

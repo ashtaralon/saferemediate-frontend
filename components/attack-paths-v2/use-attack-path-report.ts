@@ -18,8 +18,8 @@ import type {
   CrownJewelSummary,
 } from "@/components/identity-attack-paths/types"
 import { coerceProxyErrorMessage } from "@/lib/proxy-error-message"
-import { useOptionalAccountScope } from "@/lib/account-scope-context"
-import { appendScopeClaims, scopeClaimsFrom } from "@/lib/attack-paths/scope-claims"
+import { useAttackPathReadClaims } from "@/lib/attack-paths/read-scope-context"
+import { scopeClaimsKey } from "@/lib/attack-paths/scope-claims"
 import { heldRouteMessage } from "@/lib/attack-paths/held-route-message"
 import { semanticHoldMessage, semanticStatusHold, typedReaderUnavailable, typedServingRefusal } from "@/lib/semantic-hold"
 import { resolveClosurePathId } from "./derive-attack-path-id"
@@ -56,10 +56,11 @@ export function useAttackPathReport(
   const [nonce, setNonce] = useState(0)
   const [stale, setStale] = useState(false)
   const retry = useCallback(() => setNonce((n) => n + 1), [])
-  // AP201 Rev 6 Day 4.3: the operator's tenant / account claims travel with the report read.
-  const claims = scopeClaimsFrom(useOptionalAccountScope())
-  const claimedCustomer = claims.customerId
-  const claimedAccount = claims.accountId
+  // AP201 Rev 6 Day 4.3 + review B1: the report read carries THE page's claims (useAttackPathReadClaims): the selected
+  // account, and -- when the page was opened by system key -- the key, whose own account replaces the selection, so the
+  // read names the account the "Reads scoped to account ..." banner says.
+  const claims = useAttackPathReadClaims()
+  const claimsQuery = scopeClaimsKey(claims)
 
   useEffect(() => {
     if (!path?.id) {
@@ -75,7 +76,7 @@ export function useAttackPathReport(
     setStale(false)
     setLoading(true)
     setError(null)
-    const qs = appendScopeClaims(new URLSearchParams(), { customerId: claimedCustomer, accountId: claimedAccount }).toString()
+    const qs = claimsQuery
 
     // Bounded per-attempt timeout so the card's skeleton never becomes an
     // open-ended 30–60s spinner waiting on the 55s proxy abort. A warm backend
@@ -152,7 +153,7 @@ export function useAttackPathReport(
     return () => {
       cancelled = true
     }
-  }, [path?.id, path?.attack_path_id, nonce, claimedCustomer, claimedAccount])
+  }, [path?.id, path?.attack_path_id, nonce, claimsQuery])
 
   return { report, source, loading, error, stale, retry }
 }

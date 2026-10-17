@@ -17,6 +17,8 @@
 
 import { useCallback, useState } from "react"
 import { heldRouteMessage } from "@/lib/attack-paths/held-route-message"
+import { useAttackPathReadClaims } from "@/lib/attack-paths/read-scope-context"
+import { appendScopeClaims } from "@/lib/attack-paths/scope-claims"
 
 export type GuardVerdict = "PASS" | "REFUSE" | "UNVERIFIED"
 
@@ -91,6 +93,9 @@ export function usePermissionCutPlan(systemName: string) {
   const [state, setState] = useState<State>(IDLE)
 
   const reset = useCallback(() => setState(IDLE), [])
+  // AP201 review S1: a held reader carries THE page's claims too (selected account; a system key's own account wins),
+  // so the day its route is admitted it names the account the page names. Today the route answers its typed hold.
+  const claims = useAttackPathReadClaims()
 
   const requestPlan = useCallback(
     async (roleArn: string, jewelRef: string, jewelType = "S3Bucket") => {
@@ -101,6 +106,7 @@ export function usePermissionCutPlan(systemName: string) {
           role_arn: roleArn,
           jewel_type: jewelType,
         })
+        appendScopeClaims(qs, claims)
         const res = await fetch(
           `/api/proxy/attack-paths/${encodeURIComponent(systemName)}/permission-cut-plan?${qs}`,
           { method: "POST" },
@@ -125,7 +131,7 @@ export function usePermissionCutPlan(systemName: string) {
         })
       }
     },
-    [systemName],
+    [systemName, claims],
   )
 
   // `plan` is the payload, `requestPlan` is the action. Naming both `plan`

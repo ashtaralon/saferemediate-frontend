@@ -1,4 +1,5 @@
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
+import type { ScopeClaims } from "@/lib/attack-paths/scope-claims"
 import { buildConvergenceSummaryUrl } from "@/lib/attack-paths/convergence-fetch-url"
 import type {
   ConvergencePath,
@@ -104,13 +105,15 @@ export function buildTfmSpotlightUrl(
   return `/systems?${qs.toString()}`
 }
 
+/** (AP201 review S1/S2) `claims` are the read's claims from THE one rule (`attackPathReadClaims` /
+ *  `useAttackPathReadClaims`): the selected account rides as on every other Attack Paths read, and a system key's own
+ *  account replaces it. A caller with no selected account (the dashboard card) passes only the identity. */
 export async function fetchConvergenceSummary(
   systemName: string,
   jewel: CrownJewelSummary,
-  systemKey?: string | null,
-  systemAccountId?: string | null,
+  claims: ScopeClaims,
 ): Promise<CrownJewelConvergenceSummary | null> {
-  const res = await fetch(buildConvergenceSummaryUrl(systemName, jewel, { customerId: null, accountId: null, systemKey, systemAccountId }), {
+  const res = await fetch(buildConvergenceSummaryUrl(systemName, jewel, claims), {
     cache: "no-store",
   })
   const body = (await res.json().catch(() => null)) as
@@ -151,7 +154,7 @@ export async function navigateCrownJewelClick(
   systemAccountId?: string | null,
 ): Promise<"v2" | "tfm-fallback"> {
   const jewel = toCrownJewelSummary(cj)
-  const summary = await fetchConvergenceSummary(systemName, jewel, systemKey, systemAccountId)
+  const summary = await fetchConvergenceSummary(systemName, jewel, { customerId: null, accountId: null, systemKey, systemAccountId })
   if (summary?.paths?.length) {
     const ok = navigateCrownJewelToV2(router, systemName, jewel, summary.paths, systemKey, systemAccountId)
     if (ok) return "v2"

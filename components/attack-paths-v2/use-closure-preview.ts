@@ -10,6 +10,8 @@ import type { IdentityAttackPath } from "@/components/identity-attack-paths/type
 import { resolveClosurePathId } from "./derive-attack-path-id"
 import type { ClosurePreview } from "./closure-outcome-types"
 import { heldRouteMessage } from "@/lib/attack-paths/held-route-message"
+import { useAttackPathReadClaims } from "@/lib/attack-paths/read-scope-context"
+import { scopeClaimsKey } from "@/lib/attack-paths/scope-claims"
 
 interface UseClosurePreview {
   closure: ClosurePreview | null
@@ -30,6 +32,10 @@ export function useClosurePreview(path: ClosurePathInput): UseClosurePreview {
   const [error, setError] = useState<string | null>(null)
   const [nonce, setNonce] = useState(0)
   const retry = useCallback(() => setNonce((n) => n + 1), [])
+  // AP201 review S1: a held reader carries THE page's claims too (selected account; a system key's own account wins),
+  // so the day its route is admitted it names the account the page names. Today the route answers its typed hold.
+  const claims = useAttackPathReadClaims()
+  const claimsQuery = scopeClaimsKey(claims)
 
   useEffect(() => {
     if (!path?.id) {
@@ -43,7 +49,7 @@ export function useClosurePreview(path: ClosurePathInput): UseClosurePreview {
 
     const fetchOnce = async (pathId: string): Promise<ClosurePreview> => {
       const r = await fetch(
-        `/api/proxy/attack-paths/path/${encodeURIComponent(pathId)}/closure-preview`,
+        `/api/proxy/attack-paths/path/${encodeURIComponent(pathId)}/closure-preview${claimsQuery ? `?${claimsQuery}` : ""}`,
         { cache: "no-store" },
       )
       const body = await r.json().catch(() => null)
@@ -91,7 +97,7 @@ export function useClosurePreview(path: ClosurePathInput): UseClosurePreview {
     }
   // Stable scalars only — `path.nodes` is a new array ref every parent render
   // and was causing an infinite re-fetch / perpetual "Computing closure preview…".
-  }, [path?.id, path?.attack_path_id, path?.crown_jewel_id, nonce])
+  }, [path?.id, path?.attack_path_id, path?.crown_jewel_id, nonce, claimsQuery])
 
   return { closure, loading, error, retry }
 }

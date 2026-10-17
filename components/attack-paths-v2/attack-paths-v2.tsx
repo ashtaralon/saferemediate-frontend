@@ -102,7 +102,8 @@ import { pathCVEsForMode } from "./path-cve-model"
 import { useAttackPathReport } from "./use-attack-path-report"
 import { useBoundedAutoRetry } from "./use-bounded-auto-retry"
 import { buildConvergenceFetchUrl, buildTargetCatalogUrl } from "@/lib/attack-paths/convergence-fetch-url"
-import { scopeClaimsFrom, scopeClaimsKey } from "@/lib/attack-paths/scope-claims"
+import { attackPathReadClaims, scopeClaimsFrom, scopeClaimsKey } from "@/lib/attack-paths/scope-claims"
+import { AttackPathSystemIdentity } from "@/lib/attack-paths/read-scope-context"
 import type { CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
 import { matchConvergencePathId } from "@/lib/attack-paths/iap-to-convergence"
 import { useCrownJewelConvergence } from "@/lib/attack-paths/use-crown-jewel-convergence"
@@ -203,7 +204,6 @@ export function AttackPathsV2({
     : urlSystemKey
       ? (searchParams?.get("account_id") || null)
       : null
-  const identityQuery = systemScopeQuery(identityKey, identityAccount)
   const identityCacheSuffix = identityKey ? `:key=${identityKey}:${identityAccount ?? ""}` : ""
   const selectedJewelId = searchParams?.get("jewel") ?? null
   const selectedPathId = searchParams?.get("path") ?? null
@@ -452,11 +452,9 @@ export function AttackPathsV2({
   // The same account scope feeds the blast-radius read below.
   const accountScope = useAccountScope()
   const selectedClaims = scopeClaimsFrom(accountScope)
-  const scopeClaims = {
-    ...selectedClaims,
-    systemKey: identityKey ?? null,
-    systemAccountId: identityKey ? (identityAccount ?? null) : null,
-  }
+  // AP201 review S1: THE one claim rule (attackPathReadClaims); every component read gets the same claims from
+  // <AttackPathSystemIdentity> below (useAttackPathReadClaims), so no read names another account than this banner.
+  const scopeClaims = attackPathReadClaims(accountScope, { systemKey: identityKey, systemAccountId: identityAccount })
   // When the system key's own account overrides a different selected account, the reads are scoped to the KEY's
   // account (appendScopeClaims) -- the page says so instead of silently ignoring the selection.
   const accountOverride = scopeClaims.systemAccountId && selectedClaims.accountId
@@ -464,6 +462,8 @@ export function AttackPathsV2({
     ? { readAccount: scopeClaims.systemAccountId, selectedAccount: selectedClaims.accountId }
     : null
   const scopeClaimsCacheKey = scopeClaimsKey(scopeClaims)
+  // Review S2: the selected account keys every client cache it reaches; with no selection the keys stay as before.
+  const selectedClaimsCacheSuffix = selectedClaims.accountId ? `:${scopeClaimsCacheKey}` : ""
   const jewelsUrl = systemName ? buildTargetCatalogUrl(systemName, scopeClaims) : null
   const {
     data: jewelsRaw,
@@ -486,7 +486,8 @@ export function AttackPathsV2({
   // (materialized AttackPath rows). Keep a background 5×5 fetch for when it
   // succeeds (richer severity / damage), but do not block or hard-error on it.
   const fetchUrl = systemName
-    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&max_jewels=12&max_paths_per_jewel=8${identityQuery}`
+    // The IAP envelope is not an R11 read: it keeps A7 B5's rule (account only beside a key; Alon 2026-10-17).
+    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&max_jewels=12&max_paths_per_jewel=8${systemScopeQuery(identityKey, identityAccount)}`
     : null
   const {
     data: rawData,
@@ -623,14 +624,11 @@ export function AttackPathsV2({
   const showingStale =
     fromProxyStale || iapIsStale || jewelsIsStale
 
-  const blastRadiusPathCount = blastRadiusData?.verdict?.attack_paths
-  const reachableJewelCount = blastRadiusData?.verdict?.reachable_crown_jewels
-  // AP201 (M13): the blast-radius totals are another model over another population (target-catalog.ts). They stand
-  // in only while the catalog has not answered at all; a NOT_READY, failed or unreadable catalog shows no count.
-  const catalogAnswered = jewelsRaw != null || Boolean(jewelsError)
-  const displayedPathCount = catalogTotals?.pathCount ?? (catalogAnswered ? undefined : blastRadiusPathCount)
-  const displayedReachableJewelCount =
-    catalogTotals?.reachableTargetCount ?? (catalogAnswered ? undefined : reachableJewelCount)
+  // AP201 (M13) + review S14: the header's totals are the CATALOG's only. The blast-radius totals are another model over
+  // another population (target-catalog.ts) and no longer stand in while the catalog loads: a loading catalog says
+  // "Loading crown-jewel targets…", and a NOT_READY, failed or unreadable one shows no count.
+  const displayedPathCount = catalogTotals?.pathCount
+  const displayedReachableJewelCount = catalogTotals?.reachableTargetCount
 
 
   // Paths for the currently-selected jewel. Empty list = no jewel
@@ -822,7 +820,8 @@ export function AttackPathsV2({
   const convergenceFetchUrl = useMemo(() => {
     if (viewMode !== "convergence" || !systemName || !selectedJewel || !selectedJewelHasPaths) return null
     return buildConvergenceFetchUrl(systemName, selectedJewel, scopeClaims)
-  }, [viewMode, systemName, selectedJewel, selectedJewelHasPaths, identityKey, identityAccount])
+    // Review S9: the URL carries the claims, so the claims are a dependency (one string of all four).
+  }, [viewMode, systemName, selectedJewel, selectedJewelHasPaths, scopeClaimsCacheKey])
 
   const {
     data: convergenceData,
@@ -830,7 +829,7 @@ export function AttackPathsV2({
     error: convergenceError,
     retry: convergenceRetry,
   } = useCachedFetch<CrownJewelConvergence>(convergenceFetchUrl, {
-    cacheKey: `cj-convergence:${systemName}:${selectedJewelId ?? ""}${identityCacheSuffix}`,
+    cacheKey: `cj-convergence:${systemName}:${selectedJewelId ?? ""}${identityCacheSuffix}${selectedClaimsCacheSuffix}`,
   })
 
   const convergenceSource = useMemo((): "live" | "fallback" => {
@@ -1238,6 +1237,8 @@ export function AttackPathsV2({
     // AP188 (F4 P2): below lg the three panes stack and the shell scrolls, so the selected explanation is reached by
     // ordinary scrolling; from lg up the row and its fixed columns are exactly as before. (AP192: below lg the fixed
     // 320 + 400 columns left the graph pane 180px wide at 900 and 48px at 768, too narrow for any mode tab.)
+    // AP201 review B1/S1: every component read under the page names the same account (useAttackPathReadClaims).
+    <AttackPathSystemIdentity systemKey={identityKey} systemAccountId={identityAccount}>
     <div className={`flex flex-col lg:flex-row ${shellHeight} bg-background text-foreground overflow-y-auto lg:overflow-hidden${embedded ? " rounded-xl border border-border" : ""}`}>
       {/* Column 1 — Crown jewels (hidden when path is maximized) */}
       <aside
@@ -1768,6 +1769,7 @@ export function AttackPathsV2({
         )}
       </main>
     </div>
+    </AttackPathSystemIdentity>
   )
 }
 

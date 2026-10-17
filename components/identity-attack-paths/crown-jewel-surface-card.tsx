@@ -9,9 +9,9 @@
 import { useState } from "react"
 import { Crown, Globe, Network, UserCircle, Skull, ShieldAlert, Wrench, Zap, Database, ChevronDown, ChevronRight } from "lucide-react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
-import { useOptionalAccountScope } from "@/lib/account-scope-context"
 import { buildJewelSurfaceUrl } from "@/lib/attack-paths/convergence-fetch-url"
-import { scopeClaimsFrom, scopeClaimsKey } from "@/lib/attack-paths/scope-claims"
+import { useAttackPathReadClaims } from "@/lib/attack-paths/read-scope-context"
+import { scopeClaimsKey } from "@/lib/attack-paths/scope-claims"
 
 interface JewelSurfaceData {
   system_name: string
@@ -93,7 +93,8 @@ export function CrownJewelSurfaceCard({ systemName, jewelId }: Props) {
   // looking at a blank error screen.
   // AP201 (R11): the operator's tenant / account claims travel with the read and key its client cache; no provider
   // (the card outside the app shell) = no claims, the URL and key as before.
-  const claims = scopeClaimsFrom(useOptionalAccountScope())
+  // Review S1: THE page's claims, so a page opened by system key reads the key's own account here too.
+  const claims = useAttackPathReadClaims()
   const url = systemName && jewelId ? buildJewelSurfaceUrl(systemName, jewelId, claims) : null
   const { data, isStale, loading, error } = useCachedFetch<JewelSurfaceData>(url, {
     cacheKey: `jewel-surface:${systemName}:${jewelId}:${scopeClaimsKey(claims)}`,

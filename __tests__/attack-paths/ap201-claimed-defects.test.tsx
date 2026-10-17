@@ -43,7 +43,7 @@ const SYSTEM = SECTION.system_name
 const idOf = (name: string, kind: string) => String(SECTION.targets.find((t) => t.name === name && t.kind === kind)!.target_id)
 
 type Answer = { status: number; body: unknown } | "pending"
-type Served = { section?: unknown; summary?: Answer; blastRadius?: Answer; reports?: Record<string, Answer>; regions?: string[]; iap?: Answer }
+type Served = { section?: unknown; catalog?: Answer; summary?: Answer; blastRadius?: Answer; reports?: Record<string, Answer>; regions?: string[]; iap?: Answer }
 
 function respond(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
@@ -59,7 +59,7 @@ function serve(s: Served = {}) {
         accounts: [{ account_id: SECTION.account_id, display_name: SECTION.customer_id, regions: s.regions ?? [], group_ids: [], status: "active" }], groups: [] })
     }
     if (url.startsWith("/api/proxy/systems")) return respond(200, { systems: [{ name: SYSTEM }] })
-    if (url.startsWith(`/api/proxy/attack-paths/${encodeURIComponent(SYSTEM)}/targets`)) return respond(200, s.section ?? capturedSection)
+    if (url.startsWith(`/api/proxy/attack-paths/${encodeURIComponent(SYSTEM)}/targets`)) return s.catalog ? answer(s.catalog) : respond(200, s.section ?? capturedSection)
     if (url.includes("/identity-attack-paths/") && s.iap) return answer(s.iap)
     if (url.includes("/by-crown-jewel/summary") && s.summary) return answer(s.summary)
     if (url.includes("/blast-radius") && s.blastRadius) return answer(s.blastRadius)
@@ -478,6 +478,20 @@ describe("M13 · the header when the catalog is NOT_READY", () => {
     await tick()
     expect(screen.queryByText(/7 active paths/)).toBeNull()
     expect(screen.queryByText(/3 reachable targets/)).toBeNull()
+  })
+})
+
+describe("AP201 review S14 · while the catalog loads, the header says so and shows no other model's totals", () => {
+  it("a pending catalog is 'Loading crown-jewel targets…', never the blast-radius 7 paths / 3 targets (CONSTRUCTED)", async () => {
+    window.localStorage.setItem("cyntro-product-scope",
+      JSON.stringify({ customerId: SECTION.customer_id, groupId: "all", accountId: SECTION.account_id, region: "eu-west-1" }))
+    const f = serve({ catalog: "pending", blastRadius: { status: 200, body: { verdict: { attack_paths: 7, reachable_crown_jewels: 3 } } },
+      regions: ["eu-west-1"] })
+    await mountPage()
+    await waitFor(() => expect(calls(f, "/blast-radius")).toBeGreaterThan(0))
+    await tick()
+    expect(screen.getByText("Loading crown-jewel targets…")).toBeInTheDocument()
+    expect(screen.queryByText(/7 active paths/)).toBeNull()
   })
 })
 

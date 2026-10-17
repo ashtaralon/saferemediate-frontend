@@ -51,3 +51,25 @@ export function appendScopeClaims(qs: URLSearchParams, claims: ScopeClaims | nul
 export function scopeClaimsKey(claims: ScopeClaims | null | undefined): string {
   return appendScopeClaims(new URLSearchParams(), claims).toString()
 }
+
+/** The system the page was opened on (A7 B5): its KEY, and the account that system lives in. */
+export interface SystemIdentity {
+  systemKey?: string | null
+  systemAccountId?: string | null
+}
+
+/**
+ * (AP201 review S1) THE one claim rule for EVERY Attack Paths read: the selected account (`scopeClaimsFrom`) plus the
+ * page's system identity, whose own account replaces the selection in `appendScopeClaims`. Targets, the catalog, the
+ * convergence summary / detail, footholds, lateral reach, the surface card, the per-path report, the 5x5 list and the
+ * held readers all build their claims here (the page directly, components through `useAttackPathReadClaims`), so no read
+ * can quietly name a different account than the banner says.
+ */
+export function attackPathReadClaims(
+  scope: { customerId?: string | null; accountId?: string | null } | null | undefined,
+  identity?: SystemIdentity | null,
+): ScopeClaims {
+  const selected = scopeClaimsFrom(scope)
+  const systemKey = identity?.systemKey || null
+  return { ...selected, systemKey, systemAccountId: systemKey ? identity?.systemAccountId || null : null }
+}

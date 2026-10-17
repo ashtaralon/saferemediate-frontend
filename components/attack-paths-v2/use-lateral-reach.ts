@@ -6,9 +6,11 @@
 // unavailable, with one retry for Render cold-start.
 
 import { useCallback, useEffect, useState } from "react"
-import { useOptionalAccountScope } from "@/lib/account-scope-context"
 import { buildJewelLateralReachUrl } from "@/lib/attack-paths/convergence-fetch-url"
-import { scopeClaimsFrom } from "@/lib/attack-paths/scope-claims"
+import { useAttackPathReadClaims } from "@/lib/attack-paths/read-scope-context"
+import { scopeClaimsKey } from "@/lib/attack-paths/scope-claims"
+import { heldRouteMessage } from "@/lib/attack-paths/held-route-message"
+import { typedReaderUnavailable, typedServingRefusal } from "@/lib/semantic-hold"
 
 export type LateralBand = "USED" | "CUTTABLE" | "UNKNOWN"
 
@@ -93,10 +95,9 @@ export function useLateralReach(
   const systemName = target?.systemName ?? null
   const jewelRef = target?.jewelRef ?? null
   const jewelType = target?.jewelType ?? null
-  // AP201 (R11): the operator's tenant / account claims travel with the read; no provider = no claims.
-  const claims = scopeClaimsFrom(useOptionalAccountScope())
-  const claimedCustomer = claims.customerId
-  const claimedAccount = claims.accountId
+  // AP201 (R11) + review S1: THE page's claims (selected account; a system key's own account wins); no provider = none.
+  const claims = useAttackPathReadClaims()
+  const claimsQuery = scopeClaimsKey(claims)
 
   useEffect(() => {
     if (!systemName || !jewelRef || !jewelType) {
@@ -110,11 +111,14 @@ export function useLateralReach(
     setError(null)
 
     const fetchOnce = async (): Promise<LateralReachPayload> => {
-      const url = buildJewelLateralReachUrl(systemName, jewelRef, jewelType, { customerId: claimedCustomer, accountId: claimedAccount })
+      const url = buildJewelLateralReachUrl(systemName, jewelRef, jewelType, claims)
       const r = await fetch(url, { cache: "no-store" })
       const body = await r.json().catch(() => null)
       if (!r.ok || !body || body.error) {
-        throw new Error(body?.error ?? `http_${r.status}`)
+        // Review S10: a typed refusal (scope, held route, reader failure) is named in the server's words, not as
+        // the proxy's generic `error`.
+        const typed = !r.ok && (typedServingRefusal(body) ?? typedReaderUnavailable(body))
+        throw new Error(typed ? heldRouteMessage(body, r.status, "Lateral reach") : body?.error ?? `http_${r.status}`)
       }
       return body as LateralReachPayload
     }
@@ -142,7 +146,7 @@ export function useLateralReach(
     return () => {
       cancelled = true
     }
-  }, [systemName, jewelRef, jewelType, claimedCustomer, claimedAccount, nonce])
+  }, [systemName, jewelRef, jewelType, claimsQuery, nonce])
 
   return { data, loading, error, retry }
 }

@@ -33,6 +33,12 @@ function evaluationLabel(candidate: AtlasFootholdCandidate): string {
 
 /** Split footholds by the server's own evaluation word. Only an explicit DEAD_END is "no modeled path"; a candidate
  *  the server did not evaluate (no evaluation, an ERROR, an unknown word) is NOT EVALUATED, never "no path". */
+
+/** A count the server served: a finite, non-negative number (never a missing field). */
+function isCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+}
+
 export function partitionAtlasFootholds(candidates: AtlasFootholdCandidate[]) {
   return {
     reachable: candidates.filter((candidate) => candidate.atlas_evaluation?.state === "REACHABLE"),
@@ -74,9 +80,12 @@ export function AtlasLateralLensPanel({
   onRetry: () => void
 }) {
   const { reachable, noPath, notEvaluated } = partitionAtlasFootholds(candidates)
-  // "No evaluated service reached this jewel" is a verdict only when the server evaluated EVERY eligible candidate.
-  const fullyEvaluatedNone = !evaluationHeld && evaluation != null && reachable.length === 0 && notEvaluated.length === 0
-    && evaluation.evaluated_count === evaluation.eligible_count
+  // "No evaluated service reached this jewel" is a verdict only when the server evaluated EVERY eligible candidate --
+  // and said how many (review B2): both counts must be served numbers and at least one candidate eligible. An
+  // evaluation without its counts (undefined === undefined) or with none eligible is no verdict (the canvas's own rule).
+  const counted = evaluation != null && isCount(evaluation.evaluated_count) && isCount(evaluation.eligible_count)
+  const fullyEvaluatedNone = !evaluationHeld && counted && reachable.length === 0 && notEvaluated.length === 0
+    && evaluation.eligible_count > 0 && evaluation.evaluated_count === evaluation.eligible_count
   return (
     <div
       className="rounded-lg border border-amber-200/70 bg-amber-50/40 px-3 py-2.5 dark:border-amber-500/30 dark:bg-amber-500/10"

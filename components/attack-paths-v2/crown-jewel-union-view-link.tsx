@@ -10,6 +10,8 @@ import {
   jewelIdForNavigation,
 } from "@/lib/attack-paths/crown-jewel-v2-navigation"
 import { readConvergencePaths } from "@/lib/attack-paths/convergence-readiness"
+import { useAttackPathReadClaims } from "@/lib/attack-paths/read-scope-context"
+import { scopeClaimsKey } from "@/lib/attack-paths/scope-claims"
 
 export function CrownJewelUnionViewLink({
   systemName,
@@ -31,6 +33,9 @@ export function CrownJewelUnionViewLink({
   // a new jewel's read is pending, or after it fails, is held or is not ready, there is no count.
   const requestKey = jewel && systemName ? [systemName, jewel.id, jewel.canonical_id ?? "", jewel.name ?? ""].join("\u0000") : null
   const [countKey, setCountKey] = useState<string | null>(null)
+  // AP201 review S1/S2: the summary read carries the page's claims (selected account; a key's own account wins).
+  const claims = useAttackPathReadClaims({ systemKey, systemAccountId })
+  const claimsKey = scopeClaimsKey(claims)
 
   useEffect(() => {
     if (!jewel || !systemName) {
@@ -40,7 +45,7 @@ export function CrownJewelUnionViewLink({
     let cancelled = false
     const key = requestKey
     void (async () => {
-      const summary = await fetchConvergenceSummary(systemName, jewel, systemKey, systemAccountId)
+      const summary = await fetchConvergenceSummary(systemName, jewel, claims)
       if (cancelled) return
       // AP188: a count only from an answer that lists paths; a hold, a refusal, a not-ready or pathless body has none.
       const reading = readConvergencePaths(summary)
@@ -55,7 +60,7 @@ export function CrownJewelUnionViewLink({
     return () => {
       cancelled = true
     }
-  }, [systemName, jewel?.id, jewel?.canonical_id, jewel?.name, systemKey, systemAccountId])
+  }, [systemName, jewel?.id, jewel?.canonical_id, jewel?.name, claimsKey])
 
   if (!jewel || countKey !== requestKey || realPathCount === null || realPathCount <= 1) return null
 
