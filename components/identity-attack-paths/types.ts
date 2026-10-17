@@ -758,14 +758,16 @@ export interface CrownJewelSummary {
   /** Label from the backend scorer. null = no materialized path, so no
    *  severity exists (AP3-104 zero states); never default to LOW. */
   severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | null
-  path_count: number
+  /** null = not computed (a lite jewel from a convergence / navigation row carries no count); never rendered as 0. */
+  path_count: number | null
   /** The server's maximum path severity score. null = not reported (AP201 I3: the catalog row carried a severity
    *  label but no `max_severity`); never rendered as 0. */
   highest_risk_score: number | null
   /** null = the collector did not record exposure; never rendered as false. */
   is_internet_exposed: boolean | null
   data_classification: string | null
-  priority_score: number
+  /** null = not computed (no served score); sorts after every computed score and is never rendered as 0. */
+  priority_score: number | null
   // ── AP3-104 target catalog (GET /api/attack-paths/{system}/targets) ──
   /** Explicit per-target state; absent on legacy /jewels rows. */
   target_state?: TargetState
@@ -779,7 +781,7 @@ export interface CrownJewelSummary {
    *  lib/attack-paths/lifecycle-coverage.ts. Absent when nothing is recorded. */
   coverage_cause?: TargetCoverageCause
   /** AP190: the catalog row's own `path_count` as served, when it is a finite non-negative whole number; null when it
-   *  is missing or malformed (`path_count` above is coerced for display and must not prove a zero). Catalog rows only. */
+   *  is missing or malformed. Catalog rows only. */
   catalog_path_count?: number | null
   // "reachable_only" = jewel isn't tagged to this system but the system's
   // IAM roles reach it via observed edges (shared-bucket-across-systems

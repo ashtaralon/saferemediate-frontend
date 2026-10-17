@@ -99,7 +99,9 @@ export function hasAuthoritativeZeroPaths(
 ): boolean {
   return Boolean(
     jewel &&
-      Number(jewel.path_count ?? 0) === 0 &&
+      // A served zero, or (AP196-R1) a count the catalog did not serve readably -- settled, and shown as unreadable,
+      // never as "no route". S13: the adapter gives a missing or malformed count as null, never a coerced 0 / NaN.
+      (jewel.path_count === 0 || jewel.path_count == null) &&
       AUTHORITATIVE_ZERO_TARGET_STATES.has(jewel.target_state ?? ""),
   )
 }
@@ -437,10 +439,10 @@ export function crownJewelFromArnName(
     name: cjName || cjArn || id,
     type: "Unknown",
     severity: null,
-    path_count: 0,
+    path_count: null,
     highest_risk_score: null,
     is_internet_exposed: null,
     data_classification: null,
-    priority_score: 0,
+    priority_score: null,
   }
 }

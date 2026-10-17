@@ -43,7 +43,8 @@ export interface AttackPathJewelSummary {
   id: string
   name: string
   type: string
-  path_count: number
+  /** null = not computed (a page jewel with no count); never rendered as 0. */
+  path_count: number | null
 }
 
 // =============================================================================

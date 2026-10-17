@@ -300,7 +300,15 @@ export function CrownJewelListPanel({
                     )}
                     {!notComputed && jewel.catalog_path_count !== null && (() => {
                       const cc = jewel.class_counts
-                      const inSystem = cc != null ? (cc.in_system ?? 0) : (jewel.path_count ?? 0)
+                      const inSystem = cc != null ? (cc.in_system ?? 0) : jewel.path_count
+                      // S13: a count that was never computed says so; it is not a zero.
+                      if (inSystem == null) {
+                        return (
+                          <span className="text-[10px] text-muted-foreground" data-testid="jewel-path-count-not-computed">
+                            paths not computed
+                          </span>
+                        )
+                      }
                       if (inSystem <= 0) return null
                       return (
                         <span className="text-[10px] tabular-nums text-muted-foreground">
@@ -308,9 +316,9 @@ export function CrownJewelListPanel({
                         </span>
                       )
                     })()}
-                    {!notComputed && jewel.catalog_path_count !== null && (
+                    {!notComputed && jewel.catalog_path_count !== null && jewel.path_count != null && (
                       <MaterializedScopeBadge
-                        surfaced={jewel.path_count ?? 0}
+                        surfaced={jewel.path_count}
                         graphTotal={jewel.materialized_path_count}
                       />
                     )}

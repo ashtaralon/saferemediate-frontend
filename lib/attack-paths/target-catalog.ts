@@ -118,7 +118,10 @@ function severityOf(entry: TargetCatalogEntry): CrownJewelSummary["severity"] {
 /** One catalog row → the rail's summary shape. Pure; no defaults invented. */
 export function targetEntryToJewelSummary(entry: TargetCatalogEntry): CrownJewelSummary {
   const state = isTargetState(entry.state) ? entry.state : undefined
-  const hasPaths = Number(entry.path_count ?? 0) > 0
+  // S13: the served count when it is a whole number, else null (not computed) -- never a coerced 0 / NaN.
+  const pathCount = isServedCount(entry.path_count) ? entry.path_count : null
+  const hasPaths = pathCount !== null && pathCount > 0
+  const score = hasPaths && typeof entry.max_severity === "number" && Number.isFinite(entry.max_severity) ? entry.max_severity : null
   const cause = targetCoverageCause(entry.coverage_withheld_reason, entry.held_path_count)
   return {
     id: entry.target_id,
@@ -126,17 +129,16 @@ export function targetEntryToJewelSummary(entry: TargetCatalogEntry): CrownJewel
     name: entry.name ?? entry.native_id ?? entry.target_id,
     type: entry.kind,
     severity: severityOf(entry),
-    path_count: Number(entry.path_count ?? 0),
+    path_count: pathCount,
     // Max path severity score in the active generation. AP201 (I3): a served number, else null (not reported); it
     // used to be coerced to 0 and shown as a score of 0 beside a HIGH badge.
-    highest_risk_score:
-      hasPaths && typeof entry.max_severity === "number" && Number.isFinite(entry.max_severity) ? entry.max_severity : null,
+    highest_risk_score: score,
     is_internet_exposed:
       typeof entry.is_internet_exposed === "boolean" ? entry.is_internet_exposed : null,
     data_classification: entry.data_classification ?? null,
     // The backend already orders the catalog (paths desc, severity desc,
-    // name). Mirror its ranking key so any client sort agrees with it.
-    priority_score: hasPaths ? Number(entry.max_severity ?? 0) : 0,
+    // name). Mirror its ranking key so any client sort agrees with it. S13: no path or no served score is null.
+    priority_score: score,
     crown_jewel_source: entry.crown_jewel_source === "reachable_only" ? "reachable_only" : null,
     // Pinned-generation :AttackPath count for this target. S13: these optional counts are carried only when the
     // catalog served a readable count; absent stays absent (not reported), never an invented 0.
@@ -151,9 +153,9 @@ export function targetEntryToJewelSummary(entry: TargetCatalogEntry): CrownJewel
     // AP182/AP183: the recorded cause, judged HERE from the raw fields, where absence and malformed presence still
     // differ (lib/attack-paths/lifecycle-coverage.ts). A row with nothing recorded carries no key and reads as before.
     ...(cause.kind !== "none" ? { coverage_cause: cause } : {}),
-    // AP190: what the catalog itself served for the count, validated, so a missing or malformed value (coerced to 0 /
-    // NaN above for display) never proves that the target has no path.
-    catalog_path_count: isServedCount(entry.path_count) ? entry.path_count : null,
+    // AP190: what the catalog itself served for the count, validated, so a missing or malformed value never proves that
+    // the target has no path.
+    catalog_path_count: pathCount,
   }
 }
 
