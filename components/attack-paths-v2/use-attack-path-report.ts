@@ -18,6 +18,10 @@ import type {
   CrownJewelSummary,
 } from "@/components/identity-attack-paths/types"
 import { coerceProxyErrorMessage } from "@/lib/proxy-error-message"
+import { useOptionalAccountScope } from "@/lib/account-scope-context"
+import { appendScopeClaims, scopeClaimsFrom } from "@/lib/attack-paths/scope-claims"
+import { heldRouteMessage } from "@/lib/attack-paths/held-route-message"
+import { semanticHoldMessage, semanticStatusHold, typedReaderUnavailable, typedServingRefusal } from "@/lib/semantic-hold"
 import { resolveClosurePathId } from "./derive-attack-path-id"
 import type { ClosurePreview } from "./closure-outcome-types"
 import type { AttackPathReport } from "./attack-path-report-types"
@@ -31,9 +35,14 @@ interface UseAttackPathReport {
   loading: boolean
   /** Honest error string when the backend report is unavailable. */
   error: string | null
+  /** The server served the report marked stale (its publication was invalidated since): show it as such. */
+  stale: boolean
   /** Manual retry — wired to the "Retry" affordance in the unavailable card. */
   retry: () => void
 }
+
+/** A typed server answer: said once, never retried as if the backend were cold. */
+class SettledReportAnswer extends Error {}
 
 export function useAttackPathReport(
   path: IdentityAttackPath | null | undefined,
@@ -45,7 +54,12 @@ export function useAttackPathReport(
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [nonce, setNonce] = useState(0)
+  const [stale, setStale] = useState(false)
   const retry = useCallback(() => setNonce((n) => n + 1), [])
+  // AP201 Rev 6 Day 4.3: the operator's tenant / account claims travel with the report read.
+  const claims = scopeClaimsFrom(useOptionalAccountScope())
+  const claimedCustomer = claims.customerId
+  const claimedAccount = claims.accountId
 
   useEffect(() => {
     if (!path?.id) {
@@ -58,8 +72,10 @@ export function useAttackPathReport(
     // AP201 (M1): the previous path's report must not stand under the new pin while this one loads (UI-24).
     setReport(null)
     setSource(null)
+    setStale(false)
     setLoading(true)
     setError(null)
+    const qs = appendScopeClaims(new URLSearchParams(), { customerId: claimedCustomer, accountId: claimedAccount }).toString()
 
     // Bounded per-attempt timeout so the card's skeleton never becomes an
     // open-ended 30–60s spinner waiting on the 55s proxy abort. A warm backend
@@ -71,10 +87,16 @@ export function useAttackPathReport(
       const timer = setTimeout(() => ctrl.abort(), ATTEMPT_TIMEOUT_MS)
       try {
         const r = await fetch(
-          `/api/proxy/attack-paths/path/${encodeURIComponent(pathId)}/report`,
+          `/api/proxy/attack-paths/path/${encodeURIComponent(pathId)}/report${qs ? `?${qs}` : ""}`,
           { cache: "no-store", signal: ctrl.signal },
         )
         const body = await r.json().catch(() => null)
+        const hold = r.ok ? semanticStatusHold(body) : null
+        if (hold) throw new SettledReportAnswer(`Attack-path report: ${semanticHoldMessage(hold)}`)
+        if (!r.ok && (typedServingRefusal(body) || typedReaderUnavailable(body)
+          || (r.status < 500 && typeof (body as { detail?: { code?: unknown } } | null)?.detail?.code === "string"))) {
+          throw new SettledReportAnswer(heldRouteMessage(body, r.status, "Attack-path report"))
+        }
         if (r.ok && body && !body.error && Array.isArray(body.claims)) {
           return body as AttackPathReport
         }
@@ -105,6 +127,7 @@ export function useAttackPathReport(
         try {
           const rep = await fetchReport(pathId)
           if (cancelled) return
+          setStale((rep as { fromStaleCache?: unknown }).fromStaleCache === true)
           setReport(rep)
           setSource("backend")
           setError(null)
@@ -112,7 +135,7 @@ export function useAttackPathReport(
           return
         } catch (e) {
           if (cancelled) return
-          if (attempt < 2) {
+          if (attempt < 2 && !(e instanceof SettledReportAnswer)) {
             await new Promise((res) => setTimeout(res, 1500 * (attempt + 1)))
             continue
           }
@@ -121,6 +144,7 @@ export function useAttackPathReport(
           setSource(null)
           setError(String((e as Error).message ?? e))
           setLoading(false)
+          return
         }
       }
     })()
@@ -128,7 +152,7 @@ export function useAttackPathReport(
     return () => {
       cancelled = true
     }
-  }, [path?.id, path?.attack_path_id, nonce])
+  }, [path?.id, path?.attack_path_id, nonce, claimedCustomer, claimedAccount])
 
-  return { report, source, loading, error, retry }
+  return { report, source, loading, error, stale, retry }
 }
