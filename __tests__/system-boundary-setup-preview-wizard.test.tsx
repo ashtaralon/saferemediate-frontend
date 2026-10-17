@@ -100,8 +100,10 @@ describe("a CloudFormation-bound draft resumes losslessly and finishes on the pr
     mount(c, { store })
     await settle()
     expect(screen.queryByTestId("setup-review-unsaved")).toBeNull()                 // the binding and exclusion came back exactly
+    // (PC1 S0-F) the plan's words; this capture predates the server's class count, so shared is said not reported
     expect(screen.getByTestId("setup-preview-summary").textContent).toContain(
-      `If you finish saved revision ${DRAFT.intent_revision}, this system would have 2 members`)
+      `If you finish saved revision ${DRAFT.intent_revision}, this system would have 2 owned, 1 used, 0 unresolved, `
+      + "2 not part of this system (shared not reported). Nothing is applied yet.")
     expect(screen.getByTestId(`setup-preview-account-${ACCOUNT}`).textContent).toContain("EXCLUDED_BY_DECISION")
     expect(finishButton().disabled).toBe(false)
     fireEvent.click(finishButton())
@@ -113,7 +115,8 @@ describe("a CloudFormation-bound draft resumes losslessly and finishes on the pr
     expect(kept[0]).toEqual([{ version: 2, kind: "finish", actor: ACTOR, accountId: ACCOUNT, setupId: SID, requestId: rid,
                                base: DRAFT.state_version, startedAt: expect.any(String), previewDigest: digest }])
     expect(store.read()).toEqual([])                                                // settled by its answer
-    expect(screen.getByTestId("setup-progress-proposed").textContent).toContain("2 member(s)")
+    expect(screen.getByTestId("setup-progress-proposed").textContent).toContain(   // (PC1 S0-F) the plan's words
+      "2 owned, 1 used, 0 unresolved, 2 not part of this system")
     expect(screen.getByTestId("setup-progress-proposed").textContent).toContain("not what is applied now")
   })
 

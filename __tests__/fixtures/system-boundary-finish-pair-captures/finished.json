@@ -3,14 +3,14 @@
     "harness": "tests/cyntro_data/test_system_boundary_finish_pair_captures.py",
     "request": {
       "method": "GET",
-      "path": "/api/system-boundary/setup/f50016c7-6d3d-4f20-8be1-98333fae1251",
+      "path": "/api/system-boundary/setup/31141269-e031-486d-858a-258fcff62348",
       "params": null
     }
   },
   "status": 200,
   "cache_control": "no-store",
   "body": {
-    "setup_id": "f50016c7-6d3d-4f20-8be1-98333fae1251",
+    "setup_id": "31141269-e031-486d-858a-258fcff62348",
     "status": "FINISHED",
     "mode": "create",
     "owner": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
@@ -20,8 +20,8 @@
     "accounts_seen": [
       "111122223333"
     ],
-    "created_at": "2026-10-13T23:52:34.011149+00:00",
-    "updated_at": "2026-10-13T23:52:34.229499+00:00",
+    "created_at": "2026-10-17T10:17:30.605608+00:00",
+    "updated_at": "2026-10-17T10:17:30.861445+00:00",
     "predecessor": null,
     "successor": null,
     "association": {
@@ -52,7 +52,7 @@
             "selection": {
               "census": {
                 "generation": 1,
-                "source_identity": "v1:ae9272854fe119cfb9febee4412ad0b5a259c0ba2a7ae2e1c1cd09524658e8f1"
+                "source_identity": "v1:e890547470c14c4a9ad00eb5e70615680bcac7ef2b032186840ed6a82025c411"
               },
               "stack_status": "UPDATE_COMPLETE"
             },
@@ -66,7 +66,7 @@
             "selection": {
               "census": {
                 "generation": 1,
-                "source_identity": "v1:ae9272854fe119cfb9febee4412ad0b5a259c0ba2a7ae2e1c1cd09524658e8f1"
+                "source_identity": "v1:e890547470c14c4a9ad00eb5e70615680bcac7ef2b032186840ed6a82025c411"
               },
               "stack_status": "UPDATE_COMPLETE"
             },
@@ -152,9 +152,9 @@
             "registration_id": "0123456789abcdef0123456789abcdef",
             "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
             "publication": {
-              "attempt": "eeb01403aa4842e19ab3ec25745bfe32",
+              "attempt": "ca71530e0d044343b529409b42f0d681",
               "generation": 1,
-              "source_identity": "v1:ae9272854fe119cfb9febee4412ad0b5a259c0ba2a7ae2e1c1cd09524658e8f1",
+              "source_identity": "v1:e890547470c14c4a9ad00eb5e70615680bcac7ef2b032186840ed6a82025c411",
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7"
             },
             "stack_status": "UPDATE_COMPLETE",
@@ -190,9 +190,9 @@
             "registration_id": "0123456789abcdef0123456789abcdef",
             "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
             "publication": {
-              "attempt": "eeb01403aa4842e19ab3ec25745bfe32",
+              "attempt": "ca71530e0d044343b529409b42f0d681",
               "generation": 1,
-              "source_identity": "v1:ae9272854fe119cfb9febee4412ad0b5a259c0ba2a7ae2e1c1cd09524658e8f1",
+              "source_identity": "v1:e890547470c14c4a9ad00eb5e70615680bcac7ef2b032186840ed6a82025c411",
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7"
             },
             "stack_status": "UPDATE_COMPLETE",
@@ -293,12 +293,12 @@
     "attempt": {
       "attempt": 1,
       "actor": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
-      "created_at": "2026-10-13T23:52:34.215098+00:00",
-      "recover_after": "2026-10-14T00:07:34.215098+00:00",
+      "created_at": "2026-10-17T10:17:30.844330+00:00",
+      "recover_after": "2026-10-17T10:32:30.844330+00:00",
       "intent_revision": 2,
       "base_revision": 1,
       "expected_versions": {},
-      "save_request_id": "021bc395-8b22-4ee4-b665-7f754f946f54"
+      "save_request_id": "8934839d-36b9-4411-881e-6bab30c9e104"
     },
     "outcome": null,
     "receipt": {
@@ -330,10 +330,10 @@
             "proof": {
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
               "publication": {
-                "attempt": "eeb01403aa4842e19ab3ec25745bfe32",
+                "attempt": "ca71530e0d044343b529409b42f0d681",
                 "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
                 "generation": 1,
-                "source_identity": "v1:ae9272854fe119cfb9febee4412ad0b5a259c0ba2a7ae2e1c1cd09524658e8f1"
+                "source_identity": "v1:e890547470c14c4a9ad00eb5e70615680bcac7ef2b032186840ed6a82025c411"
               },
               "read_outcome": "COMPLETE",
               "registration_id": "0123456789abcdef0123456789abcdef",
@@ -365,10 +365,10 @@
             "proof": {
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
               "publication": {
-                "attempt": "eeb01403aa4842e19ab3ec25745bfe32",
+                "attempt": "ca71530e0d044343b529409b42f0d681",
                 "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
                 "generation": 1,
-                "source_identity": "v1:ae9272854fe119cfb9febee4412ad0b5a259c0ba2a7ae2e1c1cd09524658e8f1"
+                "source_identity": "v1:e890547470c14c4a9ad00eb5e70615680bcac7ef2b032186840ed6a82025c411"
               },
               "read_outcome": "COMPLETE",
               "registration_id": "0123456789abcdef0123456789abcdef",
@@ -405,16 +405,16 @@
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
               "contract": "account_census_stacks_read/v1",
               "publication": {
-                "attempt": "eeb01403aa4842e19ab3ec25745bfe32",
+                "attempt": "ca71530e0d044343b529409b42f0d681",
                 "generation": 1,
-                "source_identity": "v1:ae9272854fe119cfb9febee4412ad0b5a259c0ba2a7ae2e1c1cd09524658e8f1"
+                "source_identity": "v1:e890547470c14c4a9ad00eb5e70615680bcac7ef2b032186840ed6a82025c411"
               },
               "registration_id": "0123456789abcdef0123456789abcdef"
             }
           ]
         },
         "authored_revision": 1,
-        "basis_digest": "v1:bdcb87e0aae3041e4200ec9a023613da91f3897ad1239488f00d77f207ec1618",
+        "basis_digest": "v1:afd8903c4011e168805592e79809dfcdc9aed34ca682d3c823183e79224409de",
         "counts": {
           "dependencies": 0,
           "held": 0,
@@ -423,8 +423,8 @@
           "stale_members": 0,
           "unlisted": 0
         },
-        "preview_digest": "v1:484ec3e0253831a6c1fe62a1e6fc3cc946f72050018e1e43f98ad574cf8660b6",
-        "result_digest": "v1:6f9513e85206f27d621373083b2ae5efe1c62062ed90c3b2acf963a17973258a"
+        "preview_digest": "v1:41febc3d160bf4b5e923f42bc09791d59eaf520561e8513427e413cf2b7d3cf3",
+        "result_digest": "v1:77c7c5e1bfc23734285a0fe45e15f6e2a3437606ba2d211d29ff75848faaae06"
       },
       "registration_pins": {
         "111122223333": "0123456789abcdef0123456789abcdef"
@@ -438,8 +438,8 @@
         ],
         "hash": "v1:12e6f1d6bab942e8d77010a3e4ffc449c40f04e32ca1b2ba863967626f32dbce"
       },
-      "setup_id": "f50016c7-6d3d-4f20-8be1-98333fae1251",
-      "written_at": "2026-10-13T23:52:34.229499+00:00"
+      "setup_id": "31141269-e031-486d-858a-258fcff62348",
+      "written_at": "2026-10-17T10:17:30.861445+00:00"
     },
     "reconciliation": null,
     "result_scope": {

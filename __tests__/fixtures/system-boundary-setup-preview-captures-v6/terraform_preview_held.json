@@ -3,7 +3,7 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_terraform.py",
     "request": {
       "method": "GET",
-      "path": "/api/system-boundary/setup/d0cf5b3c-0b8c-4d9e-aaf6-e0851abdf2a5/preview",
+      "path": "/api/system-boundary/setup/a89bd47b-53d2-4e5c-a34f-90134b7d2ca4/preview",
       "params": {
         "state_version": 2
       },
@@ -15,11 +15,11 @@
   "body": {
     "contract": "system_boundary_setup_preview/v3",
     "state": "HELD",
-    "preview_digest": "v1:b10ca2318cf955e13e3ad728c4aae1a903898eed372f09b230e6ace0ad534d92",
-    "basis_digest": "v1:c7b2f02c28d048ef57cbc4c42fc563d44b94ae8724f8ca1716f46f5a0cec1aef",
-    "result_digest": "v1:2590a36e771a21b50ba3f31271b3bfd5af57831774fe5f57bb5aa5783c31facb",
+    "preview_digest": "v1:e2f55f2fc8fde874f962b1852ece0f49faa91a435fb850d0fc77c2074c31b250",
+    "basis_digest": "v1:b098abcf30861d62ad258ca485d125f93596545ff34ce12906b0150f13621099",
+    "result_digest": "v1:7bba93d6dd5bae5e6c5514d3e85aa4d9ba5d5dc3041cb240939818134cd6c522",
     "setup": {
-      "setup_id": "d0cf5b3c-0b8c-4d9e-aaf6-e0851abdf2a5",
+      "setup_id": "a89bd47b-53d2-4e5c-a34f-90134b7d2ca4",
       "intent_revision": 2,
       "state_version": 2
     },
@@ -138,7 +138,13 @@
             "held": 1,
             "not_members": 0
           },
-          "omitted": {}
+          "omitted": {},
+          "not_member_reasons": {
+            "SHARED_FOUNDATION": 0,
+            "SHARED_CLUSTER": 0,
+            "EXCLUDED_BY_DECISION": 0,
+            "OTHER": 0
+          }
         },
         "inventory": {
           "generation": 1,
@@ -146,6 +152,12 @@
         }
       }
     ],
+    "not_member_reasons": {
+      "SHARED_FOUNDATION": 0,
+      "SHARED_CLUSTER": 0,
+      "EXCLUDED_BY_DECISION": 0,
+      "OTHER": 0
+    },
     "terraform": {
       "effect": "none",
       "bindings": [
@@ -155,7 +167,7 @@
             "region": null,
             "deployment": null
           },
-          "binding_id": "7e218d06-ae65-4be9-bef7-235ef267703a",
+          "binding_id": "f53444f0-fbfd-40d3-bbd8-bb6e50f2d124",
           "state": "HELD",
           "reason": "ACCOUNT_NOT_JOINED:HELD",
           "assessment": null,
@@ -172,7 +184,7 @@
             "region": "eu-west-1",
             "deployment": null
           },
-          "binding_id": "c6623410-4d00-4c25-9696-bb71fc392270",
+          "binding_id": "9bd66c29-fc82-42ce-894e-e1e41dc8eeb0",
           "state": "HELD",
           "reason": "BINDING_REVOKED",
           "assessment": null,
@@ -189,7 +201,7 @@
             "region": "us-east-1",
             "deployment": null
           },
-          "binding_id": "0746cf0c-b01f-4833-b225-07679e66170a",
+          "binding_id": "870cd68f-9302-4857-b1e3-92041f3e97f3",
           "state": "HELD",
           "reason": "BINDING_NOT_FOUND",
           "assessment": null,

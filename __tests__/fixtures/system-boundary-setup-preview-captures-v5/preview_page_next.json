@@ -3,13 +3,13 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
     "request": {
       "method": "GET",
-      "path": "/api/system-boundary/setup/ee3d0265-ca84-4be9-80b8-57eaaa826de3/preview",
+      "path": "/api/system-boundary/setup/0bd407a8-a9b8-4ba7-bf51-a9b5e5eebc72/preview",
       "params": {
         "state_version": "2",
         "account_id": "111122223333",
         "bucket": "members",
         "limit": "1",
-        "cursor": "eyJhY2NvdW50X2lkIjoiMTExMTIyMjIzMzMzIiwiYWZ0ZXIiOlsiYXdzOi8vYXdzLzExMTEyMjIyMzMzMy9ldS13ZXN0LTEvZWMyL2luc3RhbmNlL2ktMSIsIiIsInN5c3RlbV9tZW1iZXJzaGlwX3JvdzoyMDFiMGNjOWI4OWFmMWRmMTg0ODYxZjkzZDlhM2RmYzJkMjMyMTBmMzdjODFjZDc0OGMyZGM1M2U5ZjI1NDFhIl0sImJ1Y2tldCI6Im1lbWJlcnMiLCJvcmRlciI6InJlc291cmNlX3VpZCxraW5kLHJvd19pZCIsInByZXZpZXdfZGlnZXN0IjoidjE6ZmIyODk4YTFlNzNjNjY2ZjBiN2IwYzM4MmFhZmExODEwMjIwYjIyMGZlM2UxZWQ4Yzc3ZWU0NGQzNzBmZjYxMSIsInYiOjF9"
+        "cursor": "eyJhY2NvdW50X2lkIjoiMTExMTIyMjIzMzMzIiwiYWZ0ZXIiOlsiYXdzOi8vYXdzLzExMTEyMjIyMzMzMy9ldS13ZXN0LTEvZWMyL2luc3RhbmNlL2ktMSIsIiIsInN5c3RlbV9tZW1iZXJzaGlwX3JvdzoyMDFiMGNjOWI4OWFmMWRmMTg0ODYxZjkzZDlhM2RmYzJkMjMyMTBmMzdjODFjZDc0OGMyZGM1M2U5ZjI1NDFhIl0sImJ1Y2tldCI6Im1lbWJlcnMiLCJvcmRlciI6InJlc291cmNlX3VpZCxraW5kLHJvd19pZCIsInByZXZpZXdfZGlnZXN0IjoidjE6NjNmYjg2ZWY3MjU2ZDFlMjUyZGZiZDc3MDExZmRkYTYyOTEyMzY5MjMzZTI2ZWZjOGI2YzExMTRhMDQwMTJmNCIsInYiOjF9"
       },
       "body": null
     }
@@ -19,11 +19,11 @@
   "body": {
     "contract": "system_boundary_setup_preview/v1",
     "state": "COMPUTED",
-    "preview_digest": "v1:fb2898a1e73c666f0b7b0c382aafa1810220b220fe3e1ed8c77ee44d370ff611",
-    "basis_digest": "v1:a7067fe93e7fecfdcd2a0316d2443703432a393d8d26ff3809de51cf74bce59e",
-    "result_digest": "v1:d21a15897618e59dd37a27dbf7434ba4a2412999b4d2738e9729dcc30a7ea1ec",
+    "preview_digest": "v1:63fb86ef7256d1e252dfbd77011fdda62912369233e26efc8b6c1114a04012f4",
+    "basis_digest": "v1:41047a5001aa6b50294908d2556ce729bc0d00618d17a0e0476c3e30041cfab9",
+    "result_digest": "v1:605688d53b3654c10cf4e9ed8b59cead938a8b1223fc0ad0e0779990b2d9fff9",
     "setup": {
-      "setup_id": "ee3d0265-ca84-4be9-80b8-57eaaa826de3",
+      "setup_id": "0bd407a8-a9b8-4ba7-bf51-a9b5e5eebc72",
       "intent_revision": 2,
       "state_version": 2
     },
@@ -75,8 +75,8 @@
               "census_status": "served",
               "census_pin": {
                 "generation": 1,
-                "source_identity": "v1:a24a5dd6addfdd02bc307f092dfd208e44a309908afe4cd2f87c23275103e36a",
-                "attempt": "fe871fc8a8604bef9eb9f6f5582e36ce",
+                "source_identity": "v1:27877d72846d4f8c69918ffd9dba84c57126aeb829bcc82f21730306767ae0e9",
+                "attempt": "0ef7dbd4212c4eea95f2fc23ea5d4205",
                 "inventory_generation": 1
               },
               "stacks": [
@@ -89,7 +89,7 @@
                   ""
                 ]
               ],
-              "hash": "v1:626a1869daa24c5e07d6431a3b828a953e7148c3c7617989641b431a5a2509d4"
+              "hash": "v1:388b562c45a870c34c0277445bd87e7064daa0ce8a484acfbdcc3e3c9019d47c"
             },
             "counts": {
               "stacks": 1,
@@ -197,7 +197,13 @@
             "held": 0,
             "not_members": 2
           },
-          "omitted": {}
+          "omitted": {},
+          "not_member_reasons": {
+            "SHARED_FOUNDATION": 0,
+            "SHARED_CLUSTER": 0,
+            "EXCLUDED_BY_DECISION": 2,
+            "OTHER": 0
+          }
         },
         "inventory": {
           "generation": 1,
@@ -205,9 +211,15 @@
         }
       }
     ],
+    "not_member_reasons": {
+      "SHARED_FOUNDATION": 0,
+      "SHARED_CLUSTER": 0,
+      "EXCLUDED_BY_DECISION": 2,
+      "OTHER": 0
+    },
     "page": {
       "contract": "system_boundary_setup_preview/v1",
-      "preview_digest": "v1:fb2898a1e73c666f0b7b0c382aafa1810220b220fe3e1ed8c77ee44d370ff611",
+      "preview_digest": "v1:63fb86ef7256d1e252dfbd77011fdda62912369233e26efc8b6c1114a04012f4",
       "account_id": "111122223333",
       "bucket": "members",
       "entries": [

@@ -21,6 +21,7 @@ import { AUTHORING_BASE } from "@/lib/system-boundary-authoring"
 import { contentHash } from "@/lib/content-hash"
 import { rows, type ResultList, type ResultRow } from "@/lib/system-boundary-result"
 import { PREVIEW_DIGEST, SETUP_CONTRACT_LEVEL, SETUP_CONTRACT_UNKNOWN, setupLevelOf } from "@/lib/system-boundary-setup"
+import { boundarySummary, readNotMemberReasons, type NotMemberReasons } from "@/lib/system-boundary-boundary-words"
 import { decoratedMembersAreWhole, decoration, deploymentContext, type Decoration } from "@/lib/system-boundary-deployment-context"
 
 export const PREVIEW_CONTRACT = "system_boundary_setup_preview/v1"
@@ -49,6 +50,8 @@ export interface PreviewDisplay {
   systemName: string | null
   lists: Record<ResultList, ResultRow[]>
   omitted: Partial<Record<ResultList, number>>
+  /** (PC1 S0-F) This account's exact not-member classes; null when the answer does not report them. */
+  notMemberReasons: NotMemberReasons | null
 }
 
 export interface PreviewAccount {
@@ -105,6 +108,8 @@ export interface Preview {
   page: PreviewPage | null
   /** (S2 C4a-2, v3) Every Terraform row of the draft; null for a v1 / v2 preview (the draft has none). */
   terraform: TerraformPreviewBinding[] | null
+  /** (PC1 S0-F) The draft System's exact not-member classes across accounts; null when the answer does not report them. */
+  notMemberReasons: NotMemberReasons | null
 }
 
 export type PreviewRead =
@@ -137,7 +142,10 @@ function display(value: unknown, accountCounts: Record<string, number>): Preview
     if (listed === null || !isCount(left) || listed.length + left !== accountCounts[name]) return undefined
     lists[name] = listed
   }
-  return { systemName: value.system_name as string | null, lists, omitted: value.omitted as Partial<Record<ResultList, number>> }
+  const notMemberReasons = readNotMemberReasons(value.not_member_reasons, accountCounts.not_members)
+  if (notMemberReasons === undefined) return undefined
+  return { systemName: value.system_name as string | null, lists, omitted: value.omitted as Partial<Record<ResultList, number>>,
+           notMemberReasons }
 }
 
 /** (S1b) The same JSON value, canonically -- false (never a throw) for a value canonical JSON cannot state. */
@@ -320,6 +328,9 @@ export function parsePreview(status: number | null, json: unknown): PreviewRead 
   const ours = new Set(deploymentIds.map((id) => `DEPLOYMENT#${id}`))
   const total = counts(json.counts, ["members", "dependencies", "held", "not_members", "stale_members", "unlisted"])
   if (total === null || !Array.isArray(json.accounts)) return malformed
+  // (PC1 S0-F) the draft-wide shared count, the server's: absent = not reported; malformed = the whole preview is not read
+  const notMemberReasons = readNotMemberReasons(json.not_member_reasons, total.not_members)
+  if (notMemberReasons === undefined) return malformed
   const accounts = json.accounts.map((a) => account(a, v2, ours))
   if (accounts.some((a) => a === null)) return malformed
   const read = accounts as PreviewAccount[]
@@ -348,7 +359,7 @@ export function parsePreview(status: number | null, json: unknown): PreviewRead 
     setup: { setupId: setup.setup_id, intentRevision: setup.intent_revision, stateVersion: setup.state_version },
     systemId: targets.system_id, deploymentId: v2 ? null : (targets.deployment_id as string), contract, deploymentIds,
     rules: json.rules,
-    counts: total as unknown as PreviewCounts, accounts: read, page: shown, terraform,
+    counts: total as unknown as PreviewCounts, accounts: read, page: shown, terraform, notMemberReasons,
   } }
 }
 
@@ -453,8 +464,7 @@ export function previewSentence(read: PreviewRead): string {
   if (read.kind === "UNAVAILABLE") return `The preview could not be read (${read.code}).`
   const p = read.value
   const c = p.counts
-  const whole = `${c.members} member${c.members === 1 ? "" : "s"} (${c.stale_members} last seen), ${c.dependencies} `
-    + `dependenc${c.dependencies === 1 ? "y" : "ies"}, ${c.held} held, ${c.not_members} not a member`
+  const whole = boundarySummary(c, p.notMemberReasons)                   // (PC1 S0-F) owned / used / unresolved / shared
   if (p.state !== "COMPUTED") {
     return `The preview is held: ${p.accounts.filter((a) => a.state !== "COMPUTED").length} account(s) could not be computed, so `
       + `these counts (${whole}) are not a whole answer and cannot be finished.`

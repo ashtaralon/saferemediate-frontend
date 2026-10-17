@@ -3,10 +3,10 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_terraform.py",
     "request": {
       "method": "PUT",
-      "path": "/api/system-boundary/setup/d0cf5b3c-0b8c-4d9e-aaf6-e0851abdf2a5",
+      "path": "/api/system-boundary/setup/a89bd47b-53d2-4e5c-a34f-90134b7d2ca4",
       "params": null,
       "body": {
-        "request_id": "652b750b-8df8-48c5-987c-0fa5c7a66c2b",
+        "request_id": "d9a072d8-8182-44ae-9172-cb2d88fc0469",
         "base_state_version": 1,
         "steps": {
           "declaration": {
@@ -35,7 +35,7 @@
                 "selection": {
                   "census": {
                     "generation": 1,
-                    "source_identity": "v1:992f48b23a4148826397a8af47f2d110e1b4b0331e50cdaefbaf5e645f2e5af1"
+                    "source_identity": "v1:30e146e0a6143e8883f839774fffa3e7864f440e95a402b69a02afe0d244d9a3"
                   },
                   "stack_status": "UPDATE_COMPLETE"
                 }
@@ -52,7 +52,7 @@
               "reason_code": "USE_EXISTING",
               "ref": {
                 "kind": "terraform_state",
-                "key": "7e218d06-ae65-4be9-bef7-235ef267703a"
+                "key": "f53444f0-fbfd-40d3-bbd8-bb6e50f2d124"
               }
             },
             {
@@ -65,7 +65,7 @@
               "reason_code": "USE_EXISTING",
               "ref": {
                 "kind": "terraform_state",
-                "key": "c6623410-4d00-4c25-9696-bb71fc392270"
+                "key": "9bd66c29-fc82-42ce-894e-e1e41dc8eeb0"
               }
             },
             {
@@ -78,7 +78,7 @@
               "reason_code": "USE_EXISTING",
               "ref": {
                 "kind": "terraform_state",
-                "key": "0746cf0c-b01f-4833-b225-07679e66170a"
+                "key": "870cd68f-9302-4857-b1e3-92041f3e97f3"
               }
             }
           ],
@@ -90,7 +90,7 @@
   "status": 200,
   "cache_control": "no-store",
   "body": {
-    "setup_id": "d0cf5b3c-0b8c-4d9e-aaf6-e0851abdf2a5",
+    "setup_id": "a89bd47b-53d2-4e5c-a34f-90134b7d2ca4",
     "status": "DRAFT",
     "mode": "create",
     "owner": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
@@ -100,8 +100,8 @@
     "accounts_seen": [
       "111122223333"
     ],
-    "created_at": "2026-10-16T07:03:05.687914+00:00",
-    "updated_at": "2026-10-16T07:03:05.694748+00:00",
+    "created_at": "2026-10-17T10:17:55.887616+00:00",
+    "updated_at": "2026-10-17T10:17:55.912863+00:00",
     "predecessor": null,
     "successor": null,
     "association": null,
@@ -115,7 +115,7 @@
             "selection": {
               "census": {
                 "generation": 1,
-                "source_identity": "v1:992f48b23a4148826397a8af47f2d110e1b4b0331e50cdaefbaf5e645f2e5af1"
+                "source_identity": "v1:30e146e0a6143e8883f839774fffa3e7864f440e95a402b69a02afe0d244d9a3"
               },
               "stack_status": "UPDATE_COMPLETE"
             },
@@ -144,7 +144,7 @@
           "choice": "use_existing",
           "reason_code": "USE_EXISTING",
           "ref": {
-            "key": "7e218d06-ae65-4be9-bef7-235ef267703a",
+            "key": "f53444f0-fbfd-40d3-bbd8-bb6e50f2d124",
             "kind": "terraform_state"
           },
           "scope": {
@@ -156,7 +156,7 @@
           "choice": "use_existing",
           "reason_code": "USE_EXISTING",
           "ref": {
-            "key": "c6623410-4d00-4c25-9696-bb71fc392270",
+            "key": "9bd66c29-fc82-42ce-894e-e1e41dc8eeb0",
             "kind": "terraform_state"
           },
           "scope": {
@@ -169,7 +169,7 @@
           "choice": "use_existing",
           "reason_code": "USE_EXISTING",
           "ref": {
-            "key": "0746cf0c-b01f-4833-b225-07679e66170a",
+            "key": "870cd68f-9302-4857-b1e3-92041f3e97f3",
             "kind": "terraform_state"
           },
           "scope": {
@@ -193,7 +193,7 @@
           "reason": "SNAPSHOT_UPLOADED",
           "registration_id": "0123456789abcdef0123456789abcdef",
           "proof": {
-            "binding_id": "7e218d06-ae65-4be9-bef7-235ef267703a",
+            "binding_id": "f53444f0-fbfd-40d3-bbd8-bb6e50f2d124",
             "binding_revision": 1,
             "registration_id": "0123456789abcdef0123456789abcdef",
             "content_digest": "sha256:1878f34f87a7d24f421ded1bf4360684824c46d39005b6d851cab697502f28a1",
@@ -216,7 +216,7 @@
                 "resolved": 3
               }
             },
-            "record_digest": "sha256:9bdbba81d9e71c5bbd7d395061eaf35e72ceba3d507030a0a7c39fcff70543f5"
+            "record_digest": "sha256:bc0353af2c08d464a68404c9e5e61d7d36efffe551612b2955b0978c54a13cde"
           }
         },
         "status_axes": {
@@ -246,7 +246,7 @@
           "reason": "BINDING_REVOKED",
           "registration_id": "0123456789abcdef0123456789abcdef",
           "proof": {
-            "binding_id": "c6623410-4d00-4c25-9696-bb71fc392270",
+            "binding_id": "9bd66c29-fc82-42ce-894e-e1e41dc8eeb0",
             "binding_revision": 1,
             "registration_id": "0123456789abcdef0123456789abcdef"
           }

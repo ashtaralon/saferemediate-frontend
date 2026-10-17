@@ -3,7 +3,7 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
     "request": {
       "method": "GET",
-      "path": "/api/system-boundary/setup/ee3d0265-ca84-4be9-80b8-57eaaa826de3",
+      "path": "/api/system-boundary/setup/0bd407a8-a9b8-4ba7-bf51-a9b5e5eebc72",
       "params": null,
       "body": null
     }
@@ -11,7 +11,7 @@
   "status": 200,
   "cache_control": "no-store",
   "body": {
-    "setup_id": "ee3d0265-ca84-4be9-80b8-57eaaa826de3",
+    "setup_id": "0bd407a8-a9b8-4ba7-bf51-a9b5e5eebc72",
     "status": "DRAFT",
     "mode": "create",
     "owner": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
@@ -21,8 +21,8 @@
     "accounts_seen": [
       "111122223333"
     ],
-    "created_at": "2026-10-13T22:00:34.062279+00:00",
-    "updated_at": "2026-10-13T22:00:34.069183+00:00",
+    "created_at": "2026-10-17T10:17:31.747090+00:00",
+    "updated_at": "2026-10-17T10:17:31.755088+00:00",
     "predecessor": null,
     "successor": null,
     "association": null,
@@ -36,7 +36,7 @@
             "selection": {
               "census": {
                 "generation": 1,
-                "source_identity": "v1:a24a5dd6addfdd02bc307f092dfd208e44a309908afe4cd2f87c23275103e36a"
+                "source_identity": "v1:27877d72846d4f8c69918ffd9dba84c57126aeb829bcc82f21730306767ae0e9"
               },
               "stack_status": "UPDATE_COMPLETE"
             },
@@ -104,9 +104,9 @@
             "registration_id": "0123456789abcdef0123456789abcdef",
             "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
             "publication": {
-              "attempt": "fe871fc8a8604bef9eb9f6f5582e36ce",
+              "attempt": "0ef7dbd4212c4eea95f2fc23ea5d4205",
               "generation": 1,
-              "source_identity": "v1:a24a5dd6addfdd02bc307f092dfd208e44a309908afe4cd2f87c23275103e36a",
+              "source_identity": "v1:27877d72846d4f8c69918ffd9dba84c57126aeb829bcc82f21730306767ae0e9",
               "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7"
             },
             "stack_status": "UPDATE_COMPLETE",

@@ -11,6 +11,7 @@
  * generation: an answer, success or refusal, is shown only while it answers the LATEST read. An earlier read answering last
  * changes nothing.
  */
+import { BOUNDARY_TITLES, boundarySummary, sharedSentence } from "@/lib/system-boundary-boundary-words"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
@@ -25,12 +26,8 @@ import {
   type ResultServed,
 } from "@/lib/system-boundary-result"
 
-const LIST_TITLES: Record<ResultList, string> = {
-  members: "Members",
-  dependencies: "Dependencies (used by the system, not part of it)",
-  held: "Held -- waiting on a person or on a source",
-  not_members: "Not a member",
-}
+// (PC1 S0-F) The plan's words for the server's four lists; "shared" is the server's own count, said under them.
+const LIST_TITLES: Record<ResultList, string> = BOUNDARY_TITLES
 
 export interface SystemResultProps {
   systemKey: string
@@ -90,6 +87,8 @@ export function SystemResult({ systemKey, accountIds, fetcher = fetchResult }: S
 export function ResultLists({ answer }: { answer: ResultServed }) {
   return (
     <>
+      <p className="text-xs text-slate-700" data-testid="boundary-summary">{boundarySummary(answer.counts, answer.notMemberReasons)}.</p>
+      <p className="text-xs text-slate-600" data-testid="boundary-shared">{sharedSentence(answer.notMemberReasons)}</p>
       {(["members", "dependencies", "held", "not_members"] as const).map((list) => (
         <details key={list} open={list === "members"}>
           <summary className="text-xs font-medium text-slate-700">

@@ -3,12 +3,12 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
     "request": {
       "method": "POST",
-      "path": "/api/system-boundary/setup/f51c6480-88cd-4709-94bb-4cf46fdf3904/finish",
+      "path": "/api/system-boundary/setup/2d985573-0a3c-4e39-ab82-0d83a615e267/finish",
       "params": null,
       "body": {
         "request_id": "00000000-0000-4000-8000-000000005123",
         "base_state_version": 2,
-        "preview_digest": "v1:72f8b77775c4c305b78ed8793d28a077e39c3d1b023eb3bffc89f3d34d6ab4e3"
+        "preview_digest": "v1:1c3c8e473732d6ef9b8f3757c1cf633a12eeb4fecdf7d974ba8c7a190022d153"
       }
     }
   },
@@ -23,9 +23,9 @@
           "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
           "contract": "account_census_stacks_read/v1",
           "publication": {
-            "attempt": "2e42ba1106624986b7ffd8f9618c51a3",
+            "attempt": "49cacd45bea64efa82a8dff1a733133c",
             "generation": 1,
-            "source_identity": "v1:b0a62168636e6a56b068aa5e51f2e0fd6cf51961a419a98af56c0c873b8af3b3"
+            "source_identity": "v1:b2104f4b91bdf7ca093a86ac977b1fe0e004091883f5bb84c4ee2be9802df53f"
           },
           "registration_id": "0123456789abcdef0123456789abcdef"
         }
@@ -36,9 +36,9 @@
           "registration_id": "0123456789abcdef0123456789abcdef",
           "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
           "publication": {
-            "attempt": "16268ee216aa48a18dcb687dc25baa6c",
+            "attempt": "fb80f4d636144cfa9b7bc22ce6ddf2b3",
             "generation": 2,
-            "source_identity": "v1:af1dd2648f5c090e9bb37c0bf97eec77632be403eb0f12059eb413b1e3927f11"
+            "source_identity": "v1:6a1c825f26889d21eb7af1162e83103f689e06d4b81e025bc5afceb4eebf223a"
           }
         }
       ],

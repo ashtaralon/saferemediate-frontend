@@ -3,7 +3,7 @@
     "harness": "tests/cyntro_data/test_system_boundary_preview_terraform.py",
     "request": {
       "method": "GET",
-      "path": "/api/system-boundary/setup/d0cf5b3c-0b8c-4d9e-aaf6-e0851abdf2a5/preview",
+      "path": "/api/system-boundary/setup/a89bd47b-53d2-4e5c-a34f-90134b7d2ca4/preview",
       "params": {
         "state_version": 2
       },
@@ -15,11 +15,11 @@
   "body": {
     "contract": "system_boundary_setup_preview/v3",
     "state": "COMPUTED",
-    "preview_digest": "v1:c7914270048c1eff8c9fe210a6ccbc83239cfb44c61b21e934d67e025dea67a7",
-    "basis_digest": "v1:04623515e8d9c6f9767ddca9600a589ddb82c89de285ad8629ea7277346b872d",
-    "result_digest": "v1:cf72367a15818551a5a614828abb2ab6bb95c58ed0a6efaa82a1385158bf1641",
+    "preview_digest": "v1:0cfaf92f5c239d15b7367c2f8ec0f73afde6c299eeaa621f8c6ea2ba33116de6",
+    "basis_digest": "v1:7aa14315c84dfc59782398c7b25afa4702bfd497a8fb5c2cd2edfc177660f507",
+    "result_digest": "v1:c4760446eecd1a83b82132d4eccb68dcef380487e3ec744cfe44ecb90eecde35",
     "setup": {
-      "setup_id": "d0cf5b3c-0b8c-4d9e-aaf6-e0851abdf2a5",
+      "setup_id": "a89bd47b-53d2-4e5c-a34f-90134b7d2ca4",
       "intent_revision": 2,
       "state_version": 2
     },
@@ -71,8 +71,8 @@
               "census_status": "served",
               "census_pin": {
                 "generation": 1,
-                "source_identity": "v1:992f48b23a4148826397a8af47f2d110e1b4b0331e50cdaefbaf5e645f2e5af1",
-                "attempt": "670eb7674071485080011410df1cbea8",
+                "source_identity": "v1:30e146e0a6143e8883f839774fffa3e7864f440e95a402b69a02afe0d244d9a3",
+                "attempt": "4fcb2dd4ef0f4df58cf1c0c35c0c6d07",
                 "inventory_generation": 1
               },
               "stacks": [
@@ -85,7 +85,7 @@
                   ""
                 ]
               ],
-              "hash": "v1:74d1186566ba91fd396e0bd6a6d1a1bd704aca5e9b2726c85a05c612d36e536b"
+              "hash": "v1:a444cac76001140fcbb9fe5e6b595de11dcd231f1aff66df404e77983451e0b4"
             },
             "counts": {
               "stacks": 1,
@@ -175,7 +175,13 @@
             "held": 0,
             "not_members": 0
           },
-          "omitted": {}
+          "omitted": {},
+          "not_member_reasons": {
+            "SHARED_FOUNDATION": 0,
+            "SHARED_CLUSTER": 0,
+            "EXCLUDED_BY_DECISION": 0,
+            "OTHER": 0
+          }
         },
         "inventory": {
           "generation": 1,
@@ -183,6 +189,12 @@
         }
       }
     ],
+    "not_member_reasons": {
+      "SHARED_FOUNDATION": 0,
+      "SHARED_CLUSTER": 0,
+      "EXCLUDED_BY_DECISION": 0,
+      "OTHER": 0
+    },
     "terraform": {
       "effect": "none",
       "bindings": [
@@ -192,7 +204,7 @@
             "region": null,
             "deployment": null
           },
-          "binding_id": "7e218d06-ae65-4be9-bef7-235ef267703a",
+          "binding_id": "f53444f0-fbfd-40d3-bbd8-bb6e50f2d124",
           "state": "JOINED",
           "reason": null,
           "assessment": "assessed",
@@ -231,7 +243,7 @@
             "region": "eu-west-1",
             "deployment": null
           },
-          "binding_id": "c6623410-4d00-4c25-9696-bb71fc392270",
+          "binding_id": "9bd66c29-fc82-42ce-894e-e1e41dc8eeb0",
           "state": "HELD",
           "reason": "BINDING_REVOKED",
           "assessment": null,
@@ -248,7 +260,7 @@
             "region": "us-east-1",
             "deployment": null
           },
-          "binding_id": "0746cf0c-b01f-4833-b225-07679e66170a",
+          "binding_id": "870cd68f-9302-4857-b1e3-92041f3e97f3",
           "state": "HELD",
           "reason": "BINDING_NOT_FOUND",
           "assessment": null,

@@ -28,6 +28,7 @@
  * Review shows the consolidated account assessment and each Deployment's members (A7, N3) -- the preview's OUTER state alone
  * allows Finish -- and the result explains per Deployment only what THIS Finish's receipt pins (N4).
  */
+import { BOUNDARY_TITLES, sharedSentence } from "@/lib/system-boundary-boundary-words"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { DeploymentExplanationCards } from "@/components/system-boundary/deployment-explanation"
 import { FinishResult } from "@/components/system-boundary/finish-result"
@@ -1251,9 +1252,8 @@ function TerraformPreview({ bindings, rows }: { bindings: TerraformPreviewBindin
   )
 }
 
-const LIST_TITLES: Record<ResultList, string> = {
-  members: "Members", dependencies: "Dependencies", held: "Held", not_members: "Not members",
-}
+// (PC1 S0-F) The plan's words for the server's four lists; "shared" is the server's own count, said per account.
+const LIST_TITLES: Record<ResultList, string> = BOUNDARY_TITLES
 
 /** (S1a R3/R6) The preview of the saved revision: its state, each account's state, evidence time and lists with their
  *  explanations, and the rest of a list the summary cuts, page by page -- every page a view of THIS preview (a page of another
@@ -1342,6 +1342,11 @@ function PreviewPanel({ read, setupId, stateVersion, readPreview, onPreviewAgain
                 <ul className="text-amber-800" data-testid={`setup-preview-limits-${account.accountId}`}>
                   {coverageLimits(account).map((limit) => <li key={limit}>{limit}</li>)}
                 </ul>
+              ) : null}
+              {account.display ? (
+                <p className="text-slate-600" data-testid={`setup-preview-shared-${account.accountId}`}>
+                  {sharedSentence(account.display.notMemberReasons)}
+                </p>
               ) : null}
               {account.display ? PREVIEW_LISTS_SHOWN.map((list) => {
                 const key = pageKey(account.accountId, list)
@@ -1523,9 +1528,9 @@ function Progress({ setup, status, statusProblem, context, readApplied, readResu
         {status?.association ? ` · association ${status.association.state.toLowerCase()}` : ""}</p>
       {pin ? (
         <p className="text-xs text-slate-600" data-testid="setup-progress-proposed">
-          Proposed at Finish (preview {pin.preview_digest.slice(0, 15)}…): {pin.counts.members} member(s), {pin.counts.dependencies}{" "}
-          dependenc{pin.counts.dependencies === 1 ? "y" : "ies"}, {pin.counts.held} held, {pin.counts.not_members} not a member --
-          what the reviewed preview proposed, not what is applied now.
+          Proposed at Finish (preview {pin.preview_digest.slice(0, 15)}…): {pin.counts.members} owned, {pin.counts.dependencies} used,{" "}
+          {pin.counts.held} unresolved, {pin.counts.not_members} not part of this system -- what the reviewed preview proposed, not
+          what is applied now.
         </p>
       ) : null}
       {/* (S1a R7) the accounts of THIS Finish's result: the Deployment as the receipt pinned it -- never this screen's account */}

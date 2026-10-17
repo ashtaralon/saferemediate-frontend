@@ -19,7 +19,7 @@
     "account_id": "111111111111",
     "system_key": "authored_system:75ae4021b39e496d88151e78c2a7ee67646b70af92fff4c1c72e7a13001f1632",
     "generation": 41,
-    "published_at": "2026-10-13T22:18:58+00:00",
+    "published_at": "2026-10-17T10:18:07+00:00",
     "system_name": "Payments",
     "members": [
       {
@@ -94,6 +94,12 @@
       "not_members": 0
     },
     "omitted": {},
+    "not_member_reasons": {
+      "SHARED_FOUNDATION": 0,
+      "SHARED_CLUSTER": 0,
+      "EXCLUDED_BY_DECISION": 0,
+      "OTHER": 0
+    },
     "deployment_context_state": {
       "state": "SERVED",
       "members": 3
