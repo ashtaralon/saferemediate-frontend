@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { getCached, getStaleCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
+import { forwardScopeClaims } from "@/lib/server/scope-claims"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -14,17 +15,20 @@ const BACKEND_URL = getBackendBaseUrl()
 // fromStaleCache + staleReason and never re-labels a NOT_READY as READY.
 const ATTEMPT_TIMEOUT_MS = 15_000
 
-function cacheKey(systemName: string): string {
-  return `ap-targets:${systemName}`
+/** AP201 (R11): the tenant / account claims are part of the key — one account's catalog is never another's. */
+function cacheKey(systemName: string, claims: string): string {
+  return `ap-targets:${systemName}:${claims}`
 }
 
 /** GET /api/attack-paths/{system}/targets — inventory-first crown-jewel catalog */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ systemName: string }> },
 ) {
   const { systemName } = await params
-  const key = cacheKey(systemName)
+  const qs = new URLSearchParams()
+  const claims = forwardScopeClaims(request.nextUrl.searchParams, qs)
+  const key = cacheKey(systemName, claims)
   const cached = getCached(key)
   if (cached) {
     return NextResponse.json(cached, {
@@ -33,7 +37,7 @@ export async function GET(
   }
 
   try {
-    const url = `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(systemName)}/targets`
+    const url = `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(systemName)}/targets${qs.toString() ? `?${qs}` : ""}`
     const res = await fetch(url, {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",

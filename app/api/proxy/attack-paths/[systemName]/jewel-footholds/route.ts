@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { forwardScopeClaims } from "@/lib/server/scope-claims"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -32,6 +33,7 @@ export async function GET(
       const value = req.nextUrl.searchParams.get(name)
       if (value !== null) backendParams.set(name, value)
     }
+    forwardScopeClaims(req.nextUrl.searchParams, backendParams)   // AP201 (R11): tenant / account claims
     const url = `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(systemName)}/jewel-footholds?${backendParams}`
     const response = await fetch(url, {
       cache: "no-store",

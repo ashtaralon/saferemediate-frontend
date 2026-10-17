@@ -21,9 +21,10 @@ describe("attack-paths-v2 rail", () => {
   const src = read(RAIL)
 
   it("fetches the target catalog, not the legacy /jewels list", () => {
-    expect(src).toContain(
-      "`/api/proxy/attack-paths/${encodeURIComponent(systemName)}/targets`",
-    )
+    // AP201 (R11): the catalog URL comes from the one builder, with the operator's tenant / account claims, and the
+    // client cache key carries the same claims (never another account's catalog).
+    expect(src).toContain("const jewelsUrl = systemName ? buildTargetCatalogUrl(systemName, scopeClaims) : null")
+    expect(src).toContain("cacheKey: `ap-targets:${systemName}:${scopeClaimsCacheKey}`")
     expect(src).not.toContain("/jewels`")
     expect(src).toContain("targetCatalogToJewelSummaries(jewelsRaw)")
     expect(src).toContain("isCacheable: isTargetCatalogCacheable")

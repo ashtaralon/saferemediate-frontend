@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { forwardScopeClaims } from "@/lib/server/scope-claims"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -26,6 +27,7 @@ export async function GET(
   const qs = new URLSearchParams()
   if (cjArn) qs.set("cj_arn", cjArn)
   if (cjName) qs.set("cj_name", cjName)
+  forwardScopeClaims(searchParams, qs)   // AP201 (R11): the tenant / account claims travel with the read
 
   try {
     const url = `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(systemName)}/by-crown-jewel?${qs}`

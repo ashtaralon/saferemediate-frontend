@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { getCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
+import { forwardScopeClaims } from "@/lib/server/scope-claims"
 
 // =============================================================================
 // Lateral reach proxy —
@@ -38,7 +39,11 @@ export async function GET(
     )
   }
 
-  const cacheKey = `lateral-reach:${systemName}:${jewelType}:${jewelRef}`
+  // AP201 (R11): the tenant / account claims travel with the read and are part of the cache key — one account's
+  // bands are never another's.
+  const claims = new URLSearchParams()
+  const claimsKey = forwardScopeClaims(req.nextUrl.searchParams, claims)
+  const cacheKey = `lateral-reach:${systemName}:${jewelType}:${jewelRef}:${claimsKey}`
   const cached = getCached(cacheKey)
   if (cached) {
     return NextResponse.json(cached, {
@@ -53,7 +58,8 @@ export async function GET(
     const t0 = Date.now()
     const url =
       `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(systemName)}/jewel-lateral-reach` +
-      `?jewel_ref=${encodeURIComponent(jewelRef)}&jewel_type=${encodeURIComponent(jewelType)}`
+      `?jewel_ref=${encodeURIComponent(jewelRef)}&jewel_type=${encodeURIComponent(jewelType)}` +
+      (claimsKey ? `&${claimsKey}` : "")
     const res = await fetch(url, {
       headers: { Accept: "application/json" },
       cache: "no-store",

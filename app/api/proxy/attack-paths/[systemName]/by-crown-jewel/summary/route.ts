@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { getCached, getStaleCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
+import { forwardScopeClaims } from "@/lib/server/scope-claims"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
 
 const BACKEND_URL = getBackendBaseUrl()
 
-function cacheKey(systemName: string, cjArn: string | null, cjName: string | null): string {
-  return `cj-summary:${systemName}:${cjArn ?? ""}:${cjName ?? ""}`
+/** AP201 (R11): the tenant / account claims are part of the key — one account's summary is never another's. */
+function cacheKey(systemName: string, cjArn: string | null, cjName: string | null, claims: string): string {
+  return `cj-summary:${systemName}:${cjArn ?? ""}:${cjName ?? ""}:${claims}`
 }
 
 /** GET /api/attack-paths/{system}/by-crown-jewel/summary — path list only */
@@ -28,7 +30,12 @@ export async function GET(
     )
   }
 
-  const key = cacheKey(systemName, cjArn, cjName)
+  const qs = new URLSearchParams()
+  if (cjArn) qs.set("cj_arn", cjArn)
+  if (cjName) qs.set("cj_name", cjName)
+  const claims = forwardScopeClaims(searchParams, qs)
+
+  const key = cacheKey(systemName, cjArn, cjName, claims)
   const cached = getCached(key)
   if (cached) {
     return NextResponse.json(cached, {
@@ -38,10 +45,6 @@ export async function GET(
       },
     })
   }
-
-  const qs = new URLSearchParams()
-  if (cjArn) qs.set("cj_arn", cjArn)
-  if (cjName) qs.set("cj_name", cjName)
 
   try {
     const url = `${BACKEND_URL}/api/attack-paths/${encodeURIComponent(systemName)}/by-crown-jewel/summary?${qs}`

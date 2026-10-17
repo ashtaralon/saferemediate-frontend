@@ -19,6 +19,8 @@ import {
 import { readConvergencePaths } from "./convergence-readiness"
 import { matchConvergencePathId } from "./iap-to-convergence"
 import { iapHold } from "./path-evidence-view"
+import { scopeClaimsFrom } from "./scope-claims"
+import { useOptionalAccountScope } from "@/lib/account-scope-context"
 import { semanticHoldMessage, type SemanticHoldKind } from "@/lib/semantic-hold"
 import type {
   CrownJewelConvergence,
@@ -118,6 +120,12 @@ export function useCrownJewelConvergence(
   options: UseCrownJewelConvergenceOptions = {},
 ): UseCrownJewelConvergenceResult {
   const fanInAllDetails = Boolean(options.fanInAllDetails)
+  // AP201 (R11): the operator's tenant / account claims travel with every read (a control plane with several
+  // workload accounts refuses an unnamed read by name). No provider (bare tests, other shells) = no claims.
+  const scope = useOptionalAccountScope()
+  const claims = scopeClaimsFrom(scope)
+  const claimedCustomer = claims.customerId
+  const claimedAccount = claims.accountId
   const [summary, setSummary] = useState<CrownJewelConvergenceSummary | null>(null)
   const [detailsByPathId, setDetailsByPathId] = useState<
     Record<string, PathDetailRecord>
@@ -165,7 +173,7 @@ export function useCrownJewelConvergence(
     readyDetailIdsRef.current = new Set()
     setSummary(null)
 
-    const summaryUrl = buildConvergenceSummaryUrl(systemName, jewel)
+    const summaryUrl = buildConvergenceSummaryUrl(systemName, jewel, { customerId: claimedCustomer, accountId: claimedAccount })
 
     const runAttempt = async () => {
       if (cancelled) return
@@ -279,6 +287,8 @@ export function useCrownJewelConvergence(
     jewel?.name,
     jewel?.path_count,
     jewel?.target_state,
+    claimedCustomer,
+    claimedAccount,
     nonce,
   ])
 
@@ -340,7 +350,7 @@ export function useCrownJewelConvergence(
       if (ctrl.signal.aborted) return pathId
       if (readyDetailIdsRef.current.has(pathId)) return pathId
 
-      const detailUrl = buildConvergenceDetailUrl(systemName, jewel, pathId)
+      const detailUrl = buildConvergenceDetailUrl(systemName, jewel, pathId, { customerId: claimedCustomer, accountId: claimedAccount })
       const result = await fetchConvergencePathDetail({
         url: detailUrl,
         signal: ctrl.signal,
@@ -370,6 +380,8 @@ export function useCrownJewelConvergence(
     resolvedSelectedPathId,
     summary,
     neededDetailIds.join("|"),
+    claimedCustomer,
+    claimedAccount,
     nonce,
     fanInAllDetails,
   ])

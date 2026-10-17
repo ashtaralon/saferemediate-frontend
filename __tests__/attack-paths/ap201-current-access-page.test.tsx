@@ -103,6 +103,40 @@ describe("Current Access by source on the mounted page (captured acme-data summa
     expect(screen.getAllByTestId("current-access-source").length).toBe(rows.length)
   })
 
+  it("AP201 (R11): with an account selected, every per-jewel read names the tenant AND the account; with 'all', the tenant only", async () => {
+    // the selection the scope provider persists (lib/account-scope-context.tsx), healed against the served options
+    window.localStorage.setItem("cyntro-product-scope",
+      JSON.stringify({ customerId: SECTION.customer_id, groupId: "all", accountId: SECTION.account_id, region: "all" }))
+    nav.params.set("jewel", JEWEL)
+    const f = serve(capturedSummary)
+    await mountPage()
+    await screen.findByTestId("current-access-sources")
+    const urls = () => f.mock.calls.map((c) => String(c[0] instanceof Request ? c[0].url : c[0]))
+    const claimed = (needle: string) => urls().filter((u) => u.includes(needle)).map((u) => new URL(u, "http://fe.local").searchParams)
+    for (const needle of ["/targets", "/by-crown-jewel/summary", "/by-crown-jewel/detail"]) {
+      const reads = claimed(needle)
+      expect(reads.length, needle).toBeGreaterThan(0)
+      for (const qs of reads) {
+        expect(qs.get("customer_id"), needle).toBe(SECTION.customer_id)
+        expect(qs.get("account_id"), needle).toBe(SECTION.account_id)
+      }
+    }
+    cleanup()
+    vi.unstubAllGlobals()
+    window.localStorage.setItem("cyntro-product-scope",
+      JSON.stringify({ customerId: SECTION.customer_id, groupId: "all", accountId: "all", region: "all" }))
+    const g = serve(capturedSummary)
+    await mountPage()
+    await screen.findByTestId("current-access-sources")
+    const all = g.mock.calls.map((c) => String(c[0] instanceof Request ? c[0].url : c[0])).filter((u) => u.includes("/targets") || u.includes("/by-crown-jewel/"))
+    expect(all.length).toBeGreaterThan(0)
+    for (const u of all) {
+      const qs = new URL(u, "http://fe.local").searchParams
+      expect(qs.get("customer_id"), u).toBe(SECTION.customer_id)
+      expect(qs.has("account_id"), u).toBe(false)
+    }
+  })
+
   it("a NOT_READY answer shows no source list (unknown, not absent) — the path list's not-ready state speaks", async () => {
     nav.params.set("jewel", JEWEL)
     serve({ system: SYSTEM, serve_state: "NOT_READY", coverage_state: "NOT_READY", paths: [] })

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
+import { forwardScopeClaims } from "@/lib/server/scope-claims"
 import { normalizeJewelArn } from "@/lib/server/normalize-jewel-id"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
@@ -30,8 +31,11 @@ export async function GET(
   const jewelId = normalizeJewelArn(rawJewelId)
   const { searchParams } = new URL(req.url)
   const maxPaths = searchParams.get("max_paths") || "15"
+  // AP201 (R11): the tenant / account claims travel with the read and key the cache — never another account's surface.
+  const upstream = new URLSearchParams({ max_paths: maxPaths })
+  const claimsKey = forwardScopeClaims(searchParams, upstream)
 
-  const cacheKey = `jewel-surface|${systemName}|${jewelId}|${maxPaths}`
+  const cacheKey = `jewel-surface|${systemName}|${jewelId}|${maxPaths}|${claimsKey}`
 
   const cached = getCached(cacheKey)
   if (cached) {
@@ -41,7 +45,7 @@ export async function GET(
   try {
     const url = `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(
       systemName,
-    )}/jewel-surface/${encodeURIComponent(jewelId)}?max_paths=${maxPaths}`
+    )}/jewel-surface/${encodeURIComponent(jewelId)}?${upstream}`
     const res = await fetch(url, {
       headers: { "Content-Type": "application/json" },
       signal: AbortSignal.timeout(55000),

@@ -6,6 +6,9 @@
 // unavailable, with one retry for Render cold-start.
 
 import { useCallback, useEffect, useState } from "react"
+import { useOptionalAccountScope } from "@/lib/account-scope-context"
+import { buildJewelLateralReachUrl } from "@/lib/attack-paths/convergence-fetch-url"
+import { scopeClaimsFrom } from "@/lib/attack-paths/scope-claims"
 
 export type LateralBand = "USED" | "CUTTABLE" | "UNKNOWN"
 
@@ -90,6 +93,10 @@ export function useLateralReach(
   const systemName = target?.systemName ?? null
   const jewelRef = target?.jewelRef ?? null
   const jewelType = target?.jewelType ?? null
+  // AP201 (R11): the operator's tenant / account claims travel with the read; no provider = no claims.
+  const claims = scopeClaimsFrom(useOptionalAccountScope())
+  const claimedCustomer = claims.customerId
+  const claimedAccount = claims.accountId
 
   useEffect(() => {
     if (!systemName || !jewelRef || !jewelType) {
@@ -103,9 +110,7 @@ export function useLateralReach(
     setError(null)
 
     const fetchOnce = async (): Promise<LateralReachPayload> => {
-      const url =
-        `/api/proxy/attack-paths/${encodeURIComponent(systemName)}/jewel-lateral-reach` +
-        `?jewel_ref=${encodeURIComponent(jewelRef)}&jewel_type=${encodeURIComponent(jewelType)}`
+      const url = buildJewelLateralReachUrl(systemName, jewelRef, jewelType, { customerId: claimedCustomer, accountId: claimedAccount })
       const r = await fetch(url, { cache: "no-store" })
       const body = await r.json().catch(() => null)
       if (!r.ok || !body || body.error) {
@@ -137,7 +142,7 @@ export function useLateralReach(
     return () => {
       cancelled = true
     }
-  }, [systemName, jewelRef, jewelType, nonce])
+  }, [systemName, jewelRef, jewelType, claimedCustomer, claimedAccount, nonce])
 
   return { data, loading, error, retry }
 }

@@ -7,6 +7,7 @@ import {
   TTL_FAST,
   TTL_SLOW,
 } from "@/lib/server/proxy-cache"
+import { forwardScopeClaims } from "@/lib/server/scope-claims"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -29,11 +30,14 @@ function hasUsableJewels(data: unknown): boolean {
 
 /** Lightweight Crown Jewel list — pairs with BE /identity-attack-paths/{system}/jewels */
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ systemName: string }> },
 ) {
   const { systemName } = await params
-  const cacheKey = `iap-jewels:${systemName}`
+  // AP201 (R11): the tenant / account claims travel with the read and key the cache — never another account's list.
+  const upstream = new URLSearchParams({ max_jewels: "12" })
+  const claimsKey = forwardScopeClaims(req.nextUrl.searchParams, upstream)
+  const cacheKey = `iap-jewels:${systemName}:${claimsKey}`
   const cached = getCached(cacheKey)
   // Never serve a cached empty list as a HIT — empty was often a cold
   // SERVE / freeze artifact and poisons the Attack Paths rail for TTL_SLOW.
@@ -47,7 +51,7 @@ export async function GET(
   }
 
   try {
-    const url = `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(systemName)}/jewels?max_jewels=12`
+    const url = `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(systemName)}/jewels?${upstream}`
     const res = await fetch(url, {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",

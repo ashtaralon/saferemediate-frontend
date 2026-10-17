@@ -1,6 +1,9 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { useOptionalAccountScope } from "@/lib/account-scope-context"
+import { buildJewelFootholdsUrl } from "@/lib/attack-paths/convergence-fetch-url"
+import { scopeClaimsFrom } from "@/lib/attack-paths/scope-claims"
 
 export type FootholdLikelihood =
   | "EXPOSED"
@@ -199,6 +202,10 @@ export function useAtlasLateral({
   const [nonce, setNonce] = useState(0)
   const retry = useCallback(() => setNonce((n) => n + 1), [])
   const scopeKey = enabled && systemName && jewelRef ? `${systemName}\u0000${jewelRef}` : null
+  // AP201 (R11): the operator's tenant / account claims travel with the read; no provider = no claims.
+  const claims = scopeClaimsFrom(useOptionalAccountScope())
+  const claimedCustomer = claims.customerId
+  const claimedAccount = claims.accountId
 
   useEffect(() => {
     if (!enabled || !systemName || !jewelRef) {
@@ -219,9 +226,11 @@ export function useAtlasLateral({
     setResolvedSearchKey(null)
     setError(null)
     fetch(
-      `/api/proxy/attack-paths/${encodeURIComponent(systemName)}/jewel-footholds` +
-        `?jewel_ref=${encodeURIComponent(jewelRef)}` +
-        `&evaluate=true&evaluation_limit=30&evaluation_budget_ms=8000&max_hops=8`,
+      buildJewelFootholdsUrl(
+        systemName, jewelRef,
+        { evaluate: true, evaluation_limit: 30, evaluation_budget_ms: 8000, max_hops: 8 },
+        { customerId: claimedCustomer, accountId: claimedAccount },
+      ),
       { cache: "no-store" },
     )
       .then(async (r) => {
@@ -257,7 +266,7 @@ export function useAtlasLateral({
     return () => {
       cancelled = true
     }
-  }, [enabled, systemName, jewelRef, nonce, scopeKey])
+  }, [enabled, systemName, jewelRef, nonce, scopeKey, claimedCustomer, claimedAccount])
 
   const selectedFoothold = useMemo(
     () => candidates.find((c) => c.workload_id === selectedFootholdId) ?? null,

@@ -100,7 +100,8 @@ import { PathCVEAssessmentPanel } from "./path-cve-assessment-panel"
 import { pathCVEsForMode } from "./path-cve-model"
 import { useAttackPathReport } from "./use-attack-path-report"
 import { useBoundedAutoRetry } from "./use-bounded-auto-retry"
-import { buildConvergenceFetchUrl } from "@/lib/attack-paths/convergence-fetch-url"
+import { buildConvergenceFetchUrl, buildTargetCatalogUrl } from "@/lib/attack-paths/convergence-fetch-url"
+import { scopeClaimsFrom, scopeClaimsKey } from "@/lib/attack-paths/scope-claims"
 import type { CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
 import { matchConvergencePathId } from "@/lib/attack-paths/iap-to-convergence"
 import { useCrownJewelConvergence } from "@/lib/attack-paths/use-crown-jewel-convergence"
@@ -389,9 +390,13 @@ export function AttackPathsV2({
   //   3. full IAP 5×5 — background only; never bricks the path rail on 502
   // (Render wake happens via the catalog fetch + keep-warm cron — don't fire
   // the full keep-warm sweep from the browser on every tab open.)
-  const jewelsUrl = systemName
-    ? `/api/proxy/attack-paths/${encodeURIComponent(systemName)}/targets`
-    : null
+  // AP201 (R11): the operator's tenant / account claims travel with every per-jewel read and key its client cache,
+  // so a control plane with several workload accounts is asked for the selected one and a cached catalog for one
+  // account is never painted for another. The same scope feeds the blast-radius read below.
+  const accountScope = useAccountScope()
+  const scopeClaims = scopeClaimsFrom(accountScope)
+  const scopeClaimsCacheKey = scopeClaimsKey(scopeClaims)
+  const jewelsUrl = systemName ? buildTargetCatalogUrl(systemName, scopeClaims) : null
   const {
     data: jewelsRaw,
     loading: jewelsLoading,
@@ -400,7 +405,7 @@ export function AttackPathsV2({
     isStale: jewelsIsStale,
     retry: retryJewels,
   } = useCachedFetch<TargetCatalog>(jewelsUrl, {
-    cacheKey: `ap-targets:${systemName}`,
+    cacheKey: `ap-targets:${systemName}:${scopeClaimsCacheKey}`,
     maxStaleMs: 10 * 60 * 1000,
     // Never SWR-paint a cached NOT_READY / empty catalog — that is how the
     // rail stuck on "No crown jewels · showing cached" after SERVE recovered.
@@ -439,7 +444,7 @@ export function AttackPathsV2({
   // refuses to infer scope and returns 503 on an unscoped GET. Bind the
   // fetch (and its SWR cache key) to the active Estate scope so a cached
   // response for one tenant/account can never paint another's session.
-  const blastRadiusScope = normalizeBlastRadiusScope(useAccountScope())
+  const blastRadiusScope = normalizeBlastRadiusScope(accountScope)
   const blastRadiusUrl = buildBlastRadiusUrl(systemName ?? "", blastRadiusScope)
   const { data: blastRadiusData } = useCachedFetch<BlastRadiusPayload>(blastRadiusUrl, {
     cacheKey: buildBlastRadiusCacheKey(systemName ?? "", blastRadiusScope),
