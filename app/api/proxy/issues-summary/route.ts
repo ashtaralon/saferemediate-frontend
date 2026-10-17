@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
+import { fromCaughtError, relayBackendError } from "@/lib/server/proxy-error"
 import { isCacheableSummary } from "@/lib/summary-integrity"
 import { issuesSummaryBrssHold } from "@/lib/brss-held"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
@@ -34,6 +34,11 @@ export const maxDuration = 60
 // holds authoritative, score-complete answers (isCacheableSummary and no BRSS
 // hold); a held or failed response is never written.
 const cache = new Map<string, { data: any; timestamp: number }>()
+// Bumped whenever the backend REVOKES a key's last complete summary -- a refusal of this caller/scope
+// (401/403/422, a typed hold) or a held/partial answer. A request stores its answer only if no
+// revocation happened while it was in flight: an older request that lands later must never put back
+// what a newer answer took away.
+const revocations = new Map<string, number>()
 const CACHE_TTL = 5 * 60 * 1000
 // A replay older than this is not offered at all: past it the "last complete
 // summary" describes a different estate, and staleness marking stops being a
@@ -56,16 +61,24 @@ function getCacheKey(systemName: string | null): string {
   return `issues-summary:${systemName || "all"}`
 }
 
+function revoke(cacheKey: string): void {
+  cache.delete(cacheKey)
+  revocations.set(cacheKey, (revocations.get(cacheKey) ?? 0) + 1)
+}
+
+/** The last complete summary a failure may replay, read AT replay time -- never a copy taken when this
+ *  request started, which a revocation during the request would not have reached. */
+function replayable(cacheKey: string): { data: any; timestamp: number } | null {
+  const stored = cache.get(cacheKey)
+  return stored && Date.now() - stored.timestamp <= REPLAY_MAX_AGE_MS ? stored : null
+}
+
 export async function GET(req: NextRequest) {
   const url = new URL(req.url)
   const systemName = url.searchParams.get("systemName")
   const cacheKey = getCacheKey(systemName)
   const now = Date.now()
-
-  // Read only for the failure replay below — never served as current, and
-  // only within REPLAY_MAX_AGE_MS of its capture.
-  const stored = cache.get(cacheKey)
-  const cached = stored && now - stored.timestamp <= REPLAY_MAX_AGE_MS ? stored : null
+  const revokedAtStart = revocations.get(cacheKey) ?? 0
 
   const controller = new AbortController()
   // 55s, the house cold-build budget for a maxDuration=60 route.
@@ -103,6 +116,22 @@ export async function GET(req: NextRequest) {
     clearTimeout(timeoutId)
 
     if (!res.ok) {
+      const raw = await res.text().catch(() => "")
+      let typedCode: unknown = null
+      try {
+        typedCode = JSON.parse(raw)?.detail?.code
+      } catch {
+        typedCode = null
+      }
+      // A REFUSAL is the server's answer about this caller/scope (401/403/422, or a typed hold:
+      // held route, no data accounts): relayed typed, and never covered by an older reading.
+      const refused = [401, 403, 422].includes(res.status) || typeof typedCode === "string"
+      if (refused) {
+        // ...and it REVOKES the stored summary: a later transport failure must not replay it.
+        revoke(cacheKey)
+        return relayBackendError(new Response(raw, { status: res.status }))
+      }
+      const cached = replayable(cacheKey)
       if (cached) {
         return NextResponse.json(
           {
@@ -125,13 +154,8 @@ export async function GET(req: NextRequest) {
           { headers: { "X-Cache": "STALE", "Cache-Control": "no-store" } },
         )
       }
-      const detail = await res.text().catch(() => "")
-      console.error(`[issues-summary proxy] backend ${res.status}: ${detail.slice(0, 200)}`)
-      return backendError({
-        status: res.status,
-        message: `Issues-summary backend returned ${res.status}`,
-        detail: detail.slice(0, 500),
-      })
+      console.error(`[issues-summary proxy] backend ${res.status}`)
+      return relayBackendError(new Response(raw, { status: res.status }))
     }
 
     const data = await res.json()
@@ -145,12 +169,13 @@ export async function GET(req: NextRequest) {
     // score, so neither does this proxy.
     const cacheable = isCacheableSummary(data) && issuesSummaryBrssHold(data) === null
     if (cacheable) {
-      cache.set(cacheKey, { data, timestamp: now })
+      // Not if the key was revoked while this request was in flight: this answer is older than that.
+      if ((revocations.get(cacheKey) ?? 0) === revokedAtStart) cache.set(cacheKey, { data, timestamp: now })
     } else {
       // A newer live answer (held, partial, failed) supersedes whatever was
       // stored: replaying pre-hold counts after it would put an OLDER state
       // in front of a newer one the backend already gave.
-      cache.delete(cacheKey)
+      revoke(cacheKey)
       console.warn(
         `[issues-summary proxy] not caching — serve_state=${data?.serve_state ?? "absent"} ` +
         `analysis_complete=${data?.analysis_complete ?? "absent"} success=${data?.success ?? "absent"}`,
@@ -178,6 +203,7 @@ export async function GET(req: NextRequest) {
       "[issues-summary proxy] fetch error:",
       error instanceof Error ? error.message : error,
     )
+    const cached = replayable(cacheKey)
     if (
       error instanceof Error &&
       error.name === "AbortError" &&

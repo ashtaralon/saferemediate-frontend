@@ -1,0 +1,21 @@
+{
+  "_provenance": {
+    "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
+    "request": {
+      "method": "POST",
+      "path": "/api/system-boundary/setup/629107a8-862e-4e9f-bbcf-580407633fdb/finish",
+      "params": null,
+      "body": {
+        "request_id": "00000000-0000-4000-8000-000000005103",
+        "base_state_version": 2
+      }
+    }
+  },
+  "status": 409,
+  "cache_control": null,
+  "body": {
+    "detail": {
+      "code": "PREVIEW_REQUIRED"
+    }
+  }
+}

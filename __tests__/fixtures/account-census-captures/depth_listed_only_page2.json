@@ -1,0 +1,268 @@
+{
+  "_provenance": {
+    "route": "GET /api/accounts/{account_id}/census (api/account_census.py)",
+    "harness": "tests/cyntro_data/test_account_census_captures.py",
+    "fixed_clock_epoch": 1800000000,
+    "census": "REAL writer (cyntro_data.sources.account_census.commit_census_listing) from the REAL acquirers over Stubber-validated responses; REAL dispatch markers; REAL census pass (services.account_census_producer)",
+    "inventory": "REAL P3a2 publication over a real projector activation (test_account_inventory_api._activated)",
+    "estate": "mirrors the cyntro-local-test platform account read 2026-10-06 through the read-only wrapper: no Config recorder, no Resource Explorer index, CloudFormation stacks incl. a deleted one, Tagging lists tagged only",
+    "readiness": "the S1c-4 harness provider answering (True, 'pass') for scope account_census -- a stand-in for a READY pass",
+    "pinned": [
+      "time.time",
+      "LocalEvidenceStore.bucket (recorded identity only)",
+      "cyntro_data.projection.receipt clock",
+      "uuid.uuid4 (a counter)"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/api/accounts/111122223333/census",
+      "query": {
+        "depth": "listed_only",
+        "limit": "2",
+        "cursor": "eyJjIjowLCJkIjoidjE6M2ZjMWM1ZGRiMTA0YzQwNGRiYzk5ZWEzZTE1YmE1YWUxMTZmNDJjZjhjNTUyYTU3MjA2MzE4MzFiZWQ3MDVhNyIsImYiOiJ2MTo0NmQxZjk4MWY3N2Y3Yzk2MWY3NzU3OGM2MGYwYWEyMDE0NThhYzMyZDllZDczNDMzYzhmYmU3NjhhNjg0NTk5IiwiZyI6MiwiaSI6MywibCI6InYxOjY5NmI4NTM1YjdmN2JmMzMwZWQ2NzU5OTEyMGUwZTYwMTZkZmFjZjI5MGU3ZGVhMmRhZmNmOWFlY2JkOWVmNGEiLCJvIjoicmVzb3VyY2VfdHlwZSxyb3dfa2V5IiwicCI6IjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMTRkIiwicyI6InYxOmY0YWM1OGE0ZTE3ZTI2YzA4MDY5OWY5ZGQzYjY4NTZhZjUxNzNiNzIyNzI3MDY0MjBmMTY3NjdiMTk5ZTk2NjYiLCJ2IjoiYWNjb3VudF9jZW5zdXMvdjEifQ=="
+      }
+    }
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "body": {
+    "contract": "account_census_read/v1",
+    "account_id": "111122223333",
+    "state": "populated",
+    "reason_code": null,
+    "account_authority": {
+      "registration_id": "0123456789abcdef0123456789abcdef",
+      "install_account": false
+    },
+    "publication": {
+      "attempt": "0000000000000000000000000000014d",
+      "generation": 2,
+      "source_identity": "v1:26605d3ba703e964a94b86db39b95c2b1ebe54a312627a467c9821b5b509b005",
+      "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+      "published_at_epoch": 1800000000,
+      "confirmed_at_epoch": 1800000000,
+      "marker": {
+        "dispatched_at": "2027-01-15T07:00:00+00:00",
+        "schedule": "rate(1 day)",
+        "regions": [
+          "eu-west-1"
+        ],
+        "global_region": "eu-west-1"
+      },
+      "inventory": {
+        "status": "served",
+        "reason": "",
+        "generation": 1,
+        "source_identity": "v1:469c50c3fe4062e348dd8b8d9cfa1d173adda9e52b05f2ff000ea92f8f92227c"
+      }
+    },
+    "coverage": {
+      "account_state": "PARTIAL",
+      "gaps": [
+        "eu-west-1/config:UNAVAILABLE_NO_RECORDER",
+        "eu-west-1/resource_explorer:UNAVAILABLE_NO_INDEX"
+      ],
+      "not_recorded": [],
+      "not_observable": true,
+      "not_observable_regions": [
+        "eu-west-1"
+      ],
+      "scopes": [
+        {
+          "region": "eu-west-1",
+          "source": "config",
+          "state": "UNAVAILABLE_NO_RECORDER",
+          "manifest_coverage": "UNAVAILABLE",
+          "action": "config:DescribeConfigurationRecorders",
+          "detail_code": null,
+          "error_category": null,
+          "count": 0,
+          "deleted_count": 0,
+          "stacks_listed": 0,
+          "stacks_in_progress": 0,
+          "stacks_deleted": 0,
+          "pagination_complete": true,
+          "collected_at": "2027-01-15T08:00:00+00:00",
+          "view_filter": null,
+          "includes_global": false,
+          "recording": null,
+          "per_type": []
+        },
+        {
+          "region": "eu-west-1",
+          "source": "tagging",
+          "state": "PARTIAL_BY_DESIGN",
+          "manifest_coverage": "PARTIAL",
+          "action": "tag:GetResources",
+          "detail_code": null,
+          "error_category": null,
+          "count": 6,
+          "deleted_count": 0,
+          "stacks_listed": 0,
+          "stacks_in_progress": 0,
+          "stacks_deleted": 0,
+          "pagination_complete": true,
+          "collected_at": "2027-01-15T08:00:00+00:00",
+          "view_filter": null,
+          "includes_global": false,
+          "recording": null,
+          "per_type": []
+        },
+        {
+          "region": "eu-west-1",
+          "source": "cloudformation",
+          "state": "COMPLETE",
+          "manifest_coverage": "COMPLETE",
+          "action": "cloudformation:ListStackResources",
+          "detail_code": null,
+          "error_category": null,
+          "count": 1,
+          "deleted_count": 1,
+          "stacks_listed": 1,
+          "stacks_in_progress": 0,
+          "stacks_deleted": 1,
+          "pagination_complete": true,
+          "collected_at": "2027-01-15T08:00:00+00:00",
+          "view_filter": null,
+          "includes_global": false,
+          "recording": null,
+          "per_type": [],
+          "stacks_unasked": 0
+        },
+        {
+          "region": "eu-west-1",
+          "source": "resource_explorer",
+          "state": "UNAVAILABLE_NO_INDEX",
+          "manifest_coverage": "UNAVAILABLE",
+          "action": "resource-explorer-2:ListIndexes",
+          "detail_code": null,
+          "error_category": null,
+          "count": 0,
+          "deleted_count": 0,
+          "stacks_listed": 0,
+          "stacks_in_progress": 0,
+          "stacks_deleted": 0,
+          "pagination_complete": true,
+          "collected_at": "2027-01-15T08:00:00+00:00",
+          "view_filter": null,
+          "includes_global": false,
+          "recording": null,
+          "per_type": []
+        }
+      ]
+    },
+    "totals": {
+      "rows_total": 34,
+      "present": 33,
+      "deleted": 1,
+      "by_type": {
+        "account:regions": 1,
+        "dynamodb:table": 3,
+        "ec2:instance": 1,
+        "ec2:internet-gateway": 1,
+        "ec2:nat-gateway": 1,
+        "ec2:network-acl": 1,
+        "ec2:network-interface": 1,
+        "ec2:route-table": 1,
+        "ec2:security-group": 1,
+        "ec2:subnet": 1,
+        "ec2:vpc": 1,
+        "ec2:vpc-endpoint": 1,
+        "ec2:vpc-endpoint-authorization": 1,
+        "eks:cluster": 1,
+        "elasticloadbalancing:listener": 1,
+        "elasticloadbalancing:load-balancer": 1,
+        "elasticloadbalancing:target-group": 1,
+        "events:event-bus-authorization": 1,
+        "iam:policy": 1,
+        "iam:role": 1,
+        "kms:key-authorization": 1,
+        "lambda:function": 1,
+        "lambda:function-authorization": 1,
+        "organizations:account-policy-context": 1,
+        "rds:db-cluster": 1,
+        "rds:db-instance": 1,
+        "s3:bucket": 1,
+        "s3:bucket-authorization": 1,
+        "secretsmanager:secret-authorization": 1,
+        "sns:topic-authorization": 1,
+        "sqs:queue-authorization": 1
+      },
+      "by_depth": {
+        "collected": 30,
+        "listed_only": 3,
+        "inventory_pending": 0
+      },
+      "by_source": {
+        "config": 0,
+        "tagging": 6,
+        "cloudformation": 1,
+        "resource_explorer": 0,
+        "certified": 30
+      },
+      "by_region": {
+        "eu-west-1": 27,
+        "global": 6
+      }
+    },
+    "outcome": {
+      "outcome": "CURRENT",
+      "detail": "published",
+      "attempt": "0000000000000000000000000000014d",
+      "recorded_at_epoch": 1800000000,
+      "registration_id": "0123456789abcdef0123456789abcdef",
+      "registration_recorded": true
+    },
+    "rows": [
+      {
+        "row_key": "arn:aws:dynamodb:eu-west-1:111122223333:table/orders-02",
+        "resource_type": "dynamodb:table",
+        "identity_basis": "arn",
+        "arn": "arn:aws:dynamodb:eu-west-1:111122223333:table/orders-02",
+        "native_id": "orders-02",
+        "region": "eu-west-1",
+        "name": null,
+        "depth": "listed_only",
+        "eligibility": {
+          "selectable": false,
+          "reason": "CENSUS_LISTED_ONLY"
+        },
+        "sources": [
+          "tagging"
+        ],
+        "cfn": null,
+        "deleted": false,
+        "tags": {
+          "team": "shop"
+        }
+      },
+      {
+        "row_key": "unmapped:aws:111122223333:eu-west-1:AWS::DynamoDB::Table:orders-v0",
+        "resource_type": "dynamodb:table",
+        "identity_basis": "unmapped",
+        "arn": null,
+        "native_id": "orders-v0",
+        "region": "eu-west-1",
+        "name": null,
+        "depth": "listed_only",
+        "eligibility": {
+          "selectable": false,
+          "reason": "CENSUS_LISTED_ONLY"
+        },
+        "sources": [
+          "cloudformation"
+        ],
+        "cfn": {
+          "stack_id": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop-v0/c3",
+          "logical_id": "OldOrders",
+          "stack_status": "DELETE_COMPLETE",
+          "last_updated": "2026-10-06T12:00:00+00:00",
+          "read_outcome": "COMPLETE"
+        },
+        "deleted": true
+      }
+    ],
+    "next_cursor": "eyJjIjowLCJkIjoidjE6M2ZjMWM1ZGRiMTA0YzQwNGRiYzk5ZWEzZTE1YmE1YWUxMTZmNDJjZjhjNTUyYTU3MjA2MzE4MzFiZWQ3MDVhNyIsImYiOiJ2MTo0NmQxZjk4MWY3N2Y3Yzk2MWY3NzU3OGM2MGYwYWEyMDE0NThhYzMyZDllZDczNDMzYzhmYmU3NjhhNjg0NTk5IiwiZyI6MiwiaSI6NSwibCI6InYxOjhiZWQwODBiZTY4YjJiNjI1M2IyZmJlMjZmYzNiZjJhMDQyMTIyYTdlZGJlZDE1ODA5N2ZhZmU5NjlhY2Q0NzEiLCJvIjoicmVzb3VyY2VfdHlwZSxyb3dfa2V5IiwicCI6IjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMTRkIiwicyI6InYxOmY0YWM1OGE0ZTE3ZTI2YzA4MDY5OWY5ZGQzYjY4NTZhZjUxNzNiNzIyNzI3MDY0MjBmMTY3NjdiMTk5ZTk2NjYiLCJ2IjoiYWNjb3VudF9jZW5zdXMvdjEifQ==",
+    "has_more": true
+  }
+}

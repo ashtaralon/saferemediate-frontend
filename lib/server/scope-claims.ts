@@ -5,10 +5,11 @@
  * several registered workload accounts a read must NAME the account (`account_id`) or it is refused by name
  * (422 ACCOUNT_SCOPE_REQUIRED), and a claim outside the server scope is 403. The claims never select the tenant.
  *
- * A proxy copies them verbatim onto the upstream query and keys its cache by them: a cached answer for one account
+ * Since the A7 B5 merge the page's `system_key` (which names ONE system) travels the same way. A proxy copies them
+ * verbatim onto the upstream query and keys its cache by them: a cached answer for one account
  * must never be served for another (the blast-radius proxy's rule, shared here).
  */
-export const SCOPE_CLAIM_KEYS = ["customer_id", "account_id"] as const
+export const SCOPE_CLAIM_KEYS = ["customer_id", "account_id", "system_key"] as const   // + A7 B5 system key (release/resident)
 
 /** Copy the claims present on `from` onto `to`; return the canonical fragment for a cache key ("" when none). */
 export function forwardScopeClaims(from: URLSearchParams, to: URLSearchParams): string {

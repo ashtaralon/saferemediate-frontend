@@ -1,0 +1,19 @@
+{
+  "_provenance": {
+    "harness": "tests/cyntro_data/test_system_boundary_wizard_captures.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/system-boundary/wizard/capability",
+      "query": {}
+    }
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "body": {
+    "contract": "system_boundary_wizard_capability/v1",
+    "enabled": false,
+    "save_envelope_level": 3,
+    "reader_contract": "implicit-snapshot-v2",
+    "reason_code": "WIZARD_DISABLED"
+  }
+}

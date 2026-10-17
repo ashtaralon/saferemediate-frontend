@@ -24,6 +24,20 @@ import { CoverageBanner } from './coverage-banner'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { dependencyMapV2ProxyUrl } from '@/lib/dependency-map-v2-query'
+import { ObservationChip } from '@/components/coverage/observation-chip'
+import { ObservationWindowSelector } from './observation-window-selector'
+import {
+  DEFAULT_DEPENDENCY_WINDOW,
+  formatCoverageInstant,
+  formatCoverageRange,
+  notObservedCopy,
+  readEffectiveWindow,
+  readObservation,
+  requestedWindowLabel,
+  type EffectiveWindow,
+  type Observation,
+  type ObservationWindowRequest,
+} from '@/lib/observation-coverage'
 
 // ============================================================================
 // TYPES
@@ -154,13 +168,15 @@ const AnimatedEdge: React.FC<{
   kind: 'OBSERVED' | 'ALLOWED'
   bytes?: number
   dimmed?: boolean
-}> = ({ path, kind, bytes = 0, dimmed = false }) => {
+  title?: string
+}> = ({ path, kind, bytes = 0, dimmed = false, title }) => {
   const isObserved = kind === 'OBSERVED'
   const speed = bytes > 100000 ? 0.8 : bytes > 10000 ? 1.5 : 2.5
   const opacity = dimmed ? 0.15 : 1
 
   return (
-    <g style={{ opacity }}>
+    <g style={{ opacity }} data-edge-kind={kind}>
+      {title ? <title>{title}</title> : null}
       {isObserved && !dimmed && (
         <path d={path} fill="none" stroke="#10B981" strokeWidth={6} strokeOpacity={0.15} />
       )}
@@ -204,13 +220,19 @@ export default function GraphViewV2({
   const [edges, setEdges] = useState<MapEdge[]>([])
   const [coverage, setCoverage] = useState<CoverageInfo>({
     flow_logs_enabled_enis_pct: 0,
-    analysis_window: '7d',
+    analysis_window: requestedWindowLabel(DEFAULT_DEPENDENCY_WINDOW),
     observed_edges: 0,
     total_flows: 0,
     notes: []
   })
   const [mode, setMode] = useState<'observed' | 'observed+potential'>('observed')
-  const [timeWindow] = useState('7d')
+  // Observation window per purpose (owner ruling: 7 days by default for a
+  // dependency map). Sent as `window`; the backend answers with the window it
+  // actually served, clamped to available coverage.
+  const [windowRequest, setWindowRequest] = useState<ObservationWindowRequest>(DEFAULT_DEPENDENCY_WINDOW)
+  const [effectiveWindow, setEffectiveWindow] = useState<EffectiveWindow | null>(null)
+  const [observation, setObservation] = useState<Observation | null>(null)
+  const [hasLoaded, setHasLoaded] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [selected, setSelected] = useState<ComponentNode | null>(null)
@@ -229,7 +251,7 @@ export default function GraphViewV2({
     setIsLoading(true)
     try {
       const res = await fetch(
-        dependencyMapV2ProxyUrl(systemName, timeWindow, mode),
+        dependencyMapV2ProxyUrl(systemName, windowRequest, mode),
         { cache: 'no-store' }
       )
 
@@ -243,9 +265,11 @@ export default function GraphViewV2({
       setContainers(data.containers || [])
       setNodes(data.nodes || [])
       setEdges(data.edges || [])
+      setEffectiveWindow(readEffectiveWindow(data))
+      setObservation(readObservation(data))
       setCoverage(data.coverage || {
         flow_logs_enabled_enis_pct: 0,
-        analysis_window: timeWindow,
+        analysis_window: requestedWindowLabel(windowRequest),
         observed_edges: 0,
         total_flows: 0,
         notes: []
@@ -255,8 +279,9 @@ export default function GraphViewV2({
       setLoadError('Dependency map is temporarily unavailable. Existing verified data is retained.')
     } finally {
       setIsLoading(false)
+      setHasLoaded(true)
     }
-  }, [systemName, timeWindow, mode])
+  }, [systemName, windowRequest, mode])
 
   useEffect(() => {
     fetchData()
@@ -497,7 +522,9 @@ export default function GraphViewV2({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isFullscreen, focusedNode])
 
-  if (isLoading) {
+  // Full-panel spinner on the first load only; a window or mode change keeps the
+  // controls mounted and shows the request in flight instead.
+  if (isLoading && !hasLoaded) {
     return (
       <div className="w-full h-[650px] flex flex-col">
         <div className="flex-1 flex items-center justify-center bg-slate-900 rounded-xl">
@@ -518,10 +545,22 @@ export default function GraphViewV2({
   // a misleading "everything is dimmed" view (which reads as a render bug).
   const showNoPublicBanner = publicOnly && publicCount === 0
 
+  // Absent edges are "not observed in this window", never "do not exist".
+  const absentCopy = notObservedCopy(effectiveWindow)
+  const observedEdgeCount = edges.filter(e => e.kind === 'OBSERVED').length
+  const selectedAllowedEdges = selected
+    ? edges.filter(e => e.kind === 'ALLOWED' && (e.source === selected.id || e.target === selected.id))
+    : []
+
   return (
     <div className={containerClass} style={containerStyle}>
       {/* Coverage Banner */}
-      <CoverageBanner coverage={coverage} mode={mode} onModeChange={handleModeChange} />
+      <CoverageBanner
+        coverage={coverage}
+        mode={mode}
+        onModeChange={handleModeChange}
+        windowLabel={effectiveWindow ? formatCoverageRange(effectiveWindow.from, effectiveWindow.to) : undefined}
+      />
 
       {loadError && (
         <div className="flex items-center gap-2 border-b border-red-700 bg-red-950 px-3 py-2 text-sm text-red-100" role="alert">
@@ -535,10 +574,19 @@ export default function GraphViewV2({
           Row 2: stats on the left (with · separators), controls on the right.
           No more single-row cram-and-wrap. */}
       <div className="bg-slate-800/90 border-b border-slate-700 px-3 py-2.5 flex flex-col gap-2" style={{ flexShrink: 0 }}>
-        {/* Row 1 — title */}
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-          <span className="text-white font-semibold text-sm">Observed-First Map</span>
+        {/* Row 1 — title, observed range, observation window */}
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+            <span className="text-white font-semibold text-sm">Observed-First Map</span>
+            <ObservationChip observation={observation} tone="dark" testId="dependency-map-observation" />
+          </div>
+          <ObservationWindowSelector
+            value={windowRequest}
+            onChange={setWindowRequest}
+            effective={effectiveWindow}
+            loading={isLoading}
+          />
         </div>
 
         {/* Row 2 — stats (left) + controls (right) */}
@@ -760,7 +808,16 @@ export default function GraphViewV2({
             const midX = (startX + endX) / 2
             const path = `M${startX} ${startY} C${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}`
 
-            return <AnimatedEdge key={e.id} path={path} kind={e.kind} bytes={e.bytes_total} dimmed={dimmed || false} />
+            return (
+              <AnimatedEdge
+                key={e.id}
+                path={path}
+                kind={e.kind}
+                bytes={e.bytes_total}
+                dimmed={dimmed || false}
+                title={e.kind === 'ALLOWED' ? `Allowed by security-group rules. ${absentCopy}.` : undefined}
+              />
+            )
           })}
         </svg>
 
@@ -884,6 +941,20 @@ export default function GraphViewV2({
         </div>
       </div>
 
+      {/* No observed connections in the served window: say so with the window,
+          and never as "these components do not talk". */}
+      {!isLoading && !loadError && observedEdgeCount === 0 && (
+        <div
+          className="absolute top-36 left-1/2 -translate-x-1/2 z-10 max-w-md rounded-lg border border-dashed border-slate-600 bg-slate-800/90 px-3 py-2 text-xs text-slate-300"
+          data-testid="no-observed-edges"
+        >
+          {effectiveWindow
+            ? `No connections were observed between ${formatCoverageInstant(effectiveWindow.from)} and ${formatCoverageInstant(effectiveWindow.to)}.`
+            : 'No connections were observed in the recorded window.'}{' '}
+          Absence in a window is not proof that a connection is unused.
+        </div>
+      )}
+
       {/* Legend */}
       <div className="absolute bottom-3 left-3 bg-slate-800/90 backdrop-blur rounded-lg p-2 border border-slate-700 text-xs z-10">
         <div className="text-white font-semibold mb-1.5 text-[10px]">Legend</div>
@@ -897,6 +968,9 @@ export default function GraphViewV2({
           <div className="flex items-center gap-2">
             <div className="w-5 h-px bg-slate-500 border-dashed border-t border-slate-500" />
             <span className="text-slate-300 text-[10px]">Potential (SG Allowed)</span>
+          </div>
+          <div className="pl-7 text-slate-400 text-[10px] max-w-[16rem]" data-testid="absent-edge-copy">
+            {absentCopy}
           </div>
           {publicOnly && (
             <div className="flex items-center gap-2">
@@ -951,6 +1025,14 @@ export default function GraphViewV2({
             {selected.is_internet_exposed && (
               <div className="flex items-center gap-1.5 text-amber-400 text-[10px]">
                 <Globe className="w-3 h-3" /> Internet Exposed
+              </div>
+            )}
+            {mode === 'observed+potential' && selectedAllowedEdges.length > 0 && (
+              <div data-testid="selected-absent-edges">
+                <div className="text-slate-400 text-[10px]">
+                  Allowed connections ({selectedAllowedEdges.length})
+                </div>
+                <div className="text-slate-300 text-[11px]">{absentCopy}</div>
               </div>
             )}
           </div>

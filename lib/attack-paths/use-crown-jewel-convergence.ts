@@ -67,6 +67,10 @@ export type UseCrownJewelConvergenceOptions = {
    * siblings. Without this, a pin shrinks the set to one path_id.
    */
   fanInAllDetails?: boolean
+  /** A7 B5: the system's KEY (+ a tag / source key's account) when the page was opened by key -- every summary / detail
+   *  read names ONE system. Absent, every request is by name exactly as before. */
+  systemKey?: string | null
+  systemAccountId?: string | null
 }
 
 const MAX_AUTO_RETRIES = 4
@@ -126,6 +130,9 @@ export function useCrownJewelConvergence(
   const claims = scopeClaimsFrom(scope)
   const claimedCustomer = claims.customerId
   const claimedAccount = claims.accountId
+  // A7 B5: the page's system key (+ a tag / source key's account) names ONE system when the page was opened by key.
+  const systemKey = options.systemKey ?? null
+  const systemAccountId = systemKey ? (options.systemAccountId ?? null) : null
   const [summary, setSummary] = useState<CrownJewelConvergenceSummary | null>(null)
   const [detailsByPathId, setDetailsByPathId] = useState<
     Record<string, PathDetailRecord>
@@ -173,7 +180,8 @@ export function useCrownJewelConvergence(
     readyDetailIdsRef.current = new Set()
     setSummary(null)
 
-    const summaryUrl = buildConvergenceSummaryUrl(systemName, jewel, { customerId: claimedCustomer, accountId: claimedAccount })
+    const summaryUrl = buildConvergenceSummaryUrl(systemName, jewel,
+      { customerId: claimedCustomer, accountId: claimedAccount, systemKey, systemAccountId })
 
     const runAttempt = async () => {
       if (cancelled) return
@@ -290,6 +298,8 @@ export function useCrownJewelConvergence(
     claimedCustomer,
     claimedAccount,
     nonce,
+    systemKey,
+    systemAccountId,
   ])
 
   const resolvedSelectedPathId = useMemo(
@@ -350,7 +360,8 @@ export function useCrownJewelConvergence(
       if (ctrl.signal.aborted) return pathId
       if (readyDetailIdsRef.current.has(pathId)) return pathId
 
-      const detailUrl = buildConvergenceDetailUrl(systemName, jewel, pathId, { customerId: claimedCustomer, accountId: claimedAccount })
+      const detailUrl = buildConvergenceDetailUrl(systemName, jewel, pathId,
+        { customerId: claimedCustomer, accountId: claimedAccount, systemKey, systemAccountId })
       const result = await fetchConvergencePathDetail({
         url: detailUrl,
         signal: ctrl.signal,
@@ -384,6 +395,8 @@ export function useCrownJewelConvergence(
     claimedAccount,
     nonce,
     fanInAllDetails,
+    systemKey,
+    systemAccountId,
   ])
 
   const data =

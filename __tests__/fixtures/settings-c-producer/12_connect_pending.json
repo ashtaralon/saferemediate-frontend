@@ -1,0 +1,106 @@
+{
+ "body": {
+  "accounts": [
+   {
+    "account_id": "222222222222",
+    "aws_account_name": null,
+    "aws_account_name_error": null,
+    "aws_account_name_read_at": null,
+    "collection_mode": "MEMBER_READ_ROLE",
+    "coverage": null,
+    "customer_id": "acme",
+    "display_name": "222222222222",
+    "environment": "UNCLASSIFIED",
+    "group_ids": [],
+    "install_method": "MEMBER_STACK",
+    "is_platform_account": false,
+    "last_validated_at": null,
+    "mutation_enabled": false,
+    "onboarding_status": "PENDING_UNVERIFIED",
+    "organization_id": "o-rk1b6t6n6m",
+    "organizational_unit_ids": [],
+    "pending_request": null,
+    "read_enabled": false,
+    "regions": [
+     "eu-west-1"
+    ],
+    "registered_at": "2026-10-04T16:27:19.094885+00:00",
+    "registered_by": {
+     "identity": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
+     "verified": true
+    },
+    "registration": {
+     "access_check": null,
+     "activating": false,
+     "activation": null,
+     "activation_last": null,
+     "checking": false,
+     "first_inventory_dispatch": null,
+     "owner": null,
+     "registration_id": "f3efe3c453ff9c11d34207f5cd14ddca",
+     "registration_path": "PENDING",
+     "registration_version": 1
+    },
+    "sources": {},
+    "tags": {},
+    "updated_at": "2026-10-04T16:27:19.094885+00:00",
+    "validation_message": "Registered without organization evidence: an access check and your confirmation are required before Cyntro reads this account",
+    "verification_enabled": false
+   }
+  ],
+  "customer_id": "acme",
+  "failed_requests": [],
+  "member_trust": {
+   "organization_id": "o-rk1b6t6n6m",
+   "platform_account_id": "111111111111",
+   "ready": true
+  },
+  "mode": "MEMBER_ACCOUNTS",
+  "registry_available": true,
+  "summary": {
+   "connected": 0,
+   "discovered": 0,
+   "mutation_enabled": 0,
+   "needs_attention": 0
+  },
+  "total": 1
+ },
+ "captured_at": "2026-10-04T16:27:19.120197+00:00",
+ "connect_response": {
+  "body": {
+   "account_id": "222222222222",
+   "cli": "aws cloudformation deploy --stack-name cyntro-account-connection --region eu-west-1 --template-file cyntro-account-connection.yaml --capabilities CAPABILITY_NAMED_IAM --parameter-overrides CustomerId=acme SecurityToolingAccountId=111111111111 ExternalId=1a4ccf3fdc1ece80d38ac6d90160c4641ae4e0ccc2534ca575b74af53c93ec06 OrganizationId=o-rk1b6t6n6m",
+   "console_url": "https://eu-west-1.console.aws.amazon.com/cloudformation/home?region=eu-west-1#/stacks/create",
+   "customer_id": "acme",
+   "notes": {
+    "discovered": false,
+    "eks_clusters": [],
+    "flow_log_groups_found": 0,
+    "flow_log_groups_usable": 0,
+    "flow_log_groups_without_required_fields": [],
+    "regions": []
+   },
+   "parameters": {
+    "CustomerId": "acme",
+    "EksClusterName": "",
+    "ExistingFlowLogGroupArns": "",
+    "ExternalId": "1a4ccf3fdc1ece80d38ac6d90160c4641ae4e0ccc2534ca575b74af53c93ec06",
+    "FlowLogVpcId": "",
+    "OrganizationId": "o-rk1b6t6n6m",
+    "SecurityToolingAccountId": "111111111111"
+   },
+   "region": "eu-west-1",
+   "stack_name": "cyntro-account-connection",
+   "template_path": "/api/admin/accounts/connect/template"
+  },
+  "path": "/api/admin/accounts/222222222222/connect",
+  "status": 200
+ },
+ "name": "12_connect_pending",
+ "note": "a pending account and the connection stack its Connect panel shows",
+ "request": {
+  "method": "GET",
+  "path": "/api/admin/accounts?customer_id=acme"
+ },
+ "status": 200
+}

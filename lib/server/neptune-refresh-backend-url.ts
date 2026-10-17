@@ -1,4 +1,4 @@
-const DEFAULT_NEPTUNE_REFRESH_BACKEND = "https://saferemediate-backend-f.onrender.com"
+import {HOSTED_DEFAULTS} from "./hosted-defaults"
 
 function pointsAtLocalhost(url: string): boolean {
   return /(^|\/\/)(localhost|127\.0\.0\.1|0\.0\.0\.0)(:|\/|$)/i.test(url)
@@ -17,7 +17,13 @@ export function isNeptuneRefreshBackendConfigured(): boolean {
 
 export function getNeptuneRefreshBackendBaseUrl(): string {
   const configured = process.env.CYNTRO_SYNC_BACKEND_URL?.trim()
-  const resolved = (configured || DEFAULT_NEPTUNE_REFRESH_BACKEND).replace(/\/+$/, "")
+  // Customer-resident: the configured lane or nothing. The hosted address is not in that image,
+  // and the callers ask isNeptuneRefreshBackendConfigured() first and hold when it is false.
+  const fallback = process.env.CYNTRO_DEPLOYMENT_MODE === "CUSTOMER_RESIDENT" ? null : HOSTED_DEFAULTS?.neptuneRefreshBackend ?? null
+  if (!configured && fallback === null) {
+    throw new Error("[neptune-refresh-backend] CYNTRO_SYNC_BACKEND_URL is unset and this install has no hosted refresh backend")
+  }
+  const resolved = (configured || fallback || "").replace(/\/+$/, "")
 
   if (
     (process.env.VERCEL_ENV === "production" || process.env.VERCEL_ENV === "preview") &&

@@ -1,0 +1,24 @@
+{
+  "_provenance": {
+    "harness": "tests/cyntro_data/test_system_boundary_wizard_captures.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/system-boundary/declarations/applied",
+      "query": {
+        "account_id": "111111111111"
+      }
+    }
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "body": {
+    "contract": "declarations_applied/v1",
+    "state": "not_applied_yet",
+    "reason_code": "NO_SERVED_COHORT",
+    "account_id": "111111111111",
+    "saved_revision": 1,
+    "applied_revision": null,
+    "generation": null,
+    "published_at": null
+  }
+}

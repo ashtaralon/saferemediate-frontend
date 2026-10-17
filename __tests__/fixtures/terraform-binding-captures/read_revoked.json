@@ -1,0 +1,129 @@
+{
+  "_provenance": {
+    "harness": "tests/test_system_boundary_terraform_captures.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/system-boundary/terraform-bindings/7fb10000-0000-4000-8000-000000000001",
+      "body": null
+    }
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "content_type": "application/json",
+  "body": {
+    "binding": {
+      "binding_id": "7fb10000-0000-4000-8000-000000000001",
+      "revision": 1,
+      "status": "REVOKED",
+      "account_id": "178254216844",
+      "registration_id": "55555555555555555555555555555555",
+      "accounts_seen": [
+        "178254216844"
+      ],
+      "workspace_identity": {
+        "basis": "authored",
+        "value": "s3://platform-tfstate/platform.tfstate#default"
+      },
+      "snapshot": {
+        "content_digest": "sha256:03e8f9d70cdd9b7e01a0759ae2b140f16e7f31d904df9196938014b25486d949",
+        "format": "raw_state_v4",
+        "lineage": "0bb7b7fc-8cba-4891-6d72-63b05cde7a7a",
+        "profile_id": "iac.terraform.raw_state",
+        "profile_version": 1,
+        "provenance_class": "uploaded",
+        "serial": 3,
+        "terraform_version": "1.7.1"
+      },
+      "counts": {
+        "admission": {
+          "data_reference": 0,
+          "instances": 3,
+          "managed_current": 3,
+          "managed_deposed": 0,
+          "provider_aws": 3,
+          "provider_unsupported": 0,
+          "sensitive_identity_dropped": 0,
+          "tainted": 0
+        },
+        "resolution": {
+          "resolved": 3
+        }
+      },
+      "identities_digest": "sha256:7c79e669ccbdbcea6f27c8965956ce2842ff2593fc983bab4580a6280fbf2818",
+      "identities": [
+        {
+          "account_basis": "bound_account",
+          "account_id": "178254216844",
+          "address": "aws_s3_bucket.evidence",
+          "arn": "arn:aws:s3:::cyntro-evidence-localtest-216844",
+          "deposed_key": null,
+          "inventory_type": "s3:bucket",
+          "inventory_uid": "aws://aws/178254216844/global/s3/bucket/cyntro-evidence-localtest-216844",
+          "native_id": "cyntro-evidence-localtest-216844",
+          "region": "global",
+          "resolution": "resolved"
+        },
+        {
+          "account_basis": "arn",
+          "account_id": "178254216844",
+          "address": "aws_security_group.consumer_lambda",
+          "arn": "arn:aws:ec2:eu-west-1:178254216844:security-group/sg-0439d9e000f134f53",
+          "deposed_key": null,
+          "inventory_type": "ec2:security-group",
+          "inventory_uid": "aws://aws/178254216844/eu-west-1/ec2/security-group/sg-0439d9e000f134f53",
+          "native_id": "sg-0439d9e000f134f53",
+          "region": "eu-west-1",
+          "resolution": "resolved"
+        },
+        {
+          "account_basis": "arn",
+          "account_id": "178254216844",
+          "address": "aws_vpc.platform",
+          "arn": "arn:aws:ec2:eu-west-1:178254216844:vpc/vpc-00a3ae5227a226b7d",
+          "deposed_key": null,
+          "inventory_type": "ec2:vpc",
+          "inventory_uid": "aws://aws/178254216844/eu-west-1/ec2/vpc/vpc-00a3ae5227a226b7d",
+          "native_id": "vpc-00a3ae5227a226b7d",
+          "region": "eu-west-1",
+          "resolution": "resolved"
+        }
+      ],
+      "created_by": "https://acme.okta.test/oauth2/default#00u-alice",
+      "created_at": "2026-10-16T06:00:00.000000+00:00",
+      "intake": {
+        "channel": "browser_reduced_upload",
+        "claimed_source_digest": "sha256:c531a3ab14c4851b546a72444e50aa7eeded5c12e6cea4833670d2f8eaed2632",
+        "consent": {
+          "confirmed_at": "2026-10-16T06:00:00.000000+00:00",
+          "confirmed_by": "https://acme.okta.test/oauth2/default#00u-alice",
+          "text_version": "terraform_reduced_upload_consent/v1"
+        },
+        "reduction": "client_supported_types/v1",
+        "retained_fields": [
+          "state.lineage",
+          "state.serial",
+          "state.terraform_version",
+          "state.format_version",
+          "resource.module_path",
+          "resource.mode",
+          "resource.type",
+          "resource.name",
+          "resource.index_key",
+          "resource.provider_source",
+          "resource.status",
+          "resource.deposed_key",
+          "resource.schema_version",
+          "resource.id",
+          "resource.arn",
+          "resource.sensitivity_marks",
+          "workspace_identity",
+          "claimed_source_digest",
+          "consent.confirmed_by",
+          "consent.confirmed_at"
+        ]
+      },
+      "revoked_at": "2026-10-16T06:00:00.000000+00:00"
+    },
+    "contract": "terraform_workspace_binding_read/v1"
+  }
+}

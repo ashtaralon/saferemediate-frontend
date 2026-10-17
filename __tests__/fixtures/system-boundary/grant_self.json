@@ -1,0 +1,61 @@
+{
+  "_provenance": {
+    "fixed_attempt": "0000000000000000000000000000000a",
+    "fixed_clock_epoch": 1800000000,
+    "fixed_request_ids": {
+      "add": "00000000-0000-4000-8000-0000000000a8",
+      "correction": "00000000-0000-4000-8000-0000000000a6",
+      "create": "00000000-0000-4000-8000-0000000000a2",
+      "env": "00000000-0000-4000-8000-0000000000ac",
+      "env_conflict": "00000000-0000-4000-8000-0000000000ab",
+      "missing": "00000000-0000-4000-8000-0000000000a5",
+      "move": "00000000-0000-4000-8000-0000000000ae",
+      "raced": "00000000-0000-4000-8000-0000000000a7",
+      "raw": "00000000-0000-4000-8000-0000000000aa",
+      "refused": "00000000-0000-4000-8000-0000000000a1",
+      "remove": "00000000-0000-4000-8000-0000000000af",
+      "replace": "00000000-0000-4000-8000-0000000000a9",
+      "second": "00000000-0000-4000-8000-0000000000ad",
+      "stale": "00000000-0000-4000-8000-0000000000a4",
+      "taken": "00000000-0000-4000-8000-0000000000a3"
+    },
+    "fixed_saved_at": "2026-10-06T12:00:00+00:00",
+    "harness": "tests/cyntro_data/test_system_boundary_root_admission.py::test_r6_the_authoring_answers_are_exactly_the_producer_goldens",
+    "note": "The real route's answer on the real stack (real resolver, real person verifier, real P3a2 publication, the real IAM normalizer's role), captured by the harness; nothing removed. Not installed or live evidence.",
+    "pinned": [
+      "time.time",
+      "uuid.uuid4 around the publish",
+      "LocalEvidenceStore.bucket (recorded identity only)",
+      "cyntro_data.projection.receipt clock",
+      "system_boundary_save.now",
+      "request ids (the envelopes')"
+    ],
+    "routes": "/api/system-boundary/declarations{,/corrections,/view,/head,/requests,/requests/{id}} (api/system_boundary.py)"
+  },
+  "body": {
+    "grant": {
+      "actor": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-admin",
+      "body": {
+        "actions": [
+          "declare"
+        ],
+        "change": "CREATE",
+        "epoch": 1,
+        "reason": "authors the payments system",
+        "scope": {
+          "accounts": [],
+          "tenant_wide": true
+        },
+        "state": "GRANTED",
+        "subject": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice"
+      },
+      "key": "GRANT#5d3e514d1fa23bd43ab6cda40e4368241f0a6871beecc3a362c96874db7bbd43",
+      "kind": "GRANT",
+      "tombstoned": false,
+      "version": 1,
+      "written_at": "2026-10-04T12:00:00.000000+00:00"
+    },
+    "subject": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice"
+  },
+  "status": 200
+}

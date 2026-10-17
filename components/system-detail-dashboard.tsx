@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import dynamic from "next/dynamic"
 import {
   ArrowLeft,
@@ -28,8 +28,6 @@ import {
   RefreshCw,
   EyeOff,
   ChevronDown,
-  Eye,
-  Clock,
   ExternalLink,
   Wrench,
   Bug,
@@ -84,7 +82,8 @@ import { fetchWithTransientRetry } from "@/lib/transient-retry"
 import { normalizeSecurityFinding, asCount } from "@/lib/security-finding-normalize"
 import { RequestEpoch } from "@/lib/request-epoch"
 import { SystemExecutiveOverview } from "@/components/system-detail/system-executive-overview"
-import { useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
+import { selectedCatalogRow, useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
+import { HISTORY_BEFORE_UNKNOWN, NOT_OBSERVED_IN_RECORDED_WINDOW } from "@/lib/observation-coverage"
 
 // Lazy load heavy components with dynamic imports for better performance
 const CloudGraphTab = dynamic(
@@ -358,11 +357,16 @@ const LivePipelineModal = dynamic(
 
 function EgressTabContainer({
   systemName,
+  systemKey = null,
+  systemAccountId = null,
   deepLink,
   onDeepLinkConsumed,
   onNavigateToSection,
 }: {
   systemName: string
+  /** A7 B5: the system's KEY (+ a tag / source key's account) when opened by key; every egress read names ONE system. */
+  systemKey?: string | null
+  systemAccountId?: string | null
   deepLink: TrafficDeepLink | null
   onDeepLinkConsumed: () => void
   onNavigateToSection?: (section: string) => void
@@ -384,13 +388,21 @@ function EgressTabContainer({
   const [pipelineWorkload, setPipelineWorkload] = useState<any>(null)
 
   // When the parent passes a deep-link, switch to inventory view so the
-  // operator lands on the row table immediately. The deep-link itself
-  // is owned by the dashboard so it survives this container's mount/
-  // unmount (the container isn't mounted until the Traffic tab is
-  // active, which happens AFTER the chip click fires the events).
+  // operator lands on the row table immediately. The deep-link is owned
+  // by the dashboard until this container mounts (the container isn't
+  // mounted until the Traffic tab is active, which happens AFTER the chip
+  // click fires the events); here it is CONSUMED: copied into this
+  // container's own state and cleared on the dashboard. This container is
+  // keyed by system name + key + account, so another system identity is a
+  // fresh container with no deep link -- never the previous identity's
+  // workload filter (B5 review, 2026-10-08).
+  const [activeDeepLink, setActiveDeepLink] = useState<TrafficDeepLink | null>(deepLink)
   useEffect(() => {
-    if (deepLink) setView("inventory")
-  }, [deepLink])
+    if (!deepLink) return
+    setActiveDeepLink(deepLink)
+    setView("inventory")
+    onDeepLinkConsumed()
+  }, [deepLink, onDeepLinkConsumed])
 
   return (
     <div className="space-y-4">
@@ -478,19 +490,21 @@ function EgressTabContainer({
         </div>
       ) : view === "inventory" ? (
         <EgressExternalInventory
-          key={deepLink ? `dl-${deepLink.workloadId}-${deepLink.direction}` : "default"}
+          key={activeDeepLink ? `dl-${activeDeepLink.workloadId}-${activeDeepLink.direction}` : "default"}
           systemName={systemName}
-          initialWorkloadId={deepLink?.workloadId ?? null}
-          initialDirection={deepLink?.direction}
+          systemKey={systemKey}
+          systemAccountId={systemAccountId}
+          initialWorkloadId={activeDeepLink?.workloadId ?? null}
+          initialDirection={activeDeepLink?.direction}
           onSelectWorkload={(id, name) => {
             setPendingDrillWorkload({ id, name })
             setView("by-workload")
           }}
         />
       ) : view === "by-workload" ? (
-        <EgressVisibilityPanel systemName={systemName} />
+        <EgressVisibilityPanel systemName={systemName} systemKey={systemKey} systemAccountId={systemAccountId} />
       ) : (
-        <EgressFlowMap systemName={systemName} />
+        <EgressFlowMap systemName={systemName} systemKey={systemKey} systemAccountId={systemAccountId} />
       )}
     </div>
   )
@@ -604,6 +618,10 @@ const BehavioralIntelligence = dynamic(
 
 interface SystemDetailDashboardProps {
   systemName: string
+  /** A7 B5: on a v2 install the system's KEY (the name is display only; two systems may share it). Absent on a v1 answer. */
+  systemKey?: string | null
+  /** A7 B5: the account of a tag / source key's row (one system per account); null for an authored key. */
+  systemAccountId?: string | null
   onBack: () => void
   // Optional navigation callback so embedded views (Trust Boundary Map's
   // "Show the path" CTA) can deep-link into other sections without
@@ -637,7 +655,12 @@ interface TagResults {
   skipped?: number
   tags_applied?: Record<string, string>
   error?: string
+  /** The backend refused the write by name (409 off_boundary_mutation_refused): nothing was written (D18). */
+  refusedCode?: string
 }
+
+/** The containment refusal a contained AWS write answers (backend api/_off_boundary_http.py): 409 with this reason_code. */
+const OFF_BOUNDARY_REFUSAL = "off_boundary_mutation_refused"
 
 interface AutoTagStatus {
   // `wired === false` means the backend genuinely doesn't have the
@@ -703,7 +726,10 @@ const ENVIRONMENT_OPTIONS = [
 // COMPONENT
 // =============================================================================
 
-export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection, initialTab, initialAttackPathMode }: SystemDetailDashboardProps) {
+type SystemMeta = { criticality: string; environment: string; accountId: string | null; region: string | null }
+const EMPTY_SYSTEM_META: SystemMeta = { criticality: "", environment: "", accountId: null, region: null }
+
+export function SystemDetailDashboard({ systemName, systemKey = null, systemAccountId = null, onBack, onNavigateToSection, initialTab, initialAttackPathMode }: SystemDetailDashboardProps) {
   const systemsCatalog = useScopedSystemCatalog()
   // Attacker Map lives as an internal chip next to Attack Path (not a Risk sub-tab).
   const resolvedInitialTab = initialTab === "attacker-map" ? "attack-paths" : (initialTab ?? "overview")
@@ -719,10 +745,21 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
   // container isn't mounted until activeTab === "egress", so its own
   // useEffect would register too late and miss the event. The deep-
   // link payload is passed down as a prop instead.
-  const [trafficDeepLink, setTrafficDeepLink] = useState<{
-    workloadId?: string
-    direction?: "outbound" | "inbound"
-  } | null>(null)
+  const [trafficDeepLink, setTrafficDeepLink] = useState<(TrafficDeepLink & { identity: string }) | null>(null)
+  // B5 (review 2026-10-08): a deep link belongs to the system IDENTITY open when it arrived (name + key + account);
+  // switching to another identity -- two systems may share a name -- drops it, never carries its workload filter over.
+  const identity = `${systemName}|${systemKey ?? ""}|${systemAccountId ?? ""}`
+  const identityRef = useRef(identity)
+  identityRef.current = identity
+  useEffect(() => {
+    setTrafficDeepLink(null)
+  }, [identity])
+  const consumeTrafficDeepLink = useCallback(() => setTrafficDeepLink(null), [])
+  const currentTrafficDeepLink = useMemo<TrafficDeepLink | null>(
+    () => (trafficDeepLink && trafficDeepLink.identity === identity
+      ? { workloadId: trafficDeepLink.workloadId, direction: trafficDeepLink.direction } : null),
+    [trafficDeepLink, identity],
+  )
   useEffect(() => {
     const navHandler = (event: Event) => {
       const detail = (event as CustomEvent<{ tabId?: string }>).detail
@@ -733,7 +770,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
         workloadId?: string
         direction?: "outbound" | "inbound"
       }>).detail
-      if (detail) setTrafficDeepLink(detail)
+      if (detail) setTrafficDeepLink({ ...detail, identity: identityRef.current })
     }
     window.addEventListener("cyntro:navigate-tab", navHandler)
     window.addEventListener("cyntro:traffic:deep-link", deepLinkHandler)
@@ -748,17 +785,17 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
   // /api/systems). account_id and region are nullable — when the
   // collector hasn't surfaced them yet, the System Context card
   // renders "—" rather than fabricating "eu-west-1" / "745783559495".
-  const [systemMeta, setSystemMeta] = useState<{
-    criticality: string
-    environment: string
-    accountId: string | null
-    region: string | null
-  }>({
-    criticality: "",
-    environment: "",
-    accountId: null,
-    region: null,
+  // (F31-META-ORDER-02) The metadata is the CONTEXT's it was read for: this identity, in this scoped catalogue. Anything
+  // rendered reads ``systemMeta``, which is the stored answer only while that context is still current; otherwise it is
+  // empty. A previous system's header, overview or downstream props therefore never show, even before the new read
+  // lands.
+  const metaContext = `${identity}|${systemsCatalog.url ?? ""}`
+  const [storedSystemMeta, setStoredSystemMeta] = useState<SystemMeta & { context: string | null }>({
+    ...EMPTY_SYSTEM_META, context: null,
   })
+  const systemMeta: SystemMeta = storedSystemMeta.context === metaContext ? storedSystemMeta : EMPTY_SYSTEM_META
+  // Each read takes the next generation; an answer is accepted only while it is the latest read's.
+  const metaGeneration = useRef(0)
 
   // Initialize severityCounts with default values
   // `apiTotal` is the severity endpoint's own validated open-findings total.
@@ -871,7 +908,6 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
     actualTrafficCaptured: 0,
     lastSync: "Awaiting connection",
   })
-  const [triggeringAutoTag, setTriggeringAutoTag] = useState(false)
   const [autoTaggerResult, setAutoTaggerResult] = useState<any>(null)
   const [autoTaggerLoading, setAutoTaggerLoading] = useState(false)
   const [showAutoTaggerResult, setShowAutoTaggerResult] = useState(false)
@@ -1353,30 +1389,37 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
     setRemediatingPermission(null)
   }
 
-  const fetchSystemMeta = async () => {
-    if (!systemsCatalog.url) return
+  const fetchSystemMeta = async (context: string, generation: number) => {
+    // Only the latest read's answer is stored, and always with the context it was read for. A refusal, no match or an
+    // error stores EMPTY: it withholds; it never leaves an earlier answer standing.
+    const settle = (meta: SystemMeta) => {
+      if (generation === metaGeneration.current) setStoredSystemMeta({ ...meta, context })
+    }
+    if (!systemsCatalog.url) return settle(EMPTY_SYSTEM_META)
     try {
       // Use cached /api/proxy/systems (5m server cache + edge SWR), NOT
       // /systems/available (no-store, 90s cold path). The available route
       // was timing out under Render pressure and left the header stuck on
       // "AWS region pending" even when systems data was warm elsewhere.
       const res = await fetch(systemsCatalog.url)
-      if (res.ok) {
-        const data = await res.json()
-        const match = (data.systems || []).find(
-          (s: any) => (s.SystemName || s.name || s.systemName) === systemName
-        )
-        if (match) {
-          setSystemMeta({
-            criticality: match.criticality || "",
-            environment: match.environment || "",
-            accountId: match.account_id || match.accountId || null,
-            region: match.region || null,
-          })
-        }
-      }
+      if (!res.ok) return settle(EMPTY_SYSTEM_META)
+      const data = await res.json()
+      // (F31-META-IDENTITY-01) THE selection rule the page selected this system by (selectCatalogSystem):
+      // - an authored key stays selected under an account narrowing;
+      // - a tag / source key only in its own account;
+      // - a name only when it is unrepeated.
+      // Never a second matcher, never a name fallback.
+      const match = selectedCatalogRow(
+        { system: systemName, accountId: systemAccountId, systemKey }, data, systemsCatalog.customerId) as any
+      settle(match ? {
+        criticality: match.criticality || "",
+        environment: match.environment || "",
+        accountId: match.account_id || match.accountId || null,
+        region: match.region || null,
+      } : EMPTY_SYSTEM_META)
     } catch (e) {
       console.error("[v0] Error fetching system metadata:", e)
+      settle(EMPTY_SYSTEM_META)
     }
   }
 
@@ -1441,8 +1484,13 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
   }
 
   useEffect(() => {
-    fetchSystemMeta()
-  }, [systemName, systemsCatalog.url])
+    const generation = ++metaGeneration.current
+    fetchSystemMeta(metaContext, generation)
+    // A read still in flight when the context changes or the page unmounts is fenced out.
+    return () => {
+      if (metaGeneration.current === generation) metaGeneration.current += 1
+    }
+  }, [metaContext])
 
   // The executive Overview reads one bounded, server-composed snapshot.
   // Legacy fetchAllData remains for old helpers while they are retired, but
@@ -1628,12 +1676,26 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       })
 
       if (!response.ok) {
-        const errData = await response.json()
-        throw new Error(errData.error || `HTTP ${response.status}`)
+        const errData = await response.json().catch(() => ({}))
+        // D18: the contained write (aws_system_tag_write) is refused by name -- 409 off_boundary_mutation_refused, relayed
+        // typed by the proxy. Said as what it is (not available on this installation, nothing written), never as an error.
+        const code = errData?.detail?.reason_code ?? errData?.detail?.error
+        if (response.status === 409 && code === OFF_BOUNDARY_REFUSAL) {
+          setTagResults({ success: false, refusedCode: code })
+          return
+        }
+        throw new Error(errData?.detail?.message || errData?.error || `HTTP ${response.status}`)
       }
 
       const data = await response.json()
-      setTagResults(data)
+      // The proxy's counts are the backend's (null when not reported): never derived from the request.
+      setTagResults({
+        success: data.success === true,
+        tagged: typeof data.taggedCount === "number" ? data.taggedCount : undefined,
+        failed: typeof data.failedCount === "number" ? data.failedCount : undefined,
+        skipped: typeof data.skippedCount === "number" ? data.skippedCount : undefined,
+        total: Array.isArray(data.results) ? data.results.length : undefined,
+      })
 
       if (data.success) {
         // Optional: Automatically close modal after successful tagging
@@ -1649,51 +1711,6 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       setTagResults({ success: false, error: err.message })
     } finally {
       setTagging(false)
-    }
-  }
-
-  // =============================================================================
-  // AUTO-TAG HANDLER (Updated)
-  // =============================================================================
-  const handleTriggerAutoTag = async () => {
-    try {
-      setTriggeringAutoTag(true)
-
-      const response = await fetch("/api/proxy/auto-tag-trigger", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ systemName }),
-      })
-
-      const data = await response.json()
-
-      if (data.success) {
-        // Update status immediately and then refresh all data
-        setAutoTagStatus((prev) => ({
-          ...prev,
-          status: "running",
-          totalCycles: data.totalCycles || prev.totalCycles + 1,
-          // The local action's time, NOT data freshness -- see lastTriggeredAt.
-          // `lastSync` keeps whatever the backend last reported.
-          lastTriggeredAt: new Date().toLocaleTimeString(),
-        }))
-      } else {
-        // Handle API error for triggering
-        console.error("Failed to trigger auto-tag:", data.error)
-        setAutoTagStatus((prev) => ({ ...prev, status: "error" }))
-      }
-
-      // Refresh all data after a short delay to reflect the triggered action
-      setTimeout(() => {
-        fetchAllData()
-      }, 3000)
-    } catch (err: any) {
-      console.error("[v0] Error triggering auto-tag:", err)
-      setAutoTagStatus((prev) => ({ ...prev, status: "error" }))
-    } finally {
-      setTriggeringAutoTag(false)
     }
   }
 
@@ -2857,8 +2874,10 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
           {/* Attack Paths: map lives on the Attacker Map mode chip (next to
               Attack Path). This tab never embeds the flow map. */}
           <SystemAttackPaths
-            key={`${systemName}-${refreshKey}`}
+            key={`${systemName}-${systemKey ?? ""}-${systemAccountId ?? ""}-${refreshKey}`}
             systemName={systemName}
+            systemKey={systemKey}
+            systemAccountId={systemAccountId}
             embedded
             defaultMode={initialAttackPathMode ?? "attack-path"}
             showEmbeddedAttackMap={false}
@@ -2872,10 +2891,12 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       {activeTab === "egress" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
           <EgressTabContainer
-            key={`${systemName}-${refreshKey}`}
+            key={`${systemName}-${systemKey ?? ""}-${systemAccountId ?? ""}-${refreshKey}`}
             systemName={systemName}
-            deepLink={trafficDeepLink}
-            onDeepLinkConsumed={() => setTrafficDeepLink(null)}
+            systemKey={systemKey}
+            systemAccountId={systemAccountId}
+            deepLink={currentTrafficDeepLink}
+            onDeepLinkConsumed={consumeTrafficDeepLink}
             onNavigateToSection={onNavigateToSection}
           />
         </div>
@@ -2905,7 +2926,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
 
       {activeTab === "all-services" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <AllServicesTab key={refreshKey} systemName={systemName} />
+          <AllServicesTab key={refreshKey} systemName={systemName} systemKey={systemKey} systemAccountId={systemAccountId} />
         </div>
       )}
 
@@ -2918,7 +2939,8 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       {activeTab === "dependency-map" && (
         <ErrorBoundary componentName="Topology">
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <DependencyMapTab key={`${systemName}-${refreshKey}`} systemName={systemName} />
+          <DependencyMapTab key={`${systemName}-${systemKey ?? ""}-${systemAccountId ?? ""}-${refreshKey}`} systemName={systemName}
+            systemKey={systemKey} systemAccountId={systemAccountId} />
         </div>
         </ErrorBoundary>
       )}
@@ -2995,18 +3017,14 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
 
             <div className="p-6">
               <div className="mb-6 p-4 bg-[#3b82f610] rounded-lg border border-[#3b82f640]">
-                <h3 className="font-semibold text-[#3b82f6] mb-2">How it works:</h3>
-                <ol className="text-sm text-[#3b82f6] space-y-1">
-                  <li>
-                    1. Reads existing tags from your <strong>seed resource</strong>
-                  </li>
-                  <li>
-                    2. Applies tags to <strong>ALL discovered resources</strong>
-                  </li>
-                  <li>
-                    3. Result: <strong>100% consistent tagging</strong>
-                  </li>
-                </ol>
+                <h3 className="font-semibold text-[#3b82f6] mb-2">AWS tag writeback</h3>
+                {/* Truthful copy: the route writes only the SystemName key, nothing reads a seed
+                    resource here, and the write is contained until writeback is rebuilt as
+                    preview -> apply -> read-back -> restore. */}
+                <p className="text-sm text-[#3b82f6]">
+                  Writing tags into AWS is not enabled on this install. Cyntro does not change your
+                  resources&apos; tags; a request here is refused and nothing is written.
+                </p>
               </div>
 
               <div className="space-y-4 mb-6">
@@ -3108,7 +3126,16 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
                 </div>
               </div>
 
-              {tagResults && (
+              {tagResults?.refusedCode ? (
+                <div className="p-4 rounded-lg mb-6 bg-[#f59e0b10] border border-[#f59e0b40]" data-testid="tag-write-refused">
+                  <p className="font-semibold text-[#b45309]">Not available on this installation</p>
+                  <p className="mt-1 text-sm text-[#b45309]">
+                    Writing tags to AWS is not available on this installation ({tagResults.refusedCode}); nothing was
+                    written. A system&apos;s membership in Cyntro is set through the System Boundary wizard: Systems ›
+                    Add System.
+                  </p>
+                </div>
+              ) : tagResults && (
                 <div
                   className={`p-4 rounded-lg mb-6 ${
                     tagResults.success ? "bg-[#22c55e10] border border-[#22c55e40]" : "bg-[#ef444410] border border-[#ef444440]"
@@ -3157,9 +3184,9 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
                   }}
                   className="flex-1 px-4 py-2 bg-gray-200 text-[var(--foreground,#374151)] rounded-lg font-medium hover:bg-gray-300 transition-colors"
                 >
-                  {tagResults?.success ? "Close" : "Cancel"}
+                  {tagResults?.success || tagResults?.refusedCode ? "Close" : "Cancel"}
                 </button>
-                {!tagResults?.success && (
+                {!tagResults?.success && !tagResults?.refusedCode && (
                   <button
                     onClick={handleTagAll}
                     disabled={tagging}
@@ -3369,7 +3396,8 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
 
             <div className="p-6 overflow-y-auto max-h-[65vh]">
               <p className="text-sm text-[var(--muted-foreground,#4b5563)] mb-4">
-                These permissions are allowed but never used. Click on each to see details and take action.
+                These permissions are allowed but were not observed in use in the recorded window. Absence in the window is
+                not proof a permission is unneeded. Click on each to see its evidence before taking action.
               </p>
 
               <div className="space-y-2">
@@ -3520,7 +3548,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
                               )}
                             </ul>
                             <p className="text-[var(--muted-foreground,#4b5563)] mt-3 italic text-sm">
-                              Since the Lambda doesn't need this permission - why give attackers the option?
+                              If the workload does not need this permission, removing it takes the option away from an attacker.
                             </p>
                           </div>
 
@@ -3530,23 +3558,15 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
                               <CheckCircle className="w-4 h-4" />
                               Impact If Removed
                             </h4>
+                            {/* This block used to promise zero impact from a fixed seven-day
+                                window, with a fixed observed-days / last-used / confidence row:
+                                constants, not evidence. Absence in a window is not non-use. */}
                             <p className="text-[var(--foreground,#374151)]">
-                              <strong className="text-[#22c55e]">None.</strong> We observed 7 days of traffic - this
-                              permission was never used.
+                              <strong className="text-[#22c55e]">{NOT_OBSERVED_IN_RECORDED_WINDOW}.</strong> Cyntro did not
+                              observe this permission in use during the recorded window. {HISTORY_BEFORE_UNKNOWN}
                               <br />
-                              Removing it won't break anything.
+                              Check the role&apos;s least-privilege analysis for its observed days and decision evidence before removing it.
                             </p>
-                            <div className="mt-3 flex items-center gap-4 text-sm text-[var(--muted-foreground,#6b7280)]">
-                              <span className="flex items-center gap-1">
-                                <Eye className="w-3 h-3" />
-                                Observed: 7 days
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <Clock className="w-3 h-3" />
-                                Last used: Never
-                              </span>
-                              <span className="flex items-center gap-1 text-[#22c55e] font-medium">99% confidence</span>
-                            </div>
                           </div>
 
                           {/* ACTIONS */}

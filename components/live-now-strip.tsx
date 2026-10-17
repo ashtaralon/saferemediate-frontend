@@ -19,8 +19,9 @@
  *              a fabricated "all clear" on a broken fetch.
  */
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Activity, AlertCircle, CheckCircle2, Clock, Loader2, RefreshCw } from "lucide-react"
+import { callerRefusalMessage, semanticHoldMessage, typedServingRefusal } from "@/lib/semantic-hold"
 
 interface RemediationEvent {
   event_id?: string
@@ -46,6 +47,14 @@ type StripState =
   | { kind: "error"; message: string }
 
 const FETCH_TIMEOUT_MS = 25_000
+
+/** The words for a refusal the timeline proxy relayed inside its envelope (``refused``). */
+function refusalMessage(refused: { status?: number; code?: string | null; reason?: string | null }): string {
+  const hold = refused.code ? typedServingRefusal({ detail: { code: refused.code, reason: refused.reason } }) : null
+  if (hold) return semanticHoldMessage(hold)
+  if (refused.status === 401 || refused.status === 403) return callerRefusalMessage(refused.status)
+  return refused.code ? `Refused by the server — ${refused.code}` : "Refused by the server"
+}
 
 function relativeTime(ts: string | undefined): string {
   if (!ts) return "unknown time"
@@ -104,8 +113,14 @@ function describeAction(event: RemediationEvent): string {
 
 export function LiveNowStrip({ systemName, onOpenHistory }: LiveNowStripProps) {
   const [state, setState] = useState<StripState>({ kind: "loading" })
+  // Only the NEWEST request may settle the strip. Requests overlap (initial load, the 60s poll,
+  // retry) and a scope change starts a new one while the old is in flight; without this a slower
+  // older answer -- or another system's -- lands last and overwrites the newer one.
+  const latestRequest = useRef(0)
 
   const fetchLatest = useCallback(async (opts?: { silent?: boolean }) => {
+    const request = ++latestRequest.current
+    const superseded = () => request !== latestRequest.current
     // On the initial load (and manual retry) show the "Checking…" state. On the
     // background poll, refresh silently so the strip never flickers back to a
     // spinner while it already has a good last event on screen.
@@ -116,6 +131,13 @@ export function LiveNowStrip({ systemName, onOpenHistory }: LiveNowStripProps) {
       const res = await fetch(`/api/proxy/remediation-history/timeline?${params.toString()}`, {
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       })
+      if (superseded()) return
+      // A REFUSAL of this caller (the proxy answering 401/403 itself, e.g. an expired session) is never
+      // covered by an event read earlier -- silent poll or not.
+      if (res.status === 401 || res.status === 403) {
+        setState({ kind: "error", message: callerRefusalMessage(res.status) })
+        return
+      }
       // A background poll must never DOWNGRADE a good event already on screen:
       // the backend can transiently return an empty/degraded response on a cold
       // worker (we proved limit=1 flips empty→1-event as it warms), so a poll
@@ -129,6 +151,12 @@ export function LiveNowStrip({ systemName, onOpenHistory }: LiveNowStripProps) {
         return
       }
       const data = await res.json()
+      if (superseded()) return
+      // ...nor is a refusal the proxy relayed inside its envelope (``refused``: status + typed code).
+      if (data?.refused) {
+        setState({ kind: "error", message: refusalMessage(data.refused) })
+        return
+      }
       const events: RemediationEvent[] = Array.isArray(data?.events) ? data.events : []
       if (events.length === 0) {
         // An empty feed is honest "engine idle" ONLY when the backend actually
@@ -141,6 +169,7 @@ export function LiveNowStrip({ systemName, onOpenHistory }: LiveNowStripProps) {
       }
       setState({ kind: "has-event", event: events[0] })
     } catch (err: any) {
+      if (superseded()) return
       const message = err?.name === "TimeoutError" ? "timed out" : err?.message ?? "unreachable"
       setState((prev) => (opts?.silent && prev.kind === "has-event" ? prev : { kind: "error", message }))
     }

@@ -58,6 +58,10 @@ export function reviewProxyStatus(backendStatus: number): number {
 /** The typed fields a backend refusal may carry through a proxy. Nothing else is forwarded. */
 export type AllowlistedBackendDetail = {
   code?: string
+  /** The typed reason beside a code, e.g. NO_DATA_ACCOUNTS under INVENTORY_SCOPE_UNAVAILABLE. */
+  reason?: string
+  /** A READ_MODEL_MISSING hold names the read model it waits for. */
+  read_model?: string
   /** The off-boundary refusal's typed code (``{detail: {error, reason_code, message}}``, 409 off_boundary_mutation_refused). */
   reason_code?: string
   error?: string
@@ -102,6 +106,8 @@ export function allowlistedBackendDetail(rawBody: string): AllowlistedBackendDet
   const d = detail as Record<string, unknown>
   const out: AllowlistedBackendDetail = {
     code: typedText(d.code),
+    reason: typedText(d.reason),
+    read_model: typedText(d.read_model),
     reason_code: typedText(d.reason_code),
     error: typedText(d.error),
     message: typedText(d.message, MAX_TYPED_MESSAGE),
@@ -113,6 +119,54 @@ export function allowlistedBackendDetail(rawBody: string): AllowlistedBackendDet
     if (out[key] === undefined) delete out[key]
   }
   return Object.keys(out).length ? out : undefined
+}
+
+/** A7 B5: the backend's 409 system choice, reduced to what a page needs to offer it. */
+export type SystemChoiceDetail = {
+  code: "SYSTEM_NAME_AMBIGUOUS" | "SYSTEM_KEY_NEEDS_ACCOUNT"
+  system_name?: string
+  reason?: string
+  candidate_keys: { system_key: string; system_name?: string; account_id: string | null }[]
+}
+
+const SYSTEM_CHOICE = new Set(["SYSTEM_NAME_AMBIGUOUS", "SYSTEM_KEY_NEEDS_ACCOUNT"])
+const CHOICE_ACCOUNT = /^[0-9]{12}$/
+const MAX_CHOICES = 64
+
+/**
+ * The 409 SYSTEM_NAME_AMBIGUOUS / SYSTEM_KEY_NEEDS_ACCOUNT answer (system_identity.resolve, the same body on every v2 route)
+ * reduced to its code, the name and each candidate's key / name / account -- the allowlist above drops candidate_keys, and
+ * the page cannot offer the choice without them. Any other body, or a malformed candidate, is undefined: nothing raw is
+ * echoed (lib/scoped-system-catalog ambiguousSystemCandidates reads exactly these fields).
+ */
+export function systemChoiceDetail(rawBody: string): SystemChoiceDetail | undefined {
+  let parsed: unknown
+  try {
+    parsed = rawBody ? JSON.parse(rawBody) : undefined
+  } catch {
+    return undefined
+  }
+  const detail = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>).detail : undefined
+  if (!detail || typeof detail !== "object" || Array.isArray(detail)) return undefined
+  const d = detail as Record<string, unknown>
+  if (typeof d.code !== "string" || !SYSTEM_CHOICE.has(d.code) || !Array.isArray(d.candidate_keys)) return undefined
+  const candidates: SystemChoiceDetail["candidate_keys"] = []
+  for (const raw of d.candidate_keys.slice(0, MAX_CHOICES)) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined
+    const c = raw as Record<string, unknown>
+    const key = typedText(c.system_key, 512)
+    const account = c.account_id
+    if (!key || !(account === undefined || account === null || (typeof account === "string" && CHOICE_ACCOUNT.test(account)))) {
+      return undefined
+    }
+    candidates.push({ system_key: key, system_name: typedText(c.system_name), account_id: typeof account === "string" ? account : null })
+  }
+  return {
+    code: d.code as SystemChoiceDetail["code"],
+    system_name: typedText(d.system_name),
+    reason: typedText(d.reason),
+    candidate_keys: candidates,
+  }
 }
 
 export function backendError(opts: {
@@ -142,12 +196,24 @@ export function backendError(opts: {
  * is UNREADABLE, produced here, so body and header both say "proxy".
  */
 export async function relayBackendError(response: Response): Promise<NextResponse> {
+  const raw = await response.text().catch(() => "")
   if (response.status >= 500) {
+    // A 503 carrying a typed detail code is the server's deliberate answer about this read
+    // (INVENTORY_SCOPE_UNAVAILABLE + NO_DATA_ACCOUNTS, SERVING_ROUTE_HELD, SERVING_READ_REFUSED,
+    // ...): relayed typed, so the caller shows the state instead of "backend recovering".
+    // Every other 5xx is exception text and an unknown outcome: generic 502 as before.
+    const typed = response.status === 503 ? allowlistedBackendDetail(raw) : undefined
+    if (typed?.code) {
+      return NextResponse.json(
+        { detail: typed, backendStatus: 503, origin: "backend" },
+        { status: 503, headers: { "Cache-Control": "no-store", [ERROR_ORIGIN_HEADER]: "backend" } },
+      )
+    }
     const failed = backendError({ status: response.status, message: `Backend answered HTTP ${response.status}` })
     failed.headers.set(ERROR_ORIGIN_HEADER, "proxy")
     return failed
   }
-  const detail = allowlistedBackendDetail(await response.text().catch(() => ""))
+  const detail = allowlistedBackendDetail(raw)
   if (detail) {
     return NextResponse.json(
       { detail, backendStatus: response.status, origin: "backend" },

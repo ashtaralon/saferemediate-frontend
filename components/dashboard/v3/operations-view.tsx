@@ -11,6 +11,9 @@ import { RecentActivityCard } from "./recent-activity-card"
 import { SeverityDonutCard } from "./severity-donut-card"
 import { WildcardBloatCard } from "./wildcard-bloat-card"
 import type { BrssHold } from "@/lib/brss-held"
+import { useRouter } from "next/navigation"
+import { useOptionalAccountScope } from "@/lib/account-scope-context"
+import { NO_ACCOUNTS_TITLE, noAccountsDescription, noAccountsInScope } from "@/lib/account-scope"
 
 /**
  * Operations view — the technical surface, in full.
@@ -54,6 +57,24 @@ export function OperationsView() {
   // The hero owns the /global-org-score read; the strip beside it only needs
   // to know whether that score is held, to label its own numbers truthfully.
   const [orgBrssHold, setOrgBrssHold] = useState<BrssHold | null>(null)
+  const scope = useOptionalAccountScope()
+  const router = useRouter()
+  // No workload account connected: one state for the whole view, not eight cards each
+  // reporting the same server hold (every read here answers NO_DATA_ACCOUNTS).
+  if (scope && noAccountsInScope(scope)) {
+    return (
+      <div className="rounded-[14px] border border-slate-200 bg-white p-5" data-testid="operations-no-accounts">
+        <div className="text-sm font-medium text-slate-800">{NO_ACCOUNTS_TITLE}</div>
+        <div className="mt-1 text-sm text-slate-600">{noAccountsDescription(scope.customerId)}</div>
+        <button
+          onClick={() => router.push("/settings/accounts")}
+          className="mt-3 rounded-md border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+        >
+          Open Settings › Accounts
+        </button>
+      </div>
+    )
+  }
   return (
     <div className="flex flex-col gap-8">
       <LiveNowStrip />

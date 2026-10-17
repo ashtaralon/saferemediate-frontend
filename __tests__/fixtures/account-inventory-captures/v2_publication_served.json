@@ -1,0 +1,179 @@
+{
+  "_provenance": {
+    "route": "GET /api/accounts/{account_id}/inventory (api/account_inventory.py)",
+    "request": {
+      "method": "GET",
+      "path": "/api/accounts/111122223333/inventory",
+      "query": {
+        "limit": "50"
+      }
+    },
+    "harness": "tests/cyntro_data/test_account_inventory_captures.py::test_a_genuine_v2_publication_served_by_this_backend_is_exactly_its_capture",
+    "fixed_clock_epoch": 1800000000,
+    "facts": "the v1 recipe's activation fixture (tests/test_account_inventory_collection.py::_activated: test-built ResourceStateFacts, not normalizer output)",
+    "publication": "GENUINE v2: tests/fixtures/account_inventory/v2_publication_2082.json, the table items the 2082d446fbf04cb368670ebe4240639347d6ab4b publisher wrote; the one named re-dating is its pointer's published_at_epoch",
+    "readiness": "the T11-0 harness provider answering (True, 'pass') -- a stand-in for a READY consumer pass",
+    "pinned": [
+      "time.time",
+      "LocalEvidenceStore.bucket (recorded identity only)",
+      "cyntro_data.projection.receipt clock"
+    ],
+    "note": "The real route's answer over a real publication; nothing removed. Not installed or live evidence."
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "body": {
+    "contract": "account_inventory/v1",
+    "account_id": "111122223333",
+    "state": "populated",
+    "reason_code": null,
+    "account_authority": {
+      "registration_id": "0123456789abcdef0123456789abcdef"
+    },
+    "publication": {
+      "attempt": "78afc728de294c41b9b4a3bd917c2883",
+      "generation": 1,
+      "source_identity": "v1:8f401cad7df0076172fabee82b56689d6aa6568e51059bc4fd8f9fc94fdec723",
+      "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+      "published_at_epoch": 1800000000,
+      "inventory_complete": true,
+      "row_contract": "account_inventory_row/v2"
+    },
+    "totals": {
+      "account_total": 30,
+      "filter_total": 30,
+      "by_type": {
+        "account:regions": 1,
+        "ec2:instance": 1,
+        "ec2:internet-gateway": 1,
+        "ec2:nat-gateway": 1,
+        "ec2:network-acl": 1,
+        "ec2:network-interface": 1,
+        "ec2:route-table": 1,
+        "ec2:security-group": 1,
+        "ec2:subnet": 1,
+        "ec2:vpc": 1,
+        "ec2:vpc-endpoint": 1,
+        "ec2:vpc-endpoint-authorization": 1,
+        "eks:cluster": 1,
+        "elasticloadbalancing:listener": 1,
+        "elasticloadbalancing:load-balancer": 1,
+        "elasticloadbalancing:target-group": 1,
+        "events:event-bus-authorization": 1,
+        "iam:policy": 1,
+        "iam:role": 1,
+        "kms:key-authorization": 1,
+        "lambda:function": 1,
+        "lambda:function-authorization": 1,
+        "organizations:account-policy-context": 1,
+        "rds:db-cluster": 1,
+        "rds:db-instance": 1,
+        "s3:bucket": 1,
+        "s3:bucket-authorization": 1,
+        "secretsmanager:secret-authorization": 1,
+        "sns:topic-authorization": 1,
+        "sqs:queue-authorization": 1
+      }
+    },
+    "rows": [
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/account/regions/111122223333",
+        "resource_type": "account:regions",
+        "scope_kind": "global",
+        "region": "global",
+        "native_id": "111122223333",
+        "arn": null,
+        "name": "111122223333",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:35fa6e31dec62b3d00592454f6902252885579d9bd6432f56f6eb566f47787a6",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        }
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/instance/i-1",
+        "resource_type": "ec2:instance",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "i-1",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:instance/i-1",
+        "name": "i-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:334a8c79fa570931c7ba3d6a0033135a6e72894fd597af8b7932ea0b2ef47f4b",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        }
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/internet-gateway/igw-1",
+        "resource_type": "ec2:internet-gateway",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "igw-1",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:internet-gateway/igw-1",
+        "name": "igw-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:9926bf9f9e039c4b84bb3d450cf4f01c550b332710be495939570b65b57e187d",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        }
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/nat-gateway/nat-1",
+        "resource_type": "ec2:nat-gateway",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "nat-1",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:natgateway/nat-1",
+        "name": "nat-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:59e098d78bc981bbfb7cd8c5de4092f3beb1a8c7b96062005d006faa170be74d",
+          "last_verified_at": "2026-08-06T10:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        }
+      }
+    ],
+    "next_cursor": "eyJjIjoyLCJkIjoidjE6M2ZjMWM1ZGRiMTA0YzQwNGRiYzk5ZWEzZTE1YmE1YWUxMTZmNDJjZjhjNTUyYTU3MjA2MzE4MzFiZWQ3MDVhNyIsImYiOm51bGwsImciOjEsImkiOjAsImwiOiJ2MTpmNDQ1MzBlNGVhMDFlMjcyN2JkN2IyYjExMjBmNTUwZDM3MGQ4OWJhMzI1N2FhNmFiZDRlMTNkMGU5YzRlNTliIiwibyI6InJlc291cmNlX3R5cGUscmVzb3VyY2VfdWlkIiwicCI6Ijc4YWZjNzI4ZGUyOTRjNDFiOWI0YTNiZDkxN2MyODgzIiwicyI6InYxOmY0YWM1OGE0ZTE3ZTI2YzA4MDY5OWY5ZGQzYjY4NTZhZjUxNzNiNzIyNzI3MDY0MjBmMTY3NjdiMTk5ZTk2NjYiLCJ2IjoiYWNjb3VudF9pbnZlbnRvcnkvdjEifQ==",
+    "has_more": true
+  }
+}

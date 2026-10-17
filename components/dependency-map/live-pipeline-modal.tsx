@@ -1311,7 +1311,7 @@ export function LivePipelineModal({ workload, onClose }: LivePipelineModalProps)
           rationalePlaceholder={
             overrideContext === "force-rollback"
               ? `Why re-run rollback on snapshot ${snapshotId ?? ""}? (e.g. prior rollback ran against buggy code, AWS state still shows the rule removed)`
-              : `Why is it safe to remove ${rec?.candidate_sg_id ? `0.0.0.0/0 inbound on ${rec.candidate_sg_id}` : "this rule"} despite the block? (e.g. demo SG, deprecated workload, validated false positive)`
+              : `Why should ${rec?.candidate_sg_id ? `0.0.0.0/0 inbound on ${rec.candidate_sg_id}` : "this rule"} be removed despite the block? (e.g. demo SG, deprecated workload, validated false positive)`
           }
         />
 

@@ -4,6 +4,7 @@ import { useCallback, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { FileText, RefreshCw } from "lucide-react"
 import { ExecutiveCockpit } from "./executive-cockpit"
+import { ExecutiveViewContext } from "./card-shell"
 import { OperationsView } from "./operations-view"
 import {
   ManagementReportDrawer,
@@ -119,10 +120,14 @@ export function HomeDashboardV3({ onNavigateToSection }: HomeDashboardV3Props) {
 
       <div key={refreshKey}>
         {view === "executive" ? (
-          <ExecutiveCockpit
-            onNavigateToSection={onNavigateToSection}
-            onReportData={handleReportData}
-          />
+          // Executive cards render a failed source as "Unavailable — this is not a zero" and point
+          // to Refresh; Operations keeps the raw error and a per-card retry.
+          <ExecutiveViewContext.Provider value={true}>
+            <ExecutiveCockpit
+              onNavigateToSection={onNavigateToSection}
+              onReportData={handleReportData}
+            />
+          </ExecutiveViewContext.Provider>
         ) : (
           <OperationsView />
         )}

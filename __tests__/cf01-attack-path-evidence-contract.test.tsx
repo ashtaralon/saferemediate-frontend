@@ -313,13 +313,16 @@ const HOLDS = holdsFixture as Record<string, { status: number; body: unknown }>
 
 describe("held / unavailable IAP answers", () => {
   it("names each captured hold; a populated body is not a hold", () => {
+    // a 200 hold carries its bare hold_reason as `state` (null when the server sent none)
     expect(iapHold(HOLDS.install_not_recorded.body)).toEqual({
       kind: "not_recorded",
       reason: "CONSUMER_READINESS_UNOBSERVABLE",
+      state: "CONSUMER_READINESS_UNOBSERVABLE",
     })
     expect(iapHold(HOLDS.c1_unavailable.body)).toEqual({
       kind: "unavailable",
       reason: "503: Neo4j not connected",
+      state: null,
     })
     expect(iapHold(HOLDS.install_serving_read_refused.body)).toEqual({
       kind: "refused",

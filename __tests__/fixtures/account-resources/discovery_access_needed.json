@@ -1,0 +1,361 @@
+{
+  "_provenance": {
+    "harness": "tests/cyntro_data/test_account_resources_api.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/accounts/333333333333/discovery",
+      "query": {}
+    },
+    "real": "the routes, the browse store and its fenced writer, the registry row, the contract, the person check over installed keys (moto tables)"
+  },
+  "status": 200,
+  "body": {
+    "schema_version": "account_discovery/v1",
+    "account_id": "333333333333",
+    "registration_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "connection_status": "CONNECTED",
+    "capabilities_status": "RECORDED",
+    "run_id": "33455e90b43f4c8d786663070ae62c5e",
+    "manifest_version": "basic-discovery/v1",
+    "region_scope": "all_enabled_regions_and_global",
+    "requested_at": "2026-10-10T12:00:00+00:00",
+    "dispatch": {
+      "state": "SENT",
+      "at": null,
+      "blocker": null
+    },
+    "coverage_state": "COMPLETE_WITH_GAPS",
+    "held_by": null,
+    "revision": null,
+    "complete": true,
+    "plan": {
+      "regions": [
+        "eu-west-1"
+      ],
+      "regions_status": "LISTED",
+      "scopes": 59,
+      "scope_states": {
+        "ACCESS_DENIED": 1,
+        "LISTED": 58
+      },
+      "duplicate_receipts": 0,
+      "unplanned_receipts": 0
+    },
+    "plan_state": null,
+    "observed_total": 0,
+    "observed_total_label": "found",
+    "totals_by_type": {},
+    "types": {
+      "apigateway:apis": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "apigateway:restapis": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "autoscaling:autoscalinggroup": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "cloudfront:distribution": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "dynamodb:table": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:customer-gateway": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:egress-only-internet-gateway": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:elastic-ip": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:image": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:instance": {
+        "state": "ACCESS_NEEDED",
+        "found": 0,
+        "missing_actions": [
+          "ec2:DescribeInstances"
+        ]
+      },
+      "ec2:internet-gateway": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:nat-gateway": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:network-acl": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:network-interface": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:route-table": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:security-group": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:snapshot": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:subnet": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:transit-gateway": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:transit-gateway-attachment": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:volume": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:vpc": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:vpc-endpoint": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:vpc-peering-connection": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:vpn-connection": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ec2:vpn-gateway": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ecr:repository": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ecs:cluster": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ecs:service": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "ecs:task": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "eks:cluster": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "elasticache:cluster": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "elasticache:replicationgroup": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "elasticfilesystem:file-system": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "elasticloadbalancing:listener": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "elasticloadbalancing:load-balancer": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "elasticloadbalancing:loadbalancer": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "elasticloadbalancing:target-group": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "es:domain": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "events:event-bus": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "events:rule": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "iam:group": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "iam:instance-profile": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "iam:policy": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "iam:role": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "iam:user": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "kinesis:stream": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "kms:key": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "lambda:function": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "logs:log-group": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "rds:db-cluster": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "rds:db-instance": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "route53:hostedzone": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "s3:bucket": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "s3express:bucket": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "secretsmanager:secret": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "sns:topic": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "sqs:queue": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      },
+      "states:statemachine": {
+        "state": "LISTED",
+        "found": 0,
+        "missing_actions": []
+      }
+    },
+    "gaps": [
+      {
+        "resource_type": "ec2:instance",
+        "status": "ACCESS_DENIED",
+        "regions": [
+          "eu-west-1"
+        ],
+        "missing_actions": [
+          "ec2:DescribeInstances"
+        ]
+      }
+    ],
+    "retry": null
+  }
+}

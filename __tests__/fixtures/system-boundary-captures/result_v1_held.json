@@ -1,0 +1,31 @@
+{
+  "_provenance": {
+    "harness": "tests/cyntro_data/test_system_boundary_wizard_captures.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/system-boundary/result",
+      "query": {
+        "account_id": "111111111111",
+        "system_key": "authored_system:1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    }
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "body": {
+    "contract": "system_boundary_result_read/v1",
+    "state": "held",
+    "reason_code": "MEMBERSHIP_V2_NOT_SERVED",
+    "account_id": "111111111111",
+    "system_key": "authored_system:1111111111111111111111111111111111111111111111111111111111111111",
+    "generation": null,
+    "published_at": null,
+    "system_name": null,
+    "members": [],
+    "dependencies": [],
+    "held": [],
+    "not_members": [],
+    "counts": null,
+    "omitted": {}
+  }
+}

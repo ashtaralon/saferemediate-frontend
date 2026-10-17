@@ -1,10 +1,10 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 // The 2026-08-23 incident, at the component level: a narrowing region filter
 // excludes every system, the scoped read legitimately returns an empty list,
 // and the page must say "hidden by your filters" with a way out — never the
-// generic "No Tagged Systems Found" that reads as data loss.
+// generic "No systems in this scope yet" that reads as data loss.
 
 const setGroupId = vi.fn()
 const accountScope = {
@@ -39,7 +39,9 @@ vi.mock("@/lib/account-scope-context", () => ({
   useAccountScope: () => accountScope,
 }))
 vi.mock("@/components/back-to-dashboard", () => ({ BackToDashboard: () => null }))
-vi.mock("@/components/ui/page-header", () => ({ PageHeader: () => null }))
+// The header renders only its actions (the Refresh control the person-refusal tests use); the empty states above
+// return before the header and are unaffected.
+vi.mock("@/components/ui/page-header", () => ({ PageHeader: ({ actions }: { actions?: unknown }) => actions ?? null }))
 vi.mock("@/components/new-systems-modal", () => ({ NewSystemsModal: () => null }))
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }))
 
@@ -92,7 +94,138 @@ describe("SystemsView filtered-empty state", () => {
 
     render(<SystemsView />)
 
-    expect(await screen.findByText("No Tagged Systems Found")).toBeInTheDocument()
+    expect(await screen.findByText("No systems in this scope yet")).toBeInTheDocument()
     expect(screen.queryByText("Systems hidden by scope filters")).not.toBeInTheDocument()
+  })
+
+  it("says no AWS account is connected when the organization has none in scope", async () => {
+    const connected = accountScope.options.accounts
+    const narrowed = accountScope.region
+    accountScope.options.accounts = []
+    accountScope.region = "all"
+    try {
+      vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.startsWith("/api/proxy/systems")) return json({ success: true, systems: [] })
+        return json({})
+      }))
+
+      render(<SystemsView />)
+
+      expect(await screen.findByText("No AWS accounts connected")).toBeInTheDocument()
+      expect(
+        screen.getByText("The testbed-webshop organization has no AWS accounts in scope. Connect a workload account in Settings › Accounts."),
+      ).toBeInTheDocument()
+      expect(screen.queryByText("No systems in this scope yet")).not.toBeInTheDocument()
+    } finally {
+      accountScope.options.accounts = connected
+      accountScope.region = narrowed
+    }
+  })
+})
+
+// SW-S1A-20261015-84: a person refusal (the backend's typed 401, or a 403 whose code names the person) is shown as
+// itself, and nothing from an earlier answer survives it: not the rows on screen, not the browser's saved copy.
+describe("SystemsView person refusal", () => {
+  const SAVED = "cyntro-systems:v2:testbed-webshop:all:all:us-east-1"
+  const refusal = (status: number, code: string) => new Response(JSON.stringify({ detail: { code }, origin: "backend" }), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  })
+
+  beforeEach(() => window.localStorage.clear())
+  afterEach(() => vi.unstubAllGlobals())
+
+  function backend(answers: { systems: () => Response }) {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.startsWith("/api/proxy/systems")) return answers.systems()
+      return json({})
+    }))
+  }
+
+  it("drops the displayed rows and the saved copy when a later read is refused", async () => {
+    const answers = { systems: () => json({ success: true, systems: [{ SystemName: "payments", resourceCount: 3 }] }) }
+    backend(answers)
+    render(<SystemsView />)
+    expect((await screen.findAllByText("payments")).length).toBeGreaterThan(0)
+    expect(window.localStorage.getItem(SAVED)).toContain("payments")
+
+    answers.systems = () => refusal(403, "PERSON_NOT_AUTHORIZED")
+    fireEvent.click(screen.getByRole("button", { name: /Refresh/ }))
+
+    expect(await screen.findByText("Your sign-in is not authorized to view Systems")).toBeInTheDocument()
+    expect(screen.getByText(/Ask an administrator for Cyntro access/)).toBeInTheDocument()
+    expect(screen.queryAllByText("payments")).toHaveLength(0)
+    expect(window.localStorage.getItem(SAVED)).toBeNull()
+  })
+
+  it.each([
+    [401, "PERSON_TOKEN_REQUIRED", "Your sign-in could not be verified for the Systems list"],
+    [403, "PERSON_NOT_TENANT_WIDE", "Your access covers specific accounts, not the whole organization"],
+  ])("a %i %s on the first read clears a copy an earlier session saved", async (status, code, title) => {
+    window.localStorage.setItem(SAVED, JSON.stringify([{ name: "earlier-session-system", resourceCount: 1 }]))
+    backend({ systems: () => refusal(status, code) })
+    render(<SystemsView />)
+    expect(await screen.findByText(title)).toBeInTheDocument()
+    expect(screen.queryByText("earlier-session-system")).not.toBeInTheDocument()
+    expect(window.localStorage.getItem(SAVED)).toBeNull()
+  })
+
+  it("leaves other refusals as they were: a scope 403 keeps the rows already shown", async () => {
+    const answers = { systems: () => json({ success: true, systems: [{ SystemName: "payments", resourceCount: 3 }] }) }
+    backend(answers)
+    render(<SystemsView />)
+    expect((await screen.findAllByText("payments")).length).toBeGreaterThan(0)
+
+    answers.systems = () => refusal(403, "INVENTORY_SCOPE_MISMATCH")
+    fireEvent.click(screen.getByRole("button", { name: /Refresh/ }))
+    await waitFor(() => expect(window.fetch).toHaveBeenCalledTimes(3))
+    expect(screen.getAllByText("payments").length).toBeGreaterThan(0)
+    expect(screen.queryByText("Your sign-in is not authorized to view Systems")).not.toBeInTheDocument()
+  })
+
+  // SW-86: a 503 PERSON_KEYS_* means the installed sign-in keys could not JUDGE the sign-in (changed, expired, invalid,
+  // unavailable). It is a person-verification refusal too: nothing earlier survives, and it is never worded as
+  // "not authorized".
+  it("drops the displayed rows and the saved copy when the sign-in keys no longer match", async () => {
+    const answers = { systems: () => json({ success: true, systems: [{ SystemName: "payments", resourceCount: 3 }] }) }
+    backend(answers)
+    render(<SystemsView />)
+    expect((await screen.findAllByText("payments")).length).toBeGreaterThan(0)
+    expect(window.localStorage.getItem(SAVED)).toContain("payments")
+
+    answers.systems = () => refusal(503, "PERSON_KEYS_NO_MATCH")
+    fireEvent.click(screen.getByRole("button", { name: /Refresh/ }))
+
+    expect(await screen.findByText("Your sign-in could not be checked right now")).toBeInTheDocument()
+    expect(screen.getByText(/could not verify sign-ins against this installation's identity keys/)).toBeInTheDocument()
+    expect(screen.queryByText("Your sign-in is not authorized to view Systems")).not.toBeInTheDocument()
+    expect(screen.queryAllByText("payments")).toHaveLength(0)
+    expect(window.localStorage.getItem(SAVED)).toBeNull()
+  })
+
+  it.each(["PERSON_KEYS_EXPIRED", "PERSON_KEYS_INVALID", "PERSON_KEYS_UNAVAILABLE"])(
+    "a 503 %s on the first read clears a copy an earlier session saved", async (code) => {
+      window.localStorage.setItem(SAVED, JSON.stringify([{ name: "earlier-session-system", resourceCount: 1 }]))
+      backend({ systems: () => refusal(503, code) })
+      render(<SystemsView />)
+      expect(await screen.findByText("Your sign-in could not be checked right now")).toBeInTheDocument()
+      expect(screen.queryByText("earlier-session-system")).not.toBeInTheDocument()
+      expect(window.localStorage.getItem(SAVED)).toBeNull()
+    })
+
+  it("leaves an unrelated typed 503 as it was: the rows already shown stay", async () => {
+    const answers = { systems: () => json({ success: true, systems: [{ SystemName: "payments", resourceCount: 3 }] }) }
+    backend(answers)
+    render(<SystemsView />)
+    expect((await screen.findAllByText("payments")).length).toBeGreaterThan(0)
+
+    answers.systems = () => refusal(503, "SERVING_ROUTE_HELD")
+    fireEvent.click(screen.getByRole("button", { name: /Refresh/ }))
+    await waitFor(() => expect(window.fetch).toHaveBeenCalledTimes(3))
+    expect(screen.getAllByText("payments").length).toBeGreaterThan(0)
+    expect(window.localStorage.getItem(SAVED)).toContain("payments")
+    expect(screen.queryByText("Your sign-in could not be checked right now")).not.toBeInTheDocument()
   })
 })

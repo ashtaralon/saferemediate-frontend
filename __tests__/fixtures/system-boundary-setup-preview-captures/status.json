@@ -1,0 +1,190 @@
+{
+  "_provenance": {
+    "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/system-boundary/setup/629107a8-862e-4e9f-bbcf-580407633fdb/status",
+      "params": null,
+      "body": null
+    }
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "body": {
+    "setup": {
+      "setup_id": "629107a8-862e-4e9f-bbcf-580407633fdb",
+      "status": "FINISHED",
+      "mode": "create",
+      "state_version": 4,
+      "intent_revision": 2,
+      "current_attempt": 1,
+      "predecessor": null,
+      "successor": null
+    },
+    "saved": {
+      "completed_revision": 2,
+      "written_at": "2026-10-13T03:20:08.493516+00:00"
+    },
+    "association": {
+      "state": "CURRENT",
+      "heads": [
+        {
+          "role": "system",
+          "key": "SYSTEM#authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f",
+          "pinned_version": 1,
+          "current_version": 1,
+          "state": "CURRENT"
+        },
+        {
+          "role": "deployment",
+          "key": "DEPLOYMENT#authored_deployment:9727d62b9a8cd7b27eb3bf7f0e3c8c55dccab3c667221bbe89e277bf2bdb516e",
+          "pinned_version": 1,
+          "current_version": 1,
+          "state": "CURRENT"
+        }
+      ],
+      "completed_revision": 2
+    },
+    "result_scope": {
+      "v": 1,
+      "state": "SERVED",
+      "accounts": [
+        "111122223333"
+      ],
+      "from": {
+        "key": "DEPLOYMENT#authored_deployment:9727d62b9a8cd7b27eb3bf7f0e3c8c55dccab3c667221bbe89e277bf2bdb516e",
+        "version": 1
+      }
+    },
+    "dispositions": [
+      {
+        "subject": "iac",
+        "scope": {
+          "account_id": "111122223333",
+          "region": "eu-west-1"
+        },
+        "choice": "use_existing",
+        "resolution": {
+          "state": "resolved",
+          "reason": null,
+          "registration_id": "0123456789abcdef0123456789abcdef",
+          "proof": {
+            "registration_id": "0123456789abcdef0123456789abcdef",
+            "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+            "publication": {
+              "attempt": "8c8582fbceaf48e8b2bbd252f23fdc82",
+              "generation": 1,
+              "source_identity": "v1:f5a106c6bab887d4f4d725655c8225d6e782a3fb5b9ec85bc4efa9e036636a7b",
+              "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7"
+            },
+            "stack_status": "UPDATE_COMPLETE",
+            "read_outcome": "COMPLETE"
+          }
+        },
+        "status_axes": {
+          "assessment": "assessed",
+          "configuration": "assessed",
+          "readability": "unknown",
+          "acquisition": "unknown",
+          "serving": "unknown"
+        },
+        "required_facts": {
+          "support": "UNSUPPORTED",
+          "reason": "IAC_ACQUISITION_NOT_AVAILABLE"
+        },
+        "consequence": []
+      }
+    ],
+    "requirement_profile": {
+      "hash": "v1:12e6f1d6bab942e8d77010a3e4ffc449c40f04e32ca1b2ba863967626f32dbce",
+      "document": {
+        "schema": "cyntro-requirement-profile/v1",
+        "subjects": [
+          {
+            "subject": "history:cloudtrail",
+            "support": "SUPPORTED",
+            "reason": null,
+            "scope": [
+              "account_id",
+              "region"
+            ],
+            "evidence": {
+              "source": "cloudtrail_iam_usage",
+              "scope": [
+                "account_id",
+                "region"
+              ]
+            },
+            "permission": {
+              "template": "deploy/customer_pilot/account-read-spoke.yaml",
+              "role": "EvidenceReadRole",
+              "policies": [
+                "OwnCloudTrailObjectsOnly"
+              ],
+              "condition": null,
+              "owner_parameters": []
+            }
+          },
+          {
+            "subject": "history:vpc_flow",
+            "support": "SUPPORTED",
+            "reason": null,
+            "scope": [
+              "account_id",
+              "region"
+            ],
+            "evidence": {
+              "source": "vpc_flow",
+              "scope": [
+                "account_id",
+                "region"
+              ]
+            },
+            "permission": {
+              "template": "deploy/customer_pilot/account-read-spoke.yaml",
+              "role": "EvidenceReadRole",
+              "policies": [
+                "NamedFlowLogGroupsOnly"
+              ],
+              "condition": "HasFlowLogs",
+              "owner_parameters": [
+                "ExistingFlowLogGroupArns",
+                "FlowLogVpcId"
+              ]
+            }
+          },
+          {
+            "subject": "iac",
+            "support": "UNSUPPORTED",
+            "reason": "IAC_ACQUISITION_NOT_AVAILABLE",
+            "scope": [],
+            "evidence": null,
+            "permission": null
+          },
+          {
+            "subject": "code",
+            "support": "UNSUPPORTED",
+            "reason": "CODE_ACQUISITION_NOT_AVAILABLE",
+            "scope": [],
+            "evidence": null,
+            "permission": null
+          }
+        ]
+      }
+    },
+    "attempt": {
+      "attempt": 1,
+      "actor": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
+      "created_at": "2026-10-13T03:20:08.478872+00:00",
+      "recover_after": "2026-10-13T03:35:08.478872+00:00",
+      "intent_revision": 2,
+      "base_revision": 1,
+      "expected_versions": {},
+      "save_request_id": "2ed73406-aba9-4e7f-b02f-0892fdfc8792"
+    },
+    "outcome": null,
+    "reconciliation": null,
+    "operations": [],
+    "contract": "system_boundary_setup/v4"
+  }
+}

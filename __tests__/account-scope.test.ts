@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   healScopeAgainstOptions,
   isExplicitCustomerSwitch,
+  noAccountsInScope,
   normalizeCustomerRoster,
   openingSearchParams,
   resolveCustomerId,
@@ -154,5 +155,20 @@ describe("healScopeAgainstOptions", () => {
       options,
     )
     expect(healed).toEqual({ groupId: "all", accountId: "all", region: "all", cleared: [] })
+  })
+
+  it("reads 'no accounts in scope' only from loaded options that list none", () => {
+    const none: AccountScopeOptions = { customer_id: "localtest", accounts: [], groups: [] }
+    const one: AccountScopeOptions = {
+      customer_id: "localtest",
+      accounts: [{ account_id: "416651950952", display_name: "testbed-webshop", regions: ["eu-west-1"], group_ids: [], status: "active" }],
+      groups: [],
+    }
+    expect(noAccountsInScope({ loading: false, error: null, options: none })).toBe(true)
+    expect(noAccountsInScope({ loading: false, error: null, options: one })).toBe(false)
+    // Not known yet, or not known at all: never "no accounts".
+    expect(noAccountsInScope({ loading: true, error: null, options: none })).toBe(false)
+    expect(noAccountsInScope({ loading: false, error: "Account scope is unavailable (503)", options: none })).toBe(false)
+    expect(noAccountsInScope({ loading: false, error: null, options: null })).toBe(false)
   })
 })

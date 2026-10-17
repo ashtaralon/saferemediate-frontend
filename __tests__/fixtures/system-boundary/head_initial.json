@@ -1,0 +1,80 @@
+{
+  "_provenance": {
+    "fixed_attempt": "0000000000000000000000000000000a",
+    "fixed_clock_epoch": 1800000000,
+    "fixed_request_ids": {
+      "add": "00000000-0000-4000-8000-0000000000a8",
+      "correction": "00000000-0000-4000-8000-0000000000a6",
+      "create": "00000000-0000-4000-8000-0000000000a2",
+      "env": "00000000-0000-4000-8000-0000000000ac",
+      "env_conflict": "00000000-0000-4000-8000-0000000000ab",
+      "missing": "00000000-0000-4000-8000-0000000000a5",
+      "move": "00000000-0000-4000-8000-0000000000ae",
+      "raced": "00000000-0000-4000-8000-0000000000a7",
+      "raw": "00000000-0000-4000-8000-0000000000aa",
+      "refused": "00000000-0000-4000-8000-0000000000a1",
+      "remove": "00000000-0000-4000-8000-0000000000af",
+      "replace": "00000000-0000-4000-8000-0000000000a9",
+      "second": "00000000-0000-4000-8000-0000000000ad",
+      "stale": "00000000-0000-4000-8000-0000000000a4",
+      "taken": "00000000-0000-4000-8000-0000000000a3"
+    },
+    "fixed_saved_at": "2026-10-06T12:00:00+00:00",
+    "harness": "tests/cyntro_data/test_system_boundary_root_admission.py::test_r6_the_authoring_answers_are_exactly_the_producer_goldens",
+    "note": "The real route's answer on the real stack (real resolver, real person verifier, real P3a2 publication, the real IAM normalizer's role), captured by the harness; nothing removed. Not installed or live evidence.",
+    "pinned": [
+      "time.time",
+      "uuid.uuid4 around the publish",
+      "LocalEvidenceStore.bucket (recorded identity only)",
+      "cyntro_data.projection.receipt clock",
+      "system_boundary_save.now",
+      "request ids (the envelopes')"
+    ],
+    "routes": "/api/system-boundary/declarations{,/corrections,/view,/head,/requests,/requests/{id}} (api/system_boundary.py)"
+  },
+  "body": {
+    "accepting_saves": true,
+    "limits": {
+      "binding_kinds": [
+        "exclusive",
+        "several_systems",
+        "shared_foundation"
+      ],
+      "criticalities": [
+        "MISSION CRITICAL",
+        "BUSINESS CRITICAL",
+        "CRITICAL",
+        "IMPORTANT",
+        "STANDARD",
+        "MEDIUM",
+        "LOW"
+      ],
+      "decision_verdicts": [
+        "include",
+        "exclude"
+      ],
+      "environments": [
+        "PRODUCTION",
+        "STAGING",
+        "DEVELOPMENT",
+        "TEST",
+        "SANDBOX",
+        "DISASTER_RECOVERY"
+      ],
+      "max_actions": 100,
+      "max_bindings": 50,
+      "max_display_name": 120,
+      "max_environment_raw": 64,
+      "max_move_targets": 4,
+      "max_new_cells": 10,
+      "max_resource_decisions": 200,
+      "max_resource_uid": 1024,
+      "max_roots": 36,
+      "max_write_accounts": 10,
+      "save_envelope_level": 3
+    },
+    "phase": "ACTIVE",
+    "revision": 1
+  },
+  "status": 200
+}

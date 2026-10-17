@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { forwardScopeClaims } from "@/lib/server/scope-claims"
+import { systemChoiceDetail } from "@/lib/server/proxy-error"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -46,8 +47,10 @@ export async function GET(
     if (!res.ok) {
       const body = await res.text().catch(() => "")
       console.error(`[by-crown-jewel/detail] backend ${res.status}: ${body.slice(0, 200)}`)
+      // A7 B5: the 409 system choice is relayed (typed) so the page can offer it; every other refusal answers as before.
+      const choice = systemChoiceDetail(body)
       return NextResponse.json(
-        { error: "Failed to load crown jewel path detail", status: res.status },
+        { error: "Failed to load crown jewel path detail", status: res.status, ...(choice ? { detail: choice } : {}) },
         { status: res.status },
       )
     }

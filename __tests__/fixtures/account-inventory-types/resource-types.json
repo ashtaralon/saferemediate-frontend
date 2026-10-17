@@ -1,0 +1,149 @@
+{
+ "_provenance": {
+  "backend_sha": "9af2ca3aaef82a94b498c6bda38ab7b5c585f93b",
+  "produced_by": "cyntro_data.projection.inventory_authority_project.certified_inventory_scopes (+ GLOBAL_CERTIFIED_RESOURCE_TYPES); cyntro_data.k8s.normalize.PHASE1_KINDS minus _REFUSED_KINDS, as k8s:<kind>",
+  "note": "executed, not hand-written: every resource_type an account inventory row can carry"
+ },
+ "certified": [
+  {
+   "resource_type": "ec2:instance",
+   "global": false
+  },
+  {
+   "resource_type": "ec2:security-group",
+   "global": false
+  },
+  {
+   "resource_type": "ec2:network-acl",
+   "global": false
+  },
+  {
+   "resource_type": "ec2:subnet",
+   "global": false
+  },
+  {
+   "resource_type": "ec2:route-table",
+   "global": false
+  },
+  {
+   "resource_type": "ec2:network-interface",
+   "global": false
+  },
+  {
+   "resource_type": "ec2:vpc",
+   "global": false
+  },
+  {
+   "resource_type": "ec2:internet-gateway",
+   "global": false
+  },
+  {
+   "resource_type": "ec2:nat-gateway",
+   "global": false
+  },
+  {
+   "resource_type": "ec2:vpc-endpoint",
+   "global": false
+  },
+  {
+   "resource_type": "ec2:vpc-endpoint-authorization",
+   "global": false
+  },
+  {
+   "resource_type": "elasticloadbalancing:load-balancer",
+   "global": false
+  },
+  {
+   "resource_type": "elasticloadbalancing:target-group",
+   "global": false
+  },
+  {
+   "resource_type": "elasticloadbalancing:listener",
+   "global": false
+  },
+  {
+   "resource_type": "rds:db-instance",
+   "global": false
+  },
+  {
+   "resource_type": "rds:db-cluster",
+   "global": false
+  },
+  {
+   "resource_type": "eks:cluster",
+   "global": false
+  },
+  {
+   "resource_type": "iam:role",
+   "global": true
+  },
+  {
+   "resource_type": "iam:policy",
+   "global": true
+  },
+  {
+   "resource_type": "organizations:account-policy-context",
+   "global": true
+  },
+  {
+   "resource_type": "account:regions",
+   "global": true
+  },
+  {
+   "resource_type": "kms:key-authorization",
+   "global": false
+  },
+  {
+   "resource_type": "secretsmanager:secret-authorization",
+   "global": false
+  },
+  {
+   "resource_type": "sqs:queue-authorization",
+   "global": false
+  },
+  {
+   "resource_type": "sns:topic-authorization",
+   "global": false
+  },
+  {
+   "resource_type": "events:event-bus-authorization",
+   "global": false
+  },
+  {
+   "resource_type": "lambda:function",
+   "global": false
+  },
+  {
+   "resource_type": "lambda:function-authorization",
+   "global": false
+  },
+  {
+   "resource_type": "s3:bucket",
+   "global": true
+  },
+  {
+   "resource_type": "s3:bucket-authorization",
+   "global": true
+  }
+ ],
+ "kubernetes": [
+  "k8s:clusterrole",
+  "k8s:clusterrolebinding",
+  "k8s:cronjob",
+  "k8s:daemonset",
+  "k8s:deployment",
+  "k8s:endpointslice",
+  "k8s:ingress",
+  "k8s:job",
+  "k8s:namespace",
+  "k8s:networkpolicy",
+  "k8s:node",
+  "k8s:pod",
+  "k8s:replicaset",
+  "k8s:role",
+  "k8s:rolebinding",
+  "k8s:service",
+  "k8s:serviceaccount",
+  "k8s:statefulset"
+ ]
+}

@@ -16,12 +16,13 @@
  * Showing only CUTTABLE would present a short, confident list while silently
  * hiding every role we cannot vouch for — on alon-prod that is 13 of 17. A role
  * we have never observed is indistinguishable from a role that does nothing;
- * calling it "safe to cut" is how this feature would break production. The
+ * proposing it for a cut is how this feature would break production. The
  * header therefore always states the unjudged count, even when it is large and
  * unflattering.
  */
 
 import { AlertTriangle, HelpCircle, Loader2, Scissors, ShieldCheck } from "lucide-react"
+import { REMOVAL_CANDIDATE, formatCoverageInstant, notObservedInUseCopy, readObservation } from "@/lib/observation-coverage"
 import type {
   LateralBand,
   LateralReachPayload,
@@ -33,7 +34,8 @@ const BAND_META: Record<
   { label: string; blurb: string; tone: string; Icon: typeof Scissors }
 > = {
   CUTTABLE: {
-    label: "Never used — safe to cut",
+    // The band header renders this with the payload's window; this is the no-window form.
+    label: `${notObservedInUseCopy(null)} — ${REMOVAL_CANDIDATE}`,
     blurb:
       "Reachable, and this identity is provably observed elsewhere on this service — so the absence of use is evidence, not a blind spot.",
     tone: "border-amber-300/70 bg-amber-50/60 dark:border-amber-500/40 dark:bg-amber-500/10",
@@ -175,6 +177,8 @@ export function LateralReachBands({
   }
 
   const { counts, bands } = data
+  // The window the absence was observed over, when the payload carries one.
+  const window = readObservation(data)
 
   if (counts.reachable_total === 0) {
     return (
@@ -192,7 +196,10 @@ export function LateralReachBands({
           {counts.reachable_total === 1 ? "y" : "ies"} can reach {jewelLabel}
         </span>
         <span className="text-amber-700 dark:text-amber-300">
-          {counts.CUTTABLE} never used it
+          {counts.CUTTABLE} not observed using it{" "}
+          {window
+            ? `between ${formatCoverageInstant(window.from)} and ${formatCoverageInstant(window.to)}`
+            : "in the recorded window"}
         </span>
         {/* Always shown, never collapsed — see the file header. */}
         <span className="text-muted-foreground" data-testid="lateral-reach-unjudgeable">
@@ -214,7 +221,7 @@ export function LateralReachBands({
             >
               <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-foreground">
                 <Icon className="h-3 w-3" />
-                {meta.label}
+                {band === "CUTTABLE" ? `${notObservedInUseCopy(window)} — ${REMOVAL_CANDIDATE}` : meta.label}
                 <span className="font-normal text-muted-foreground">({roles.length})</span>
               </div>
               <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">

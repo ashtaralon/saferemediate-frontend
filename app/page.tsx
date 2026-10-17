@@ -36,8 +36,10 @@ import { DataLeakPathsPage } from "@/components/data-leak-paths/data-leak-paths-
 import { fetchInfrastructure, fetchSecurityFindings, type InfrastructureData } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { SecurityHubCard, parseSecurityHubReading, type SecurityHubData } from "@/components/security-hub-card"
+import { parseGapReading, removableGapPercent as gapRemovablePercent, urgentIssueCount as summaryUrgentCount, type GapReading } from "@/lib/home-legacy-readings"
 import { Switch } from "@/components/ui/switch"
-import { Activity, AlertOctagon, ArrowUpRight, RefreshCw, Shield, Sparkles, TrendingDown } from "lucide-react"
+import { Activity, ArrowUpRight, RefreshCw, Shield, Sparkles, TrendingDown } from "lucide-react"
 import { PostureScoreCard } from "@/components/dashboard/posture-score-card"
 import { EvidenceHealthCard } from "@/components/dashboard/evidence-health-card"
 import { MicroEnforcementScore } from "@/components/dashboard/micro-enforcement-score"
@@ -46,7 +48,13 @@ import { HomeDashboardV3 } from "@/components/dashboard/v3/home-dashboard-v3"
 import { DASHBOARD_V3_ENABLED } from "@/lib/dashboard-release"
 import { readJsonCache, writeJsonCache } from "@/lib/browser-cache"
 import { normalizeFindingIdentities } from "@/lib/security-finding-identity"
-import { catalogSystemName, useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
+import {
+  catalogEntries,
+  catalogSystemName,
+  selectCatalogSystem,
+  unrepeatedLabels,
+  useScopedSystemCatalog,
+} from "@/lib/scoped-system-catalog"
 
 // V2 is the default home. Set NEXT_PUBLIC_DASHBOARD_V2=false in Vercel to
 // roll back to the legacy home without a code redeploy.
@@ -74,33 +82,31 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout 
   }
 }
 
-interface GapAnalysisData {
-  allowed: number
-  used: number
-  unused: number
-  confidence: number
-  roleName: string
-}
 
-interface SecurityHubData {
-  total: number
-  critical: number
-  high: number
-  medium: number
-  low: number
-  byProduct: Record<string, number>
-}
 
 // Cache keys for localStorage
 const CACHE_KEYS = {
-  INFRASTRUCTURE: 'cyntro-infrastructure-cache',
+  // v2: readings cached before infrastructure counts became measured-or-null carry
+  // fabricated zeros indistinguishable from measured ones, so they are not read.
+  INFRASTRUCTURE: 'cyntro-infrastructure-cache-v2',
   FINDINGS: 'cyntro-findings-cache',
-  GAP_DATA: 'cyntro-gap-cache',
-  SECURITY_HUB: 'cyntro-security-hub-cache',
+  // v2: the reading lost its derived "confidence"; older entries are a different shape.
+  GAP_DATA: 'cyntro-gap-cache-v2',
+  // v2: an unconnected hub used to be cached as a "0 findings" reading.
+  SECURITY_HUB: 'cyntro-security-hub-cache-v2',
   TIMESTAMP: 'cyntro-cache-timestamp',
 }
 
 const CACHE_TTL = 5 * 60 * 1000 // 5 minutes - show cached data but refresh if older
+
+// D11: two reads this page makes feed ONLY the pre-V3 Home branch below (the security-findings rows -> its findings
+// cards and list; the per-system gap analysis -> its Gap Analysis card and "Updated" label). With the V3 Home nothing
+// renders them, so they are not made: on a multi-account install each was a 422 ACCOUNT_SCOPE_REQUIRED nobody shows.
+// fetchInfrastructure's issues-summary read is KEPT: the sidebar Issues badge (rendered on every section, V3 Home
+// included) reads its total, and the page's first paint waits on it.
+function preV3HomeReads(): boolean {
+  return !DASHBOARD_V3_ENABLED
+}
 
 // Load cached data immediately for instant UI (stale-while-revalidate)
 function getCachedData<T>(key: string): T | null {
@@ -123,6 +129,10 @@ export default function HomePage() {
   const searchParams = useSearchParams()
   const systemsCatalog = useScopedSystemCatalog()
   const systemFromUrl = searchParams.get('system')
+  // A7 B5: on a v2 install a link carries the system's KEY (and, for a tag / source key, its account): the name alone may
+  // stand for several systems.
+  const systemKeyFromUrl = searchParams.get('system_key') || null
+  const systemAccountFromUrl = systemKeyFromUrl ? searchParams.get('account_id') || null : null
   // Refresh now always lands on Home (matches the 2026-04-30 rollback
   // intent). Reading ?section= on mount was masking the fact that
   // dashboard "View all" buttons + a stale V3 link were quietly
@@ -153,25 +163,16 @@ export default function HomePage() {
   // Pending-tag queue count for the sidebar badge. Polled on mount + every 60s
   // so operators see new pending items without a hard refresh.
   const [pendingTagsCount, setPendingTagsCount] = useState<number>(0)
-  const [gapData, setGapData] = useState<GapAnalysisData>({
-    allowed: 0,
-    used: 0,
-    unused: 0,
-    confidence: 99,
-    roleName: "Loading...",
-  })
-  const [securityHubData, setSecurityHubData] = useState<SecurityHubData>({
-    total: 0,
-    critical: 0,
-    high: 0,
-    medium: 0,
-    low: 0,
-    byProduct: {},
-  })
+  // Null until issues-summary answered a permission gap: no Gap Analysis card for none.
+  const [gapData, setGapData] = useState<GapReading | null>(null)
+  // Null until Security Hub answered a read: an unread or unconnected hub is not
+  // "0 findings", so no Security Hub card is shown for it.
+  const [securityHubData, setSecurityHubData] = useState<SecurityHubData | null>(null)
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
 
   const fetchGapAnalysis = useCallback(() => {
+    if (!preV3HomeReads()) return // D11: only the pre-V3 Home renders gapData
     // Fetch from issues-summary which has aggregated permission data from all roles
     // Match the proxy's 55s cold-build budget.  The old 30s client timeout
     // aborted a request the server was still legitimately computing and left
@@ -182,42 +183,16 @@ export default function HomePage() {
         return res.json()
       })
       .then((summaryJson) => {
-        // Use aggregate permission data from issues summary
-        const permissions = summaryJson.byCategory?.permissions || {}
-        const allowed = permissions.allowed || 0
-        const used = permissions.used || 0
-        const unused = permissions.unused || (allowed - used)
-
-        // Calculate confidence based on gap percentage
-        const gapPct = permissions.gap_percentage || 0
-        const confidence = allowed > 0 ? Math.min(99, Math.max(70, 100 - gapPct * 0.2)) : 0
-
-        // Show aggregate label
-        const roleName = `${summaryJson.resources?.iam_roles || 0} IAM Roles Analyzed`
-
-        console.log(`[Home] Gap Analysis: allowed=${allowed}, used=${used}, unused=${unused}, confidence=${confidence}`)
-
-        const newGapData = {
-          allowed: allowed,
-          used: used,
-          unused: unused,
-          confidence: Math.round(confidence),
-          roleName: roleName,
-        }
-        setGapData(newGapData)
-        setCachedData(CACHE_KEYS.GAP_DATA, newGapData) // Cache for instant load
+        // The summary's own permission counts, or no reading. (This used to
+        // default each to 0 and derive a "confidence" no backend computes.)
+        const reading = parseGapReading(summaryJson)
+        setGapData(reading)
+        if (reading) setCachedData(CACHE_KEYS.GAP_DATA, reading) // Cache for instant load
         setLastRefresh(new Date())
       })
       .catch((err) => {
         console.warn("Gap analysis fetch failed:", err)
-        // Keep default values or set to zero
-        setGapData({
-          allowed: 0,
-          used: 0,
-          unused: 0,
-          confidence: 0,
-          roleName: "Error loading",
-        })
+        setGapData(null)
       })
   }, [])
 
@@ -228,25 +203,18 @@ export default function HomePage() {
         return res.json()
       })
       .then((data) => {
-        const summary = data.summary || {}
-        const bySeverity = summary.by_severity || {}
-
-        const newData: SecurityHubData = {
-          total: summary.total || 0,
-          critical: bySeverity.CRITICAL || 0,
-          high: bySeverity.HIGH || 0,
-          medium: bySeverity.MEDIUM || 0,
-          low: bySeverity.LOW || 0,
-          byProduct: summary.by_product || {},
-        }
+        const newData = parseSecurityHubReading(data)
+        if (!newData) throw new Error("Security Hub answered no count")
 
         console.log(`[Home] Security Hub: ${newData.total} findings (${newData.critical} critical, ${newData.high} high)`)
         setSecurityHubData(newData)
         setCachedData(CACHE_KEYS.SECURITY_HUB, newData)
       })
       .catch((err) => {
+        // Not connected (SECURITY_HUB_NOT_CONNECTED) or not read: no reading to show. A
+        // cached reading would present an older state as current, so it is dropped too.
         console.warn("Security Hub fetch failed:", err)
-        // Keep existing data on error
+        setSecurityHubData(null)
       })
   }, [])
 
@@ -275,6 +243,15 @@ export default function HomePage() {
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (aborted || !data) return
+        if (systemKeyFromUrl) {
+          // B5: exactly the identity the URL names, or nothing -- never another system that shares its name.
+          const selection = selectCatalogSystem(
+            { system: systemFromUrl, systemKey: systemKeyFromUrl, accountId: systemAccountFromUrl },
+            catalogEntries(data, systemsCatalog.customerId),
+          )
+          setSelectedSystem(selection.kind === "SELECTED" ? selection.entry.name : null)
+          return
+        }
         const list: any[] = Array.isArray(data?.systems) ? data.systems : []
         const candidates = list
           .filter((s) => typeof s?.name === 'string' && s.name.length > 0)
@@ -288,7 +265,10 @@ export default function HomePage() {
           })
         const names = candidates.map((candidate) => candidate.name as string)
         const requested = catalogSystemName(systemFromUrl || selectedSystem, names)
-        setSelectedSystem(requested || candidates[0]?.name || null)
+        // T10 S1: a system the URL names is never swapped for another one (not found, or served by several accounts:
+        // nothing is selected); the default is the worst system whose label exactly one account serves.
+        const fallback = systemFromUrl ? null : unrepeatedLabels(names)[0] ?? null
+        setSelectedSystem(requested || fallback)
       })
       .catch(() => {
         if (!aborted) setSelectedSystem(null)
@@ -296,7 +276,8 @@ export default function HomePage() {
     return () => {
       aborted = true
     }
-  }, [activeSection, systemFromUrl, selectedSystem, systemsCatalog.ready, systemsCatalog.url])
+  }, [activeSection, systemFromUrl, systemKeyFromUrl, systemAccountFromUrl, selectedSystem, systemsCatalog.ready,
+      systemsCatalog.url, systemsCatalog.customerId])
 
   const loadData = useCallback(async (isBackgroundRefresh = false) => {
     // Only show loading spinner on initial load when no cached data exists
@@ -312,9 +293,10 @@ export default function HomePage() {
     }
 
     try {
+      const readFindings = preV3HomeReads() // D11: only the pre-V3 Home renders securityFindings
       const [infrastructureData, findings] = await Promise.allSettled([
         fetchInfrastructure(),
-        fetchSecurityFindings(),
+        readFindings ? fetchSecurityFindings() : Promise.resolve<SecurityFinding[]>([]),
       ])
 
       // Handle infrastructure data
@@ -333,7 +315,9 @@ export default function HomePage() {
       }
 
       // Handle findings - only use real data, no fallback
-      if (findings.status === 'fulfilled' && findings.value && findings.value.length > 0) {
+      if (!readFindings) {
+        // Not read (V3 Home): nothing to keep or cache.
+      } else if (findings.status === 'fulfilled' && findings.value && findings.value.length > 0) {
         setSecurityFindings(findings.value)
         setCachedData(CACHE_KEYS.FINDINGS, findings.value) // Cache for instant load
         console.log("[page] Loaded and cached", findings.value.length, "security findings")
@@ -374,7 +358,7 @@ export default function HomePage() {
         `[page] Withheld ${cachedFindingResult.withheldCount} finding(s) without a canonical ID from browser cache`,
       )
     }
-    const cachedGap = getCachedData<GapAnalysisData>(CACHE_KEYS.GAP_DATA)
+    const cachedGap = getCachedData<GapReading>(CACHE_KEYS.GAP_DATA)
 
     if (cachedInfra) {
       console.log("[page] Loaded infrastructure from cache (instant)")
@@ -466,35 +450,14 @@ export default function HomePage() {
     lastScanTime: null,
   }
 
-  // Ensure stats reflect actual findings count if backend returns zeros
   const computedFindingsStats = computeStatsFromFindings(securityFindings)
-  const statsData = {
-    ...baseStatsData,
-    // An unknown count stays unknown; only a reported 0 may defer to findings.
-    totalIssues:
-      baseStatsData.totalIssues == null
-        ? null
-        : baseStatsData.totalIssues > 0
-          ? baseStatsData.totalIssues
-          : securityFindings.length,
-    criticalIssues:
-      baseStatsData.criticalIssues == null
-        ? null
-        : baseStatsData.criticalIssues > 0
-          ? baseStatsData.criticalIssues
-          : computedFindingsStats.critical,
-  }
+  // The summary's own counts, verbatim (the sidebar Issues badge reads these).
+  // A measured 0 used to be replaced by the number of findings rows this page
+  // happened to load -- a different quantity, from a different read.
+  const statsData = baseStatsData
 
-  const infrastructureStats = data?.infrastructure || {
-    containerClusters: 0,
-    kubernetesWorkloads: 0,
-    standaloneVMs: 0,
-    vmScalingGroups: 0,
-    relationalDatabases: 0,
-    blockStorage: 0,
-    fileStorage: 0,
-    objectStorage: 0,
-  }
+  // As measured (lib/api-client measuredInfrastructure): null when no source counted anything.
+  const infrastructureStats = data?.infrastructure ?? null
 
   const backendStats = data?.securityIssues || {
     critical: 0,
@@ -548,7 +511,8 @@ export default function HomePage() {
     // sees an absence rather than a wrong number.
   })
 
-  const complianceSystems = (data?.complianceSystems || []).map((system: any) => ({
+  // Null when no source answered compliance systems: no Coverage / Systems tiles and no cards.
+  const complianceSystems = data?.complianceSystems ? data.complianceSystems.map((system: any) => ({
     name: system.name,
     environment: system.environment,
     standard: system.standard,
@@ -559,16 +523,20 @@ export default function HomePage() {
       system.passedControls ??
       Math.max(0, (system.totalControls ?? system.controlsCount ?? 0) - (system.criticalGaps ?? 0)),
     owner: system.owner,
-  }))
-  const totalTrackedResources =
+  })) : null
+  // The sum of the kinds that were counted; null (no Telemetry tile) when none was.
+  const measuredCounts = infrastructureStats
+    ? Object.values(infrastructureStats).filter((count): count is number => typeof count === "number")
+    : []
+  const totalTrackedResources: number | null =
     data?.resources?.length ||
-    Object.values(infrastructureStats).reduce((sum, count) => sum + Number(count || 0), 0)
-  const urgentIssueCount = (securityIssuesData.critical || 0) + (securityIssuesData.high || 0)
-  const removableGapPercent = gapData.allowed > 0 ? Math.round((gapData.unused / gapData.allowed) * 100) : 0
+    (measuredCounts.length > 0 ? measuredCounts.reduce((sum, count) => sum + count, 0) : null)
+  // The summary's own critical + high, or null (no Urgent tile, pill or sentence).
+  const urgentIssueCount = data?.staleReplay ? null : summaryUrgentCount(data?.issuesSummary)
+  const removableGapPercent = gapRemovablePercent(gapData)
   const lastRefreshLabel = lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-  const securityHubHighlights = Object.entries(securityHubData.byProduct).slice(0, 3)
 
-  const handleSystemSelect = (systemName: string) => {
+  const handleSystemSelect = (systemName: string, systemKey?: string | null, systemAccountId?: string | null) => {
     // Selecting a system means "show me this system's detail view".
     // The detail-view short-circuit below only fires when activeSection
     // is "home", so we switch there too. Without this, clicking "View"
@@ -584,7 +552,12 @@ export default function HomePage() {
     // selection).
     setSelectedSystem(systemName)
     setActiveSection("home")
-    router.replace(`/?system=${encodeURIComponent(systemName)}`, { scroll: false })
+    // B5: the key (and a tag / source key's account) rides with the name, so a refresh reopens exactly this system.
+    const key = systemKey
+      ? `&system_key=${encodeURIComponent(systemKey)}` +
+        (systemAccountId ? `&account_id=${encodeURIComponent(systemAccountId)}` : "")
+      : ""
+    router.replace(`/?system=${encodeURIComponent(systemName)}${key}`, { scroll: false })
   }
 
   const handleBackFromSystem = () => {
@@ -623,6 +596,8 @@ export default function HomePage() {
       <ErrorBoundary componentName="System Dashboard">
         <SystemDetailDashboard
           systemName={selectedSystem}
+          systemKey={systemKeyFromUrl}
+          systemAccountId={systemAccountFromUrl}
           initialTab={vulnerabilityDeepLink ? "vulnerabilities" : attackPathDeepLink ? "attack-paths" : undefined}
           initialAttackPathMode={
             mode || (attackPathDeepLink ? "attack-path" : undefined)
@@ -670,11 +645,6 @@ export default function HomePage() {
           // fresh visit into one specific demo system's data.
           return <HomeDashboardV2 initialSystem={selectedSystem ?? ""} onNavigateToSection={handleSidebarClick} />
         }
-        const gapAllowed = gapData?.allowed ?? 0
-        const gapUsed = gapData?.used ?? 0
-        const gapUnused = gapData?.unused ?? 0
-        const gapConfidence = gapData?.confidence ?? 99
-        const gapRoleName = gapData?.roleName ?? "IAM Roles"
 
         return (
           <div className="space-y-6">
@@ -726,26 +696,35 @@ export default function HomePage() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="grid grid-cols-2 gap-3">
-                      <div className="rounded-2xl border border-[#fecaca] bg-[#fff1f2] p-4">
-                        <div className="text-xs uppercase tracking-[0.2em] text-[#b91c1c]">Urgent Issues</div>
-                        <div className="mt-2 text-3xl font-bold text-[#111827]">{urgentIssueCount}</div>
-                        <p className="mt-2 text-xs text-[#7f1d1d]">Critical and high findings needing fast triage</p>
-                      </div>
-                      <div className="rounded-2xl border border-[#ddd6fe] bg-[#f5f3ff] p-4">
-                        <div className="text-xs uppercase tracking-[0.2em] text-[#6d28d9]">Access Gap</div>
-                        <div className="mt-2 text-3xl font-bold text-[#111827]">{removableGapPercent}%</div>
-                        <p className="mt-2 text-xs text-[#5b21b6]">Of granted permissions appear removable</p>
-                      </div>
-                      <div className="rounded-2xl border border-[#bfdbfe] bg-[#eff6ff] p-4">
-                        <div className="text-xs uppercase tracking-[0.2em] text-[#1d4ed8]">Telemetry</div>
-                        <div className="mt-2 text-3xl font-bold text-[#111827]">{totalTrackedResources}</div>
-                        <p className="mt-2 text-xs text-[#1e40af]">Tracked resources contributing to the dashboard</p>
-                      </div>
-                      <div className="rounded-2xl border border-[#fde68a] bg-[#fffbeb] p-4">
-                        <div className="text-xs uppercase tracking-[0.2em] text-[#b45309]">Coverage</div>
-                        <div className="mt-2 text-3xl font-bold text-[#111827]">{complianceSystems.length}</div>
-                        <p className="mt-2 text-xs text-[#92400e]">Systems represented in compliance coverage</p>
-                      </div>
+                      {/* Each tile only for a figure a source measured; none for an unread one. */}
+                      {urgentIssueCount !== null && (
+                        <div className="rounded-2xl border border-[#fecaca] bg-[#fff1f2] p-4">
+                          <div className="text-xs uppercase tracking-[0.2em] text-[#b91c1c]">Urgent Issues</div>
+                          <div className="mt-2 text-3xl font-bold text-[#111827]">{urgentIssueCount}</div>
+                          <p className="mt-2 text-xs text-[#7f1d1d]">Critical and high findings needing fast triage</p>
+                        </div>
+                      )}
+                      {removableGapPercent !== null && (
+                        <div className="rounded-2xl border border-[#ddd6fe] bg-[#f5f3ff] p-4">
+                          <div className="text-xs uppercase tracking-[0.2em] text-[#6d28d9]">Access Gap</div>
+                          <div className="mt-2 text-3xl font-bold text-[#111827]">{removableGapPercent}%</div>
+                          <p className="mt-2 text-xs text-[#5b21b6]">Of granted permissions appear removable</p>
+                        </div>
+                      )}
+                      {totalTrackedResources !== null && (
+                        <div className="rounded-2xl border border-[#bfdbfe] bg-[#eff6ff] p-4">
+                          <div className="text-xs uppercase tracking-[0.2em] text-[#1d4ed8]">Telemetry</div>
+                          <div className="mt-2 text-3xl font-bold text-[#111827]">{totalTrackedResources}</div>
+                          <p className="mt-2 text-xs text-[#1e40af]">Tracked resources contributing to the dashboard</p>
+                        </div>
+                      )}
+                      {complianceSystems !== null && (
+                        <div className="rounded-2xl border border-[#fde68a] bg-[#fffbeb] p-4">
+                          <div className="text-xs uppercase tracking-[0.2em] text-[#b45309]">Coverage</div>
+                          <div className="mt-2 text-3xl font-bold text-[#111827]">{complianceSystems.length}</div>
+                          <p className="mt-2 text-xs text-[#92400e]">Systems represented in compliance coverage</p>
+                        </div>
+                      )}
                     </div>
 
                     <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
@@ -777,118 +756,50 @@ export default function HomePage() {
                 )}
               </div>
               <div className="xl:col-span-4 space-y-6">
-                <Card className="rounded-[24px] border-[#8b5cf640] bg-gradient-to-br from-indigo-50 to-purple-50 shadow-[0_20px_60px_-40px_rgba(139,92,246,0.45)]">
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-lg font-semibold text-[#8b5cf6] flex items-center gap-2">
-                        <Shield className="h-5 w-5 text-[#8b5cf6]" />
-                        Gap Analysis
-                      </CardTitle>
-                      <span className="text-xs bg-[#8b5cf6] text-white px-2 py-1 rounded-full font-medium">LIVE</span>
-                    </div>
-                    <p className="text-xs text-[#8b5cf6] truncate" title={gapRoleName}>
-                      {gapRoleName}
-                    </p>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-white/60 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-[var(--foreground,#111827)]">{gapAllowed}</div>
-                        <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Allowed</div>
-                      </div>
-                      <div className="bg-white/60 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-[#22c55e]">{gapUsed}</div>
-                        <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Used</div>
-                      </div>
-                      <div className="bg-white/60 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-[#ef4444]">{gapUnused}</div>
-                        <div className="text-xs text-[var(--muted-foreground,#4b5563)] flex items-center justify-center gap-1">
-                          <TrendingDown className="h-3 w-3" />
-                          Unused
-                        </div>
-                      </div>
-                      <div className="bg-white/60 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-[#8b5cf6]">{gapConfidence}%</div>
-                        <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Confidence</div>
-                      </div>
-                    </div>
-                    {gapUnused > 0 && gapAllowed > 0 && (
-                      <div className="mt-3 p-2 bg-[#f9731620] rounded-lg text-center">
-                        <span className="text-xs font-medium text-[#f97316]">
-                          {removableGapPercent}% permissions can be removed
-                        </span>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                {securityHubData.total > 0 ? (
-                  <Card className="rounded-[24px] border-[#ef444430] bg-gradient-to-br from-red-50 to-orange-50 shadow-[0_20px_60px_-42px_rgba(239,68,68,0.4)]">
+                {gapData ? (
+                  <Card className="rounded-[24px] border-[#8b5cf640] bg-gradient-to-br from-indigo-50 to-purple-50 shadow-[0_20px_60px_-40px_rgba(139,92,246,0.45)]">
                     <CardHeader className="pb-2">
                       <div className="flex items-center justify-between">
-                        <CardTitle className="text-lg font-semibold text-red-900 flex items-center gap-2">
-                          <AlertOctagon className="h-5 w-5 text-[#ef4444]" />
-                          Security Hub Findings
+                        <CardTitle className="text-lg font-semibold text-[#8b5cf6] flex items-center gap-2">
+                          <Shield className="h-5 w-5 text-[#8b5cf6]" />
+                          Gap Analysis
                         </CardTitle>
-                        <span className="text-xs bg-red-600 text-white px-2 py-1 rounded-full font-medium">
-                          {securityHubData.total} Active
-                        </span>
+                        <span className="text-xs bg-[#8b5cf6] text-white px-2 py-1 rounded-full font-medium">LIVE</span>
                       </div>
-                      <p className="text-xs text-[#ef4444]">
-                        AWS Security Hub aggregated findings
+                      <p className="text-xs text-[#8b5cf6] truncate" title={gapData.roleLabel}>
+                        {gapData.roleLabel}
                       </p>
                     </CardHeader>
                     <CardContent>
-                      <div className="grid grid-cols-4 gap-3">
-                        <div className="bg-white/70 rounded-xl p-3 text-center border-l-4 border-red-600">
-                          <div className="text-2xl font-bold text-[#ef4444]">{securityHubData.critical}</div>
-                          <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Critical</div>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="bg-white/60 rounded-lg p-3 text-center">
+                          <div className="text-2xl font-bold text-[var(--foreground,#111827)]">{gapData.allowed}</div>
+                          <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Allowed</div>
                         </div>
-                        <div className="bg-white/70 rounded-xl p-3 text-center border-l-4 border-orange-500">
-                          <div className="text-2xl font-bold text-orange-500">{securityHubData.high}</div>
-                          <div className="text-xs text-[var(--muted-foreground,#4b5563)]">High</div>
+                        <div className="bg-white/60 rounded-lg p-3 text-center">
+                          <div className="text-2xl font-bold text-[#22c55e]">{gapData.used}</div>
+                          <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Used</div>
                         </div>
-                        <div className="bg-white/70 rounded-xl p-3 text-center border-l-4 border-amber-500">
-                          <div className="text-2xl font-bold text-amber-500">{securityHubData.medium}</div>
-                          <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Medium</div>
-                        </div>
-                        <div className="bg-white/70 rounded-xl p-3 text-center border-l-4 border-blue-400">
-                          <div className="text-2xl font-bold text-blue-500">{securityHubData.low}</div>
-                          <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Low</div>
+                        <div className="bg-white/60 rounded-lg p-3 text-center">
+                          <div className="text-2xl font-bold text-[#ef4444]">{gapData.unused}</div>
+                          <div className="text-xs text-[var(--muted-foreground,#4b5563)] flex items-center justify-center gap-1">
+                            <TrendingDown className="h-3 w-3" />
+                            Unused
+                          </div>
                         </div>
                       </div>
-                      {securityHubHighlights.length > 0 && (
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          {securityHubHighlights.map(([product, count]) => (
-                            <span key={product} className="rounded-full bg-white/80 px-3 py-1 text-xs text-[var(--foreground,#374151)]">
-                              {product}: {count}
-                            </span>
-                          ))}
+                      {gapData.unused > 0 && removableGapPercent !== null && (
+                        <div className="mt-3 p-2 bg-[#f9731620] rounded-lg text-center">
+                          <span className="text-xs font-medium text-[#f97316]">
+                            {removableGapPercent}% permissions can be removed
+                          </span>
                         </div>
                       )}
                     </CardContent>
                   </Card>
-                ) : (
-                  <Card className="rounded-[24px] border-[#dbeafe] bg-gradient-to-br from-sky-50 to-white">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-                        <Shield className="h-5 w-5 text-[#2D51DA]" />
-                        Security Hub Status
-                      </CardTitle>
-                      <p className="text-sm text-[var(--muted-foreground,#6b7280)]">
-                        No Security Hub findings are currently being surfaced into the dashboard.
-                      </p>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="rounded-2xl border border-[#dbeafe] bg-white p-4">
-                        <div className="text-sm font-medium text-slate-900">Hub ingestion looks quiet</div>
-                        <p className="mt-1 text-xs text-[var(--muted-foreground,#6b7280)]">
-                          Once findings arrive, this card will highlight the active products and severities here.
-                        </p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
+                ) : null}
+
+                <SecurityHubCard data={securityHubData} />
 
                 <EvidenceHealthCard />
               </div>
@@ -911,11 +822,13 @@ export default function HomePage() {
                   </CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-2 gap-3">
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs uppercase tracking-[0.2em] text-[var(--muted-foreground,#6b7280)]">Systems</div>
-                        <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{complianceSystems.length}</div>
-                        <div className="mt-1 text-xs text-[var(--muted-foreground,#6b7280)]">Systems represented in governance</div>
-                      </div>
+                      {complianceSystems !== null && (
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                          <div className="text-xs uppercase tracking-[0.2em] text-[var(--muted-foreground,#6b7280)]">Systems</div>
+                          <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{complianceSystems.length}</div>
+                          <div className="mt-1 text-xs text-[var(--muted-foreground,#6b7280)]">Systems represented in governance</div>
+                        </div>
+                      )}
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                         <div className="text-xs uppercase tracking-[0.2em] text-[var(--muted-foreground,#6b7280)]">Findings Feed</div>
                         <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{securityFindings.length}</div>
@@ -926,11 +839,14 @@ export default function HomePage() {
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <div className="text-xs uppercase tracking-[0.2em] text-[#2D51DA]">Current Focus</div>
-                          <div className="mt-1 text-sm font-medium text-slate-900">
-                            {urgentIssueCount > 0
-                              ? `${urgentIssueCount} urgent findings are leading the queue`
-                              : "No urgent findings are leading the queue right now"}
-                          </div>
+                          {/* Only from a measured count: an unread summary is not "no urgent findings". */}
+                          {urgentIssueCount !== null ? (
+                            <div className="mt-1 text-sm font-medium text-slate-900">
+                              {urgentIssueCount > 0
+                                ? `${urgentIssueCount} urgent findings are leading the queue`
+                                : "No urgent findings are leading the queue right now"}
+                            </div>
+                          ) : null}
                         </div>
                         <button
                           onClick={() => setActiveSection("systems")}
@@ -951,7 +867,7 @@ export default function HomePage() {
                 <SecurityIssuesOverview {...securityIssuesData} />
               </div>
               <div className="xl:col-span-5">
-                <ComplianceCards systems={complianceSystems} />
+                {complianceSystems !== null ? <ComplianceCards systems={complianceSystems} /> : null}
               </div>
             </div>
 
@@ -1010,7 +926,7 @@ export default function HomePage() {
       case "attack-paths":
         return (
           <ErrorBoundary componentName="Attack Paths">
-            {selectedSystem ? <AttackPathsV2 systemName={selectedSystem} defaultMode="attack-path" onOpenRoleSplit={() => setActiveSection("per-resource")} onOpenVulnerability={() => setActiveSection("vulnerabilities")} /> : <div className="text-center py-8 text-gray-500">No system selected</div>}
+            {selectedSystem ? <AttackPathsV2 systemName={selectedSystem} systemKey={systemKeyFromUrl} systemAccountId={systemAccountFromUrl} defaultMode="attack-path" onOpenRoleSplit={() => setActiveSection("per-resource")} onOpenVulnerability={() => setActiveSection("vulnerabilities")} /> : <div className="text-center py-8 text-gray-500">No system selected</div>}
           </ErrorBoundary>
         )
 

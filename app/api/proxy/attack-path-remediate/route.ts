@@ -209,7 +209,7 @@ export async function POST(req: NextRequest) {
           sg_id: sgId,
           unused_rules: previewData.unused_rules ?? [],
           overly_permissive_rules: previewData.overly_permissive ?? [],
-          preview_message: `Found ${previewData.unused_rules?.length ?? 0} unused rules and ${previewData.overly_permissive?.length ?? 0} overly permissive rules`,
+          preview_message: `Found ${previewData.unused_rules?.length ?? 0} removal-candidate rules not observed in use and ${previewData.overly_permissive?.length ?? 0} overly permissive rules`,
         })
       }
 

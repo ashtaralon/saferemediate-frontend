@@ -55,6 +55,10 @@ import {
   Inbox,
   FileClock,
   Activity,
+  // Account inventory additions:
+  Workflow,
+  Ship,
+  Building2,
 } from "lucide-react";
 
 export type CanonicalServiceType =
@@ -92,6 +96,10 @@ export type CanonicalServiceType =
   | "APIGateway"
   | "CloudTrail"
   | "CloudWatch"
+  // Account inventory additions (lib/inventory-types.ts):
+  | "EventBridge"
+  | "Kubernetes"
+  | "Account"
   | "Resource"; // fallback
 
 export type ServiceCategory =
@@ -212,6 +220,11 @@ export const SERVICE_TYPE_CONFIG: Record<CanonicalServiceType, ServiceMeta> = {
   // Governance / observability (distinct from the security reds).
   CloudTrail: { key: "CloudTrail", label: "CloudTrail", short: "Trail", category: "security", Icon: FileClock, accent: "#4D7C0F", bgLight: "#F0F6E4", bdLight: "#D6E5B4", bgDark: "#232E12", iconDark: "#A3C563" },
   CloudWatch: { key: "CloudWatch", label: "CloudWatch", short: "CW", category: "other", Icon: Activity, accent: "#CA8A04", bgLight: "#FBF3D9", bdLight: "#EDD9A0", bgDark: "#332811", iconDark: "#E3C05A" },
+  // Account inventory additions (lib/inventory-types.ts): EventBridge with the integration violet, Kubernetes with the
+  // compute oranges EKS uses, the account itself neutral.
+  EventBridge: { key: "EventBridge", label: "EventBridge", short: "Events", category: "integration", Icon: Workflow, accent: "#7C3AED", bgLight: "#F2EDFE", bdLight: "#D6C6F8", bgDark: "#271444", iconDark: "#BFA0F2" },
+  Kubernetes: { key: "Kubernetes", label: "Kubernetes", short: "K8s", category: "compute", Icon: Ship, accent: "#C2410C", bgLight: "#FDEEE3", bdLight: "#F6D2BB", bgDark: "#3A2012", iconDark: "#F0A472" },
+  Account: { key: "Account", label: "Account", short: "Account", category: "other", Icon: Building2, accent: "#5E5E5E", bgLight: "#F4F4F5", bdLight: "#E5E5E7", bgDark: "#1B2A3A", iconDark: "#8BA0B4" },
   Resource: { key: "Resource", label: "Resource", short: "Resource", category: "other", Icon: Box, accent: "#5E5E5E", bgLight: "#F4F4F5", bdLight: "#E5E5E7", bgDark: "#1B2A3A", iconDark: "#8BA0B4" },
 };
 

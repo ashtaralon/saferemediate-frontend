@@ -1,0 +1,24 @@
+{
+  "schema": "cyntro-release-contract/v1",
+  "requires": {
+    "account_census_read": 1,
+    "account_census_stacks_read": 1,
+    "account_registration": 5,
+    "declarations_applied": 1,
+    "system_boundary_result_read": 1,
+    "system_boundary_save": 2,
+    "system_boundary_setup": 4,
+    "system_boundary_wizard_capability": 1
+  },
+  "accepts": {
+    "account_census_read": 1,
+    "account_census_stacks_read": 1,
+    "account_inventory_rows": 3,
+    "declarations_applied": 1,
+    "system_boundary_result_read": 2,
+    "system_boundary_save": 3,
+    "system_boundary_setup": 5,
+    "system_boundary_wizard_capability": 1,
+    "systems_list_read": 2
+  }
+}

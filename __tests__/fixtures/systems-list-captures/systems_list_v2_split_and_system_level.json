@@ -1,0 +1,185 @@
+{
+  "_provenance": {
+    "harness": "tests/cyntro_data/test_systems_b5_identity.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/systems",
+      "query": {}
+    }
+  },
+  "status": 200,
+  "body": {
+    "systems": [
+      {
+        "catalog_identity": null,
+        "catalog_id": null,
+        "label_repeated": false,
+        "name": "Payments",
+        "displayName": "Payments",
+        "SystemName": "Payments",
+        "region": "eu-west-1",
+        "account_id": "416651950952",
+        "resourceCount": 2,
+        "resource_count": 2,
+        "resourceTypes": null,
+        "kind": "BUSINESS_SYSTEM",
+        "rankable": true,
+        "rejected": false,
+        "boundaryReason": "discovered_business_candidate",
+        "environment": null,
+        "owner": null,
+        "criticality": null,
+        "businessCriticality": null,
+        "health_score": null,
+        "healthScore": null,
+        "critical_count": null,
+        "criticalIssues": null,
+        "high_count": null,
+        "highIssues": null,
+        "medium_count": null,
+        "mediumIssues": null,
+        "low_count": null,
+        "lowIssues": null,
+        "totalFindings": null,
+        "status": "unknown",
+        "findings_state": "not_published",
+        "lastScan": "Unknown",
+        "lastScanAt": null,
+        "lastScanKind": null,
+        "resourceMetadataAt": null,
+        "system_key": "authored_system:pay",
+        "identity": {
+          "system_key": "authored_system:pay",
+          "account_id": null
+        },
+        "row_key": "authored_system:pay",
+        "deployments": [
+          {
+            "key": "dep-prod",
+            "kind": "deployment",
+            "account_id": "416651950952",
+            "region": "eu-west-1",
+            "member_count": 1
+          },
+          {
+            "key": "authored_system:pay",
+            "kind": "system",
+            "account_id": "416651950952",
+            "region": "eu-west-1",
+            "member_count": 1
+          }
+        ],
+        "account_ids": [
+          "416651950952"
+        ],
+        "accounts": {
+          "416651950952": {
+            "resource_count": 2,
+            "graph_version": "inventory.resource_state.v1/4/run-a"
+          }
+        }
+      },
+      {
+        "catalog_identity": null,
+        "catalog_id": null,
+        "label_repeated": false,
+        "name": "Payments@Team@416651950952/eu-west-1",
+        "displayName": "Payments@Team@416651950952/eu-west-1",
+        "SystemName": "Payments@Team@416651950952/eu-west-1",
+        "region": "eu-west-1",
+        "account_id": "416651950952",
+        "resourceCount": 2,
+        "resource_count": 2,
+        "resourceTypes": null,
+        "kind": "BUSINESS_SYSTEM",
+        "rankable": true,
+        "rejected": false,
+        "boundaryReason": "discovered_business_candidate",
+        "environment": null,
+        "owner": null,
+        "criticality": null,
+        "businessCriticality": null,
+        "health_score": null,
+        "healthScore": null,
+        "critical_count": null,
+        "criticalIssues": null,
+        "high_count": null,
+        "highIssues": null,
+        "medium_count": null,
+        "mediumIssues": null,
+        "low_count": null,
+        "lowIssues": null,
+        "totalFindings": null,
+        "status": "unknown",
+        "findings_state": "not_published",
+        "lastScan": "Unknown",
+        "lastScanAt": null,
+        "lastScanKind": null,
+        "resourceMetadataAt": null,
+        "system_key": "split:payments@team@416651950952/eu-west-1",
+        "identity": {
+          "system_key": "split:payments@team@416651950952/eu-west-1",
+          "account_id": "416651950952"
+        },
+        "row_key": "split:payments@team@416651950952/eu-west-1|416651950952",
+        "deployments": [
+          {
+            "key": "split:payments@team@416651950952/eu-west-1",
+            "kind": "system",
+            "account_id": "416651950952",
+            "region": "eu-west-1",
+            "member_count": 1
+          }
+        ],
+        "account_ids": [
+          "416651950952"
+        ],
+        "accounts": {
+          "416651950952": {
+            "resource_count": 2,
+            "graph_version": "inventory.resource_state.v1/4/run-a"
+          }
+        }
+      }
+    ],
+    "count": 2,
+    "success": true,
+    "scope": {
+      "customer_id": "tenant-x",
+      "account_id": "416651950952",
+      "account_ids": [
+        "416651950952"
+      ],
+      "region": "eu-west-1",
+      "authoritative": true
+    },
+    "timestamp": "2027-01-15T08:00:00+00:00",
+    "collection_status": "served",
+    "published_at_epoch": 1800000000,
+    "semantic_status": "populated",
+    "source_generation": "inventory.resource_state.v1/4/run-a",
+    "graph_version": "inventory.resource_state.v1/4/run-a",
+    "coverage": {
+      "scope": "inventory.resource_state.v1",
+      "generation": 4,
+      "staging_run_id": "run-a"
+    },
+    "withheld": {
+      "findings": "lp_findings_rollup",
+      "environment": "system_attributes",
+      "owner": "system_attributes",
+      "criticality": "system_attributes",
+      "displayName": "system_attributes",
+      "scan": "collection_receipt_window"
+    },
+    "contract": "systems_list_read/v2",
+    "observation": {
+      "status": "NOT_RECORDED",
+      "from": null,
+      "to": null,
+      "sources": [],
+      "read_model": "source_coverage",
+      "hold_reason": "SOURCE_COVERAGE_PUBLICATION_NOT_RECORDED:no_publication"
+    }
+  }
+}

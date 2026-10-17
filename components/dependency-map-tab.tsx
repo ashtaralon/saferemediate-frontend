@@ -1,6 +1,8 @@
 'use client'
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react'
+import { ambiguousSystemCandidates, systemScopeQuery, type SystemCandidate } from "@/lib/scoped-system-catalog"
+import { SystemNameChoice } from "@/components/system-name-choice"
 import { Map as MapIcon, Search, RefreshCw, Network, Cloud, GitBranch, Activity, CheckCircle, XCircle } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import GraphView from './dependency-map/graph-view'
@@ -166,6 +168,9 @@ interface Resource {
 
 interface Props {
   systemName: string
+  /** A7 B5: the system's KEY (+ a tag / source key's account) when opened by key; the dependency reads name ONE system. */
+  systemKey?: string | null
+  systemAccountId?: string | null
   highlightPath?: { source: string; target: string; port?: string }
   defaultGraphEngine?: 'logical' | 'architectural' | 'observed' | 'comprehensive' | 'neo4j'
   onGraphEngineChange?: (engine: 'logical' | 'architectural' | 'observed' | 'comprehensive' | 'neo4j') => void
@@ -176,6 +181,8 @@ type ViewType = 'graph' | 'resource' | 'sankey' | 'flows' | 'estate'
 
 export default function DependencyMapTab({
   systemName,
+  systemKey = null,
+  systemAccountId = null,
   highlightPath,
   defaultGraphEngine = 'neo4j',
   onGraphEngineChange,
@@ -294,6 +301,9 @@ export default function DependencyMapTab({
     spotlightJewel ? systemName : null,
     spotlightJewel,
     spotlightPathId,
+    [],
+    // A7 B5: the spotlight's summary / detail reads name ONE system when the tab was opened by key.
+    { systemKey, systemAccountId },
   )
 
   // System-wide Crown Jewel list — drives BOTH the always-on amber crown
@@ -337,7 +347,9 @@ export default function DependencyMapTab({
     crown_jewels?: CrownJewelSummary[]
   }
   const iapUrl = systemName
-    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}/jewels`
+    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}/jewels` +
+      // A7 B5: the key names ONE system (+ a tag / source key's account); absent, the URL is byte-identical.
+      systemScopeQuery(systemKey, systemAccountId).replace(/^&/, "?")
     : null
   const {
     data: iapData,
@@ -346,7 +358,8 @@ export default function DependencyMapTab({
     isStale: iapIsStale,
     retry: retryCrownJewels,
   } = useCachedFetch<IapResponseShape>(iapUrl, {
-    cacheKey: `iap-cj-list:${systemName}`,
+    // B5: another key / account is another system's jewels -- never painted for this one (by name: as before).
+    cacheKey: systemKey ? `iap-cj-list:${systemName}:key=${systemKey}:${systemAccountId ?? ""}` : `iap-cj-list:${systemName}`,
     maxStaleMs: 10 * 60 * 1000, // 10 min fresh window
     fetchInit: { cache: 'no-store' },
   })
@@ -414,6 +427,9 @@ export default function DependencyMapTab({
   const [resourcesLoading, setResourcesLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchInput, setSearchInput] = useState('')
+  // A7 B5 / reader 4: the request stands for several systems (409) -- the person chooses one; no reading of "the" system
+  // by that name is kept or shown meanwhile.
+  const [ambiguous, setAmbiguous] = useState<SystemCandidate[] | null>(null)
 
   // Fetch graph data
   const fetchGraphData = useCallback(async () => {
@@ -436,7 +452,8 @@ export default function DependencyMapTab({
       // different query strings, the proxy treats them as separate
       // cache entries, and the (already-saturated) Neo4j runs the same
       // dependency-map query twice per page load. (Audit 2026-06-22 P4.)
-      let url = `/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}&includeUnused=true&maxNodes=300`
+      let url = `/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}&includeUnused=true&maxNodes=300${systemScopeQuery(
+        systemKey, systemAccountId)}`
       if (searchQuery) {
         url += `&search=${encodeURIComponent(searchQuery)}`
       }
@@ -449,6 +466,7 @@ export default function DependencyMapTab({
       clearTimeout(timeoutId)
       console.log('[DependencyMapTab] Response status:', res.status, res.ok)
       if (res.ok) {
+        setAmbiguous(null)
         const data = await res.json()
         console.log('[DependencyMapTab] Graph data received:', {
           nodesCount: data.nodes?.length || 0,
@@ -486,6 +504,18 @@ export default function DependencyMapTab({
       } else {
         const errorText = await res.text()
         console.error('[DependencyMapTab] Response not OK:', res.status, errorText)
+        let errorBody: unknown = null
+        try { errorBody = JSON.parse(errorText) } catch { errorBody = null }
+        const candidates = ambiguousSystemCandidates(res.status, errorBody)
+        if (candidates) {
+          // A7 B5: an answer, not an outage -- hold the view on the choice and drop any earlier reading.
+          setAmbiguous(candidates)
+          setGraphData(null)
+          setResources([])
+          setIsLoading(false)
+          setResourcesLoading(false)
+          return
+        }
         
         // Set empty data structure to prevent infinite loading
         setGraphData({ nodes: [], edges: [] })
@@ -515,7 +545,7 @@ export default function DependencyMapTab({
       setIsLoading(false)
       setResourcesLoading(false)
     }
-  }, [systemName, searchQuery])
+  }, [systemName, systemKey, systemAccountId, searchQuery])
 
   // No bare useSyncFromAWS here. startSync() with no `sources` runs the
   // backend's DEFAULT lane -- vulnerability_findings -- so this control
@@ -539,11 +569,21 @@ export default function DependencyMapTab({
       // proxy cache key matches and a Resource-View switch after a Graph-View
       // load gets a near-instant cache hit instead of paying the heavy query
       // a second time. (Audit 2026-06-22 P4.)
-      const res = await fetch(`/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}&includeUnused=true&maxNodes=300`, {
+      const res = await fetch(`/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}&includeUnused=true&maxNodes=300${systemScopeQuery(
+        systemKey, systemAccountId)}`, {
         cache: 'no-store',
         signal: AbortSignal.timeout(30000),
       })
+      if (!res.ok) {
+        const candidates = ambiguousSystemCandidates(res.status, await res.json().catch(() => null))
+        if (candidates) {
+          setAmbiguous(candidates)
+          setGraphData(null)
+          setResources([])
+        }
+      }
       if (res.ok) {
+        setAmbiguous(null)
         const data = await res.json()
         const resourceList: Resource[] = (data.nodes || []).map((n: any) => ({
           id: n.id,
@@ -563,7 +603,7 @@ export default function DependencyMapTab({
     } finally {
       setResourcesLoading(false)
     }
-  }, [systemName, resources.length, graphData])
+  }, [systemName, systemKey, systemAccountId, resources.length, graphData])
 
   useEffect(() => {
     // Graph view: TrafficFlowMap owns dep-map fetch via useCachedFetch.
@@ -601,6 +641,16 @@ export default function DependencyMapTab({
   const handleBackToGraph = useCallback(() => {
     setActiveView('graph')
   }, [])
+
+  if (ambiguous) {
+    // A7 B5 / reader 4: no view of this tab -- Estate, Traffic, Resources -- may show "the" system by a name several
+    // systems share. The choice opens one system's page by key.
+    return (
+      <div className="flex flex-col h-full min-h-[200px] p-4">
+        <SystemNameChoice systemName={systemName} candidates={ambiguous} purpose="dependency map" />
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col h-full min-h-[700px]">
@@ -767,6 +817,8 @@ export default function DependencyMapTab({
               <div className="flex-1 min-h-0">
                 <TrafficFlowMap
                   systemName={systemName}
+                  systemKey={systemKey}
+                  systemAccountId={systemAccountId}
                   onCrownJewelSpotlight={handleCrownJewelClick}
                   spotlightPaths={spotlightConvergence.data?.paths}
                   spotlightPathId={spotlightPathId}
@@ -789,6 +841,8 @@ export default function DependencyMapTab({
           <ErrorBoundary componentName="Estate map">
             <EstateMapView
               systemName={systemName}
+              systemKey={systemKey}
+              systemAccountId={systemAccountId}
               embedded
               onOpenTrafficMap={() => setActiveView("graph")}
             />

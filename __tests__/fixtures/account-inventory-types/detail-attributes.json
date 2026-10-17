@@ -1,0 +1,167 @@
+{
+ "_provenance": {
+  "backend_sha": "be2aad8ce6612b56a5947e4c731a1d4c9b25a677",
+  "produced_by": "cyntro_data.projection.account_inventory_rows.DETAIL_ATTRIBUTES, TAGS_COLLECTED_TYPES (+ every k8s:<kind>), DETAIL_TEXT_MAX, TAGS_OVER_CAP, TAGS_NOT_TEXT",
+  "note": "executed, not hand-written: the row v3 details allow-list and the tag-collecting types"
+ },
+ "detail_attributes": {
+  "ec2:instance": [
+   "instance_state",
+   "instance_type",
+   "vpc_id",
+   "subnet_id",
+   "private_ip",
+   "iam_instance_profile",
+   "launch_time"
+  ],
+  "lambda:function": [
+   "runtime",
+   "memory_size",
+   "timeout",
+   "is_vpc_attached",
+   "vpc_id",
+   "last_modified"
+  ],
+  "rds:db-instance": [
+   "engine",
+   "engine_version",
+   "db_instance_class",
+   "multi_az",
+   "publicly_accessible",
+   "storage_encrypted",
+   "vpc_id",
+   "aws_state",
+   "instance_create_time"
+  ],
+  "rds:db-cluster": [
+   "engine",
+   "engine_version",
+   "engine_mode",
+   "publicly_accessible",
+   "storage_encrypted",
+   "aws_state",
+   "cluster_create_time"
+  ],
+  "s3:bucket": [
+   "region",
+   "creation_date"
+  ],
+  "iam:role": [
+   "create_date",
+   "path",
+   "max_session_duration",
+   "permissions_boundary"
+  ],
+  "iam:policy": [
+   "aws_managed",
+   "attachment_count",
+   "update_date"
+  ],
+  "ec2:subnet": [
+   "vpc_id",
+   "cidr_block",
+   "availability_zone",
+   "map_public_ip_on_launch",
+   "available_ip_address_count",
+   "default_for_az"
+  ],
+  "ec2:security-group": [
+   "vpc_id",
+   "description",
+   "ingress_rule_count",
+   "egress_rule_count"
+  ],
+  "ec2:vpc": [
+   "cidr_block",
+   "is_default",
+   "instance_tenancy"
+  ],
+  "ec2:network-acl": [
+   "vpc_id",
+   "is_default",
+   "ingress_entry_count",
+   "egress_entry_count",
+   "association_count"
+  ],
+  "ec2:route-table": [
+   "vpc_id",
+   "route_count",
+   "has_igw_route",
+   "has_nat_route",
+   "is_main",
+   "association_count"
+  ],
+  "ec2:network-interface": [
+   "interface_type",
+   "vpc_id",
+   "subnet_id",
+   "availability_zone",
+   "association_public_ip",
+   "attachment_instance_id"
+  ],
+  "ec2:nat-gateway": [
+   "connectivity_type",
+   "vpc_id",
+   "subnet_id",
+   "aws_state"
+  ],
+  "ec2:internet-gateway": [
+   "attached_vpc_count"
+  ],
+  "ec2:vpc-endpoint": [
+   "vpc_endpoint_type",
+   "service_name",
+   "vpc_id",
+   "private_dns_enabled",
+   "aws_state"
+  ],
+  "elasticloadbalancing:load-balancer": [
+   "scheme",
+   "load_balancer_type",
+   "dns_name",
+   "vpc_id",
+   "aws_state"
+  ],
+  "elasticloadbalancing:target-group": [
+   "target_type",
+   "protocol",
+   "port",
+   "vpc_id"
+  ],
+  "eks:cluster": [
+   "version",
+   "status",
+   "vpc_id",
+   "endpoint_public_access",
+   "endpoint_private_access"
+  ],
+  "kms:key-authorization": [
+   "key_state",
+   "key_manager",
+   "creation_date"
+  ]
+ },
+ "tags_collected": [
+  "ec2:instance",
+  "ec2:internet-gateway",
+  "ec2:nat-gateway",
+  "ec2:network-acl",
+  "ec2:network-interface",
+  "ec2:route-table",
+  "ec2:security-group",
+  "ec2:subnet",
+  "ec2:vpc",
+  "ec2:vpc-endpoint",
+  "iam:role",
+  "lambda:function",
+  "rds:db-cluster",
+  "rds:db-instance",
+  "s3:bucket"
+ ],
+ "tags_collected_prefix": "k8s:",
+ "detail_text_max": 512,
+ "tags_withheld_reasons": [
+  "TAGS_OVER_CAP",
+  "TAGS_NOT_TEXT"
+ ]
+}

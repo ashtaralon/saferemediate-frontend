@@ -1,0 +1,20 @@
+{
+ "body": {
+  "already_open": true,
+  "customer_id": "acme",
+  "request_status": "queued",
+  "requested_at": "2026-10-05T19:04:22.393874+00:00",
+  "role_arn": "arn:aws:iam::123456789012:role/CyntroOrgDiscovery-acme"
+ },
+ "captured_at": "2026-10-05T19:04:22.416332+00:00",
+ "name": "37_org_discover_already_open_other_role",
+ "note": "POST /organization/discover while a request with another role is open",
+ "request": {
+  "json": {
+   "role_arn": "arn:aws:iam::777777777777:role/CyntroOrgDiscovery-acme"
+  },
+  "method": "POST",
+  "path": "/api/admin/accounts/organization/discover?customer_id=acme"
+ },
+ "status": 202
+}

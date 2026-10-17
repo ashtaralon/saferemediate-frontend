@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { getCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
 import { forwardScopeClaims } from "@/lib/server/scope-claims"
+import { systemChoiceDetail } from "@/lib/server/proxy-error"
 
 // =============================================================================
 // Lateral reach proxy —
@@ -43,7 +44,7 @@ export async function GET(
   // bands are never another's.
   const claims = new URLSearchParams()
   const claimsKey = forwardScopeClaims(req.nextUrl.searchParams, claims)
-  const cacheKey = `lateral-reach:${systemName}:${jewelType}:${jewelRef}:${claimsKey}`
+  const cacheKey = `lateral-reach:${systemName}:${jewelType}:${jewelRef}${claimsKey ? `:${claimsKey}` : ""}`   // no claim: today's key
   const cached = getCached(cacheKey)
   if (cached) {
     return NextResponse.json(cached, {
@@ -71,6 +72,11 @@ export async function GET(
     )
     if (!res.ok) {
       const text = await res.text().catch(() => "")
+      // A7 B5: the 409 system choice is relayed (typed) so the page can offer it; every other refusal answers as before.
+      const choice = res.status === 409 ? systemChoiceDetail(text) : undefined
+      if (choice) {
+        return NextResponse.json({ error: "lateral_reach_unavailable", detail: choice }, { status: 409 })
+      }
       return NextResponse.json<ProxyError>(
         {
           error: "lateral_reach_unavailable",

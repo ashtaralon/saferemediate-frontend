@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { forwardScopeClaims } from "@/lib/server/scope-claims"
+import { systemChoiceDetail } from "@/lib/server/proxy-error"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -41,6 +42,12 @@ export async function GET(
       signal: AbortSignal.timeout(55_000),
     })
     const body = await response.json().catch(() => null)
+    // A7 B5: the 409 system choice is relayed (typed, lib/server/proxy-error systemChoiceDetail) so the page can offer
+    // it; every other refusal answers as before.
+    const choice = response.status === 409 && body ? systemChoiceDetail(JSON.stringify(body)) : undefined
+    if (choice) {
+      return NextResponse.json({ error: "jewel_footholds_unavailable", detail: choice }, { status: 409 })
+    }
     if (!response.ok || !body) {
       return NextResponse.json(
         {

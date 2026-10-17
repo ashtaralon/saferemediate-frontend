@@ -1,0 +1,32 @@
+{
+ "body": {
+  "customer_id": "acme",
+  "reason": "ROLE_NOT_USABLE",
+  "requested_at": "2026-10-05T19:04:21.844786+00:00",
+  "setup": {
+   "parameters": {
+    "AccountConnectorRoleArn": "arn:aws:iam::123456789012:role/cyntro-orchestrator-acme-AccountConnectorRole-7KQ2M9XW1D4E",
+    "ExternalId": "a3aefda2fa160e7790da4769a8aa1e03ba67c9a1d1c4c4dc59e3a0e2c295af80",
+    "TenantId": "acme"
+   },
+   "role": {
+    "name": "CyntroOrgDiscovery-acme",
+    "output": "OrgDiscoveryRoleArn"
+   },
+   "template": "deploy/organizations/cyntro-organizations-discovery.yaml"
+  },
+  "source": {
+   "account_id": "123456789012",
+   "role_arn": "arn:aws:iam::123456789012:role/CyntroOrgDiscovery-acme"
+  },
+  "state": "UNAVAILABLE"
+ },
+ "captured_at": "2026-10-05T19:04:21.901807+00:00",
+ "name": "32_org_role_not_usable_from_settings",
+ "note": "GET /organization: AssumeRole answered AccessDenied (injected AWS error)",
+ "request": {
+  "method": "GET",
+  "path": "/api/admin/accounts/organization?customer_id=acme"
+ },
+ "status": 200
+}

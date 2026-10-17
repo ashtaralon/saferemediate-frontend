@@ -1,0 +1,21 @@
+{
+  "_provenance": {
+    "harness": "tests/test_system_boundary_terraform_captures.py",
+    "request": {
+      "method": "POST",
+      "path": "/api/system-boundary/terraform-bindings",
+      "body": {
+        "_raw_bytes": 1048578
+      }
+    }
+  },
+  "status": 413,
+  "cache_control": null,
+  "content_type": "application/json",
+  "body": {
+    "detail": {
+      "code": "REQUEST_BODY_TOO_LARGE",
+      "limit": 1048576
+    }
+  }
+}

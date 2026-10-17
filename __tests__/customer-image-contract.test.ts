@@ -16,7 +16,11 @@ describe("customer-resident frontend image", () => {
     expect(dockerfile).toContain("gcr.io/distroless/nodejs24-debian13:nonroot@sha256:")
     expect(dockerfile).toContain("/app/.next/standalone")
     expect(dockerfile).not.toContain("/app/node_modules ./node_modules")
-    expect(dockerfile).toContain('grep -R -q -F "saferemediate-backend-f.onrender.com"')
+    // The output gate: every URL of a hosted or third-party host, server AND client output, fail-closed.
+    expect(dockerfile).toContain("test -d .next/server && test -d .next/static")
+    expect(dockerfile).toContain('! grep -R -q -E "https?://')
+    for (const host of ["onrender", "vercel", "thesvg", "fonts"]) expect(dockerfile).toContain(host)
+    expect(dockerfile).toContain("node scripts/check-aws-icons-vendored.mjs")
     expect(dockerfile).not.toContain("--binary-files")
     expect(dockerfile).toContain("USER nonroot")
     expect(dockerfile).toContain('CMD ["server.js"]')
@@ -26,6 +30,8 @@ describe("customer-resident frontend image", () => {
     expect(prepare).toContain("geist-latin.woff2")
     expect(prepare).toContain("saferemediate-backend-f.onrender.com")
     expect(readFileSync("next.config.js", "utf8")).toContain('=== "CUSTOMER_RESIDENT"')
+    // The build context is the checkout and nothing beside it: not the agent worktrees under .claude/.
+    expect(readFileSync(".dockerignore", "utf8")).toMatch(/^\.claude\/$/m)
   })
 
   it("keeps the backend service token server-only", () => {

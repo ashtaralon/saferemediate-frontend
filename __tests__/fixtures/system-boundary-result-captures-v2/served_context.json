@@ -1,0 +1,102 @@
+{
+  "_provenance": {
+    "harness": "tests/test_system_boundary_result_captures.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/system-boundary/result",
+      "params": {
+        "account_id": "111111111111",
+        "system_key": "<the System>"
+      }
+    }
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "body": {
+    "contract": "system_boundary_result_read/v2",
+    "state": "served",
+    "reason_code": null,
+    "account_id": "111111111111",
+    "system_key": "authored_system:75ae4021b39e496d88151e78c2a7ee67646b70af92fff4c1c72e7a13001f1632",
+    "generation": 41,
+    "published_at": "2026-10-13T22:18:58+00:00",
+    "system_name": "Payments",
+    "members": [
+      {
+        "resource_uid": "arn:aws:ec2:eu-west-1:111111111111:instance/i-00000000000000001",
+        "resource_type": "ec2:instance",
+        "state": "ACTIVE",
+        "proof": {
+          "source": "rule",
+          "origin": "root:authored",
+          "lineage_unproven": true
+        },
+        "valid_from": "2026-10-13T12:00:00+00:00",
+        "deployment_context": {
+          "resolution": "SINGLE",
+          "deployments": [
+            {
+              "key": "DEPLOYMENT#authored_deployment:688eed3054bdef36ecbcbff81ec397e02b333c858a87e6665317c8ec60b1400c",
+              "version": 1
+            }
+          ]
+        }
+      },
+      {
+        "resource_uid": "arn:aws:ec2:eu-west-1:111111111111:instance/i-00000000000000003",
+        "resource_type": "ec2:instance",
+        "state": "ACTIVE",
+        "proof": {
+          "source": "rule",
+          "origin": "root:authored",
+          "lineage_unproven": true
+        },
+        "valid_from": "2026-10-13T12:00:00+00:00",
+        "deployment_context": {
+          "resolution": "SINGLE",
+          "deployments": [
+            {
+              "key": "DEPLOYMENT#authored_deployment:105bba5f31bbefeaf9f2fb13897b732bd72fcf21ff220c9e84f7e31f6fee63e6",
+              "version": 1
+            }
+          ]
+        }
+      },
+      {
+        "resource_uid": "arn:aws:iam::111111111111:role/r2",
+        "resource_type": "iam:role",
+        "state": "ACTIVE",
+        "proof": {
+          "source": "rule",
+          "origin": "root:authored",
+          "lineage_unproven": true
+        },
+        "valid_from": "2026-10-13T12:00:00+00:00",
+        "deployment_context": {
+          "resolution": "SINGLE",
+          "deployments": [
+            {
+              "key": "DEPLOYMENT#authored_deployment:688eed3054bdef36ecbcbff81ec397e02b333c858a87e6665317c8ec60b1400c",
+              "version": 1
+            }
+          ]
+        }
+      }
+    ],
+    "dependencies": [],
+    "held": [],
+    "not_members": [],
+    "counts": {
+      "members": 3,
+      "stale_members": 0,
+      "dependencies": 0,
+      "held": 0,
+      "not_members": 0
+    },
+    "omitted": {},
+    "deployment_context_state": {
+      "state": "SERVED",
+      "members": 3
+    }
+  }
+}

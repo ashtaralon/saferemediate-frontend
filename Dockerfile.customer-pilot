@@ -2,12 +2,25 @@ FROM node:24.20.0-alpine3.24@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b64130
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV CYNTRO_DEPLOYMENT_MODE=CUSTOMER_RESIDENT
+# The build loads every route module once ("collecting page data"), and each resolves the backend
+# it proxies to at module scope; a customer-resident image has no hosted default, so the build is
+# told the address the install gives the frontend container: its own backend, on the same task
+# (deploy/customer_pilot/runtime.yaml BACKEND_URL_OVERRIDE). Read again at runtime from the
+# container's environment, never inlined: nothing here is NEXT_PUBLIC_.
+ENV BACKEND_URL_OVERRIDE=http://127.0.0.1:8000
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
 RUN node scripts/prepare-customer-image.mjs
+# Every icon the map draws is served by this image; a catalog slug with no file here is a build error.
+RUN node scripts/check-aws-icons-vendored.mjs
 RUN npm run build -- --webpack
-RUN ! grep -R -q -F "saferemediate-backend-f.onrender.com" .next/server
+# The build's own output, server AND client, carries no URL of a host Cyntro operates and none of
+# a third-party origin. A URL is what code dials; a bare host name also appears in the refusal
+# that rejects such an override (lib/server/backend-url.ts), which is why the pattern needs the
+# scheme. Both directories must exist: a missing one is a failed check, not a clean one.
+RUN test -d .next/server && test -d .next/static \
+  && ! grep -R -q -E "https?://[A-Za-z0-9._-]*(onrender\.com|vercel\.app|cyntro\.(io|ai|com)|thesvg\.org|fonts\.googleapis\.com|fonts\.gstatic\.com)" .next/server .next/static
 RUN npm prune --omit=dev
 
 FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:774b7d020b24214835769e24c3544835526cd0288f0b094eae48e8b2c2429a79 AS runtime

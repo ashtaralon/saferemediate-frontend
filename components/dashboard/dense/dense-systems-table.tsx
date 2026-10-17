@@ -3,7 +3,16 @@
 import Link from "next/link"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { StaleIndicator } from "@/components/dashboard/v3/card-shell"
-import { useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
+import {
+  catalogEntryHref,
+  familyMetricsAttributable,
+  useScopedSystemCatalog,
+  useScopedSystemCatalogEntries,
+  type CatalogEntry,
+  type FamilyResponseScope,
+} from "@/lib/scoped-system-catalog"
+import { useAccountScope } from "@/lib/account-scope-context"
+import { AccountLinks } from "@/components/system-guard"
 
 /**
  * Dense systems table — the centerpiece of the operator-dense home.
@@ -37,16 +46,16 @@ type System = {
   criticality?: string
   resourceCount?: number
   resource_count?: number
-  health_score?: number
-  healthScore?: number
-  critical_count?: number
-  criticalIssues?: number
-  high_count?: number
-  highIssues?: number
-  medium_count?: number
-  mediumIssues?: number
-  low_count?: number
-  lowIssues?: number
+  health_score?: number | null
+  healthScore?: number | null
+  critical_count?: number | null
+  criticalIssues?: number | null
+  high_count?: number | null
+  highIssues?: number | null
+  medium_count?: number | null
+  mediumIssues?: number | null
+  low_count?: number | null
+  lowIssues?: number | null
   totalFindings?: number
   lastScan?: string
   lastScanAt?: string | null
@@ -57,7 +66,18 @@ type Response = {
   systems?: System[]
   total?: number
   errors?: string[]
+  scope?: FamilyResponseScope | null
 }
+
+/** T10 S1: the with-families rows joined to the scoped catalogue by canonical label. One entry links with its full tuple;
+ *  a label several accounts serve links to the chooser; a missing or malformed entry has no link. */
+function catalogueRowFor(name: string, entries: readonly CatalogEntry[]): CatalogEntry[] {
+  const key = name.trim().toLocaleLowerCase()
+  return entries.filter((entry) => entry.name.trim().toLocaleLowerCase() === key)
+}
+
+const WITHHELD_TITLE =
+  "Not attributable to one account: narrow the scope to this system's account and region to see its values"
 
 const STALE_DAYS = 7
 
@@ -131,6 +151,8 @@ function CriticalityBadge({ value }: { value?: string }) {
 }
 
 export function DenseSystemsTable() {
+  const scope = useAccountScope()
+  const catalogue = useScopedSystemCatalogEntries()
   const systemsCatalog = useScopedSystemCatalog("/api/proxy/systems/with-families")
   const { data, loading, error, retry, isStale: cacheStale, cachedAt } = useCachedFetch<Response>(
     systemsCatalog.url,
@@ -141,7 +163,7 @@ export function DenseSystemsTable() {
     },
   )
 
-  if (loading && !data) {
+  if ((loading && !data) || catalogue.state === "loading") {
     return (
       <div className="rounded-[14px] border border-slate-200 bg-white p-5">
         <div className="h-5 w-40 animate-pulse rounded bg-slate-100" />
@@ -169,16 +191,43 @@ export function DenseSystemsTable() {
     )
   }
 
+  if (catalogue.state === "unavailable") {
+    // Rows, links and metrics all depend on knowing which account a label belongs to: render none of them.
+    return (
+      <div className="rounded-[14px] border border-rose-200 bg-rose-50/50 p-5">
+        <div className="text-xs font-semibold uppercase tracking-wide text-rose-700">Systems</div>
+        <div className="mt-2 text-sm text-rose-700">The systems catalogue of this scope could not be read.</div>
+        <button
+          onClick={catalogue.retry}
+          className="mt-3 rounded-md border border-rose-300 bg-white px-3 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100"
+        >
+          Retry
+        </button>
+      </div>
+    )
+  }
+
   const systems = (data?.systems ?? []).slice()
 
   // Sort by total open findings desc — the operator's first scan target.
   // Resource count breaks ties so larger systems surface first.
+  // Only values attributable to one account order the table (T10 S1): a withheld value must not leak through the order.
+  const sortable = (s: System) => {
+    const matches = catalogueRowFor(s.SystemName ?? s.name ?? "", catalogue.entries)
+    return familyMetricsAttributable(matches.length === 1 ? matches[0] : null, scope, data?.scope) ? s : null
+  }
   systems.sort((a, b) => {
-    const af = (a.critical_count ?? a.criticalIssues ?? 0) * 1000 + (a.high_count ?? a.highIssues ?? 0)
-    const bf = (b.critical_count ?? b.criticalIssues ?? 0) * 1000 + (b.high_count ?? b.highIssues ?? 0)
+    const sa = sortable(a)
+    const sb = sortable(b)
+    const af = sa ? (sa.critical_count ?? sa.criticalIssues ?? 0) * 1000 + (sa.high_count ?? sa.highIssues ?? 0) : -1
+    const bf = sb ? (sb.critical_count ?? sb.criticalIssues ?? 0) * 1000 + (sb.high_count ?? sb.highIssues ?? 0) : -1
     if (af !== bf) return bf - af
-    return (b.resource_count ?? b.resourceCount ?? 0) - (a.resource_count ?? a.resourceCount ?? 0)
+    const ar = sa ? (sa.resource_count ?? sa.resourceCount ?? 0) : -1
+    const br = sb ? (sb.resource_count ?? sb.resourceCount ?? 0) : -1
+    if (ar !== br) return br - ar
+    return (a.SystemName ?? a.name ?? "").localeCompare(b.SystemName ?? b.name ?? "")
   })
+  const anyAttributable = systems.some((s) => sortable(s) !== null)
 
   return (
     <div className="overflow-hidden rounded-[14px] border border-slate-200 bg-white">
@@ -188,7 +237,10 @@ export function DenseSystemsTable() {
             Systems
           </div>
           <div className="text-sm text-slate-600">
-            {systems.length} systems · sorted by open findings (critical + high)
+            {systems.length} systems ·{" "}
+            {anyAttributable
+              ? "sorted by open findings (critical + high)"
+              : "values withheld until the scope is one account and region"}
           </div>
         </div>
         <StaleIndicator cachedAt={cachedAt} isStale={cacheStale} />
@@ -210,45 +262,68 @@ export function DenseSystemsTable() {
             </tr>
           </thead>
           <tbody>
-            {systems.map((s) => {
+            {systems.map((s, index) => {
               const name = s.SystemName ?? s.name ?? "—"
               const stale = isStale(s.lastScanAt)
               const lastScanLabel = s.lastScan ?? "—"
-              const critical = s.critical_count ?? s.criticalIssues ?? 0
-              const high = s.high_count ?? s.highIssues ?? 0
-              const resources = s.resource_count ?? s.resourceCount ?? 0
-              const layers = s.layers ?? {}
+              const matches = catalogueRowFor(name, catalogue.entries)
+              const entry = matches.length === 1 ? matches[0] : null
+              const href = entry ? catalogEntryHref("/", entry) : null
+              // Graph metrics only for the account they were computed for (T10 S1); otherwise withheld, never zero.
+              const attributable = familyMetricsAttributable(entry, scope, data?.scope)
+              // null = findings not computed for this system (a fresh install
+              // serves the list before LP findings exist): shown as "—", never "0".
+              const critical = attributable ? (s.critical_count ?? s.criticalIssues ?? null) : null
+              const high = attributable ? (s.high_count ?? s.highIssues ?? null) : null
+              const resources = attributable ? (s.resource_count ?? s.resourceCount ?? 0) : null
+              const layers = attributable ? (s.layers ?? {}) : {}
               return (
                 <tr
-                  key={name}
+                  key={`${name}-${index}`}
                   className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors"
                 >
-                  <td className="px-4 py-2.5">
-                    <Link
-                      href={`/?system=${encodeURIComponent(name)}`}
-                      className="font-medium text-slate-900 hover:text-blue-700 hover:underline"
-                    >
-                      {name}
-                    </Link>
+                  <td className="px-4 py-2.5" data-attributable={attributable ? "true" : "false"}>
+                    {matches.length > 1 ? (
+                      <>
+                        <span className="font-medium text-slate-900">{name}</span>
+                        <AccountLinks name={name} entries={matches} path="/" />
+                      </>
+                    ) : href ? (
+                      <Link
+                        href={href}
+                        className="font-medium text-slate-900 hover:text-blue-700 hover:underline"
+                      >
+                        {name}
+                      </Link>
+                    ) : (
+                      <span className="font-medium text-slate-500" title="This system's account identity is unavailable">
+                        {name}
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2.5">
                     <CriticalityBadge value={s.criticality} />
                   </td>
-                  <td className="px-3 py-2.5 text-right font-mono text-slate-600 tabular-nums">
-                    {resources}
+                  <td
+                    className="px-3 py-2.5 text-right font-mono text-slate-600 tabular-nums"
+                    title={attributable ? undefined : WITHHELD_TITLE}
+                  >
+                    {resources === null ? "—" : resources}
                   </td>
                   <td className="px-3 py-2.5 text-right">
                     <span
-                      className={`inline-flex min-w-[1.75rem] items-center justify-center rounded border px-1.5 py-0.5 font-mono text-xs font-semibold tabular-nums ${severityChipClass(critical, "critical")}`}
+                      className={`inline-flex min-w-[1.75rem] items-center justify-center rounded border px-1.5 py-0.5 font-mono text-xs font-semibold tabular-nums ${severityChipClass(critical ?? 0, "critical")}`}
+                      title={!attributable ? WITHHELD_TITLE : critical === null ? "Findings not computed for this system yet" : undefined}
                     >
-                      {critical || "0"}
+                      {critical === null ? "—" : critical || "0"}
                     </span>
                   </td>
                   <td className="px-3 py-2.5 text-right">
                     <span
-                      className={`inline-flex min-w-[1.75rem] items-center justify-center rounded border px-1.5 py-0.5 font-mono text-xs font-semibold tabular-nums ${severityChipClass(high, "high")}`}
+                      className={`inline-flex min-w-[1.75rem] items-center justify-center rounded border px-1.5 py-0.5 font-mono text-xs font-semibold tabular-nums ${severityChipClass(high ?? 0, "high")}`}
+                      title={!attributable ? WITHHELD_TITLE : high === null ? "Findings not computed for this system yet" : undefined}
                     >
-                      {high || "0"}
+                      {high === null ? "—" : high || "0"}
                     </span>
                   </td>
                   <td className="px-3 py-2.5">

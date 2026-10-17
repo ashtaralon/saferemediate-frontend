@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { clearCached, getCached, getStaleCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
-import { isPoisonousProxyPayload } from "@/lib/server/proxy-cache-hygiene"
+import { isPoisonousProxyPayload, upstreamCachePolicy, type UpstreamCachePolicy } from "@/lib/server/proxy-cache-hygiene"
 import { buildTopologyRiskServerCacheKey } from "@/components/topology-v0-2/topology-scope-url"
 import { TOPOLOGY_RISK_PROXY_TIMEOUT_MS } from "@/lib/server/snapshot-proxy"
+import { systemChoiceDetail } from "@/lib/server/proxy-error"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -34,11 +35,14 @@ function scopeFromRequest(req: NextRequest) {
   const accountId = req.nextUrl.searchParams.get("account_id")
   const region = req.nextUrl.searchParams.get("region")
   const vpcId = req.nextUrl.searchParams.get("vpc_id")
+  // A7 B5: a page opened by key names ONE system (backend ?system_key=); absent, everything is as before.
+  const systemKey = req.nextUrl.searchParams.get("system_key")
   return {
     customerId: customerId && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(customerId) ? customerId : null,
     accountId: accountId && /^\d{12}$/.test(accountId) ? accountId : null,
     region: region && /^[a-z]{2}(-gov)?-[a-z]+-\d+$/.test(region) ? region : null,
     vpcId: vpcId && vpcId.startsWith("vpc-") ? vpcId : null,
+    systemKey: systemKey && systemKey.trim() && systemKey.length <= 512 ? systemKey : null,
   }
 }
 
@@ -48,6 +52,7 @@ function backendQueryString(scope: ReturnType<typeof scopeFromRequest>): string 
   if (scope.accountId) params.set("account_id", scope.accountId)
   if (scope.region) params.set("region", scope.region)
   if (scope.vpcId) params.set("vpc_id", scope.vpcId)
+  if (scope.systemKey) params.set("system_key", scope.systemKey)
   const qs = params.toString()
   return qs ? `?${qs}` : ""
 }
@@ -115,8 +120,14 @@ function respondOk(
   data: unknown,
   cacheLabel: string,
   scope: ReturnType<typeof scopeFromRequest>,
+  upstream: UpstreamCachePolicy = "unspecified",
 ): NextResponse {
   const stamped = stampSelectedScope(data, scope)
+  if (upstream === "no-store") {
+    // B5 review (2026-10-08): the backend sent this answer no-store (a published / cohort Estate answer is decided per
+    // request); never kept here and never offered to an edge cache.
+    return NextResponse.json(stamped, { headers: { "X-Cache": "BYPASS", "Cache-Control": "no-store" } })
+  }
   if (isPoisonousProxyPayload(stamped)) {
     const stale = serveStale(cacheKey, "peer_computing")
     if (stale) return stale
@@ -136,7 +147,7 @@ function respondOk(
 async function fetchTopology(
   url: string,
   timeoutMs: number,
-): Promise<{ ok: true; data: unknown } | { ok: false; status: number; body: string } | { ok: false; timeout: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; data: unknown; cache: UpstreamCachePolicy } | { ok: false; status: number; body: string } | { ok: false; timeout: true } | { ok: false; error: string }> {
   try {
     const res = await fetch(url, {
       headers: { "Content-Type": "application/json" },
@@ -147,7 +158,7 @@ async function fetchTopology(
       const body = await res.text().catch(() => "")
       return { ok: false, status: res.status, body }
     }
-    return { ok: true, data: await res.json() }
+    return { ok: true, data: await res.json(), cache: upstreamCachePolicy(res.headers.get("cache-control")) }
   } catch (err: unknown) {
     if (isTimeoutError(err)) return { ok: false, timeout: true }
     return {
@@ -193,13 +204,13 @@ export async function GET(
   // abort early so we still have budget for a snapshot retry.
   let result = await fetchTopology(url, TOPOLOGY_WAKE_TIMEOUT_MS)
   if (result.ok === true) {
-    return respondOk(cacheKey, result.data, "MISS", scope)
+    return respondOk(cacheKey, result.data, "MISS", scope, result.cache)
   }
 
   if ("status" in result && result.status === 503) {
     await new Promise((r) => setTimeout(r, 800))
     result = await fetchTopology(url, TOPOLOGY_RETRY_TIMEOUT_MS)
-    if (result.ok === true) return respondOk(cacheKey, result.data, "MISS", scope)
+    if (result.ok === true) return respondOk(cacheKey, result.data, "MISS", scope, result.cache)
   }
 
   // Attempt 2 — after wake / timeout / 5xx, DynamoDB snapshot is usually ready.
@@ -210,7 +221,7 @@ export async function GET(
     )
     await new Promise((r) => setTimeout(r, 400))
     const retry = await fetchTopology(url, TOPOLOGY_RETRY_TIMEOUT_MS)
-    if (retry.ok === true) return respondOk(cacheKey, retry.data, "MISS-RETRY", scope)
+    if (retry.ok === true) return respondOk(cacheKey, retry.data, "MISS-RETRY", scope, retry.cache)
     result = retry
   }
 
@@ -228,6 +239,8 @@ export async function GET(
       // concealment one TTL later.
       clearCached(cacheKey)
     }
+    // A7 B5: a 409 system choice (several systems answer to this name) is relayed, typed, so the page can offer it.
+    const choice = result.status === 409 ? systemChoiceDetail(result.body) : undefined
     return NextResponse.json(
       {
         error: `backend_${result.status}`,
@@ -235,6 +248,7 @@ export async function GET(
         scored_at: null,
         system_kpis: null,
         nodes: [],
+        ...(choice ? { detail: choice } : {}),
       },
       { status: result.status },
     )

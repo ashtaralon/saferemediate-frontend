@@ -14,8 +14,10 @@ interface HomeStatsBannerProps {
   averageScore?: number | null
   averageScoreTrend?: number
   lastScanTime?: string | null
-  resourceCount?: number
-  urgentFindings?: number
+  /** The counted resources; null / absent when nothing was counted (no pill, never "0"). */
+  resourceCount?: number | null
+  /** Critical + high from the summary; null / absent when unread (no pill, never "0"). */
+  urgentFindings?: number | null
   lastRefreshLabel?: string
 }
 
@@ -28,8 +30,8 @@ export function HomeStatsBanner({
   averageScore = null,
   averageScoreTrend = 0,
   lastScanTime = null,
-  resourceCount = 0,
-  urgentFindings = 0,
+  resourceCount = null,
+  urgentFindings = null,
   lastRefreshLabel = "Just now",
 }: HomeStatsBannerProps) {
   return (
@@ -51,12 +53,16 @@ export function HomeStatsBanner({
           </p>
 
           <div className="mt-5 flex flex-wrap items-center gap-3">
-            <div className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm text-white/90 backdrop-blur">
-              <span className="font-semibold text-white">{resourceCount}</span> tracked resources
-            </div>
-            <div className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm text-white/90 backdrop-blur">
-              <span className="font-semibold text-white">{urgentFindings}</span> urgent findings
-            </div>
+            {resourceCount !== null && (
+              <div className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm text-white/90 backdrop-blur">
+                <span className="font-semibold text-white">{resourceCount}</span> tracked resources
+              </div>
+            )}
+            {urgentFindings !== null && (
+              <div className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm text-white/90 backdrop-blur">
+                <span className="font-semibold text-white">{urgentFindings}</span> urgent findings
+              </div>
+            )}
             <div className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm text-white/90 backdrop-blur">
               Refreshed {lastRefreshLabel}
             </div>

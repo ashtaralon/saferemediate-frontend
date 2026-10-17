@@ -1,6 +1,7 @@
 "use client"
 
 import { useCachedFetch } from "@/lib/use-cached-fetch"
+import { activityFeedIsComplete } from "@/lib/activity-feed"
 import { Check, RotateCcw, Zap } from "lucide-react"
 import { ErrorCard, LoadingCard, Section, StaleIndicator } from "./card-shell"
 import { accentByCategory, descriptorClass } from "./styles"
@@ -31,6 +32,8 @@ type ActivityResponse = {
   items?: ActivityItem[]
   total?: number
   errors?: string[]
+  /** The proxy replayed an older feed because the live sources failed. */
+  stale?: boolean
 }
 
 function relativeTime(iso: string | null): string {
@@ -63,6 +66,8 @@ export function RecentActivityCard() {
       // up to 7 days when fresh fetch fails.
       maxStaleMs: 30 * 60 * 1000,
       fetchInit: { cache: "no-store" },
+      // Only a feed every source answered is kept for the next visit.
+      isCacheable: (value) => activityFeedIsComplete(value as ActivityResponse),
     }
   )
 
@@ -71,19 +76,31 @@ export function RecentActivityCard() {
   if (!data) return null
 
   const items = data.items ?? []
+  // Only a feed every source answered may say how many events there are, or
+  // that there are none. With source errors it lists what it read and no more.
+  const complete = activityFeedIsComplete(data)
+  const descriptor = complete
+    ? `${data.total ?? items.length} events · snapshots and rollbacks merged`
+    : data.stale
+      ? "Last feed shown — the live sources did not answer"
+      : items.length > 0
+        ? "Events from the sources that answered"
+        : "Activity could not be read"
 
   return (
     <Section
       label="Recent activity"
-      descriptor={`${data.total ?? items.length} events · snapshots and rollbacks merged`}
+      descriptor={descriptor}
       className={accentByCategory.activity}
       right={<StaleIndicator cachedAt={cachedAt} isStale={isStale} />}
     >
       {items.length === 0 ? (
-        <div className={descriptorClass}>
-          No remediation events recorded yet. The feed will populate as snapshots and
-          rollbacks land.
-        </div>
+        complete ? (
+          <div className={descriptorClass}>
+            No remediation events recorded yet. The feed will populate as snapshots and
+            rollbacks land.
+          </div>
+        ) : null
       ) : (
         <ul className="space-y-2">
           {items.slice(0, 8).map((item, i) => {

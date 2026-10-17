@@ -4,7 +4,7 @@ import Image from "next/image"
 import Link from "next/link"
 import { useEffect, useState } from "react"
 import { Home, AlertTriangle, Server, Grid3x3, Fingerprint, Plug, Zap, Split, Bug, Shield, Route, Sparkles, Tag, Trash2, Users, Network, Map as MapIcon, Target, BarChart3, Settings, ClipboardList } from "lucide-react"
-import { catalogSystemName, useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
+import { catalogEntries, selectCatalogSystem, useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
 // ThemeToggle import held until dark-mode migration lands:
 // import { ThemeToggle } from "@/components/theme-toggle"
 
@@ -22,25 +22,46 @@ interface LeftSidebarNavProps {
  *  alon-prod (3 IAM + 1 SG, empirically verified 2026-06-01). Honest
  *  small number per the spec's substrate-honesty contract. */
 /** Resolve the active system without pinning an environment: the URL's
- *  ?system= param when present, else the first system from /api/systems.
- *  Null = unknown (callers skip their fetch and render without a count). */
-async function resolveActiveSystem(systemsUrl: string): Promise<string | null> {
+ *  ?system= tuple when present, else the first system whose label is not
+ *  repeated in the scoped catalogue (T10 S1 selectCatalogSystem). Null =
+ *  unknown, ambiguous or not found (callers skip their fetch and render
+ *  without a count -- never the first of several accounts' systems). */
+async function resolveActiveSystem(systemsUrl: string, customerId: string | null): Promise<string | null> {
   try {
-    const fromUrl = new URLSearchParams(window.location.search).get("system")
+    const params = new URLSearchParams(window.location.search)
     const res = await fetch(systemsUrl, { cache: "no-store" })
     if (!res.ok) return null
-    const json = await res.json()
-    const names = (json.systems ?? [])
-      .map((system: any) => String(system?.name || system?.SystemName || ""))
-      .filter(Boolean)
-    return catalogSystemName(fromUrl, names) || names[0] || null
+    const selection = selectCatalogSystem(
+      // A7 B5: a v2 link's key names exactly one of the systems that share a name.
+      { system: params.get("system"), accountId: params.get("account_id"), region: params.get("region"),
+        systemKey: params.get("system_key") },
+      catalogEntries(await res.json(), customerId),
+    )
+    return selection.kind === "SELECTED" ? selection.entry.name : null
   } catch {
     return null
   }
 }
 
+/**
+ * Shared IAM roles + shared SGs with narrowing available, or null. Both
+ * sources must answer with their row lists (`null` = that source failed): a
+ * failed source counted as 0 made the badge the other source's count alone,
+ * shown as the total.
+ */
+export function sharedResourcesActionableCount(iamJson: any, sgJson: any): number | null {
+  const iamRows: Array<{ headline_state?: string }> | undefined = iamJson?.shared_roles ?? iamJson?.roles
+  const sgRows: Array<{ narrowing?: { headline_state?: string } }> | undefined = sgJson?.shared_sgs ?? sgJson?.sgs
+  if (!Array.isArray(iamRows) || !Array.isArray(sgRows)) return null
+  return (
+    iamRows.filter((r) => r.headline_state === "narrowing_available").length +
+    sgRows.filter((r) => r.narrowing?.headline_state === "narrowing_available").length
+  )
+}
+
 function useSharedResourcesActionableCount(): number | null {
   const systemsCatalog = useScopedSystemCatalog()
+  const customerId = systemsCatalog.customerId
   const [count, setCount] = useState<number | null>(null)
   useEffect(() => {
     if (!systemsCatalog.ready) return
@@ -51,7 +72,7 @@ function useSharedResourcesActionableCount(): number | null {
     let cancelled = false
     ;(async () => {
       try {
-        const system = await resolveActiveSystem(systemsCatalog.url!)
+        const system = await resolveActiveSystem(systemsCatalog.url!, customerId)
         if (cancelled || !system) return
         const qs = `system_name=${encodeURIComponent(system)}`
         const [iamRes, sgRes] = await Promise.all([
@@ -59,19 +80,11 @@ function useSharedResourcesActionableCount(): number | null {
           fetch(`/api/proxy/sg/shared-sgs?${qs}`, { cache: "no-store" }),
         ])
         if (cancelled) return
-        const iamJson = iamRes.ok ? await iamRes.json() : {}
-        const sgJson = sgRes.ok ? await sgRes.json() : {}
-        const iamRows: Array<{ headline_state?: string }> =
-          iamJson.shared_roles ?? iamJson.roles ?? []
-        const sgRows: Array<{ narrowing?: { headline_state?: string } }> =
-          sgJson.shared_sgs ?? sgJson.sgs ?? []
-        const iamNarrowable = iamRows.filter(
-          (r) => r.headline_state === "narrowing_available",
-        ).length
-        const sgNarrowable = sgRows.filter(
-          (r) => r.narrowing?.headline_state === "narrowing_available",
-        ).length
-        if (!cancelled) setCount(iamNarrowable + sgNarrowable)
+        const count = sharedResourcesActionableCount(
+          iamRes.ok ? await iamRes.json() : null,
+          sgRes.ok ? await sgRes.json() : null,
+        )
+        if (!cancelled) setCount(count)
       } catch {
         // Honest fallback per pattern_no_phantom_capabilities_in_ui —
         // don't fabricate a count if the endpoints fail; leave null,
@@ -82,7 +95,7 @@ function useSharedResourcesActionableCount(): number | null {
     return () => {
       cancelled = true
     }
-  }, [systemsCatalog.ready, systemsCatalog.url])
+  }, [systemsCatalog.ready, systemsCatalog.url, customerId])
   return count
 }
 
@@ -110,6 +123,12 @@ export function LeftSidebarNav({
     icon: any
     count?: number
     href: string
+    // Used only by the <Link> branch below (pages that mount the sidebar
+    // without onItemClick, e.g. the account page). HomePage deliberately
+    // ignores ?section=, so a section href there lands on the dashboard
+    // (CHROME0117-NAV1). Set only where a dedicated route renders the same
+    // view; the onItemClick button path is unchanged.
+    routeHref?: string
   }> = [
     { id: "home", label: "Home", icon: Home, href: "/" },
     { id: "change-queue", label: "Change Queue", icon: ClipboardList, href: "/change-queue" },
@@ -137,7 +156,7 @@ export function LeftSidebarNav({
     // app/page.tsx can't hold (selectedSystem, activeSection!=="home") at
     // the same time — see system-detail-dashboard.tsx tab integration.
     { id: "vulnerabilities", label: "Vulnerabilities", icon: Bug, href: "/?section=vulnerabilities" },
-    { id: "systems", label: "Systems", icon: Server, href: "/?section=systems" },
+    { id: "systems", label: "Systems", icon: Server, href: "/?section=systems", routeHref: "/systems" },
     { id: "compliance", label: "Compliance", icon: Grid3x3, href: "/?section=compliance" },
     // Identities removed from sidebar pending backend fix for /api/identities (returns
     // 404 with a 23KB HTML error body). Restore once backend ships the upstream route —
@@ -342,7 +361,7 @@ export function LeftSidebarNav({
           return (
             <Link
               key={item.id}
-              href={item.href}
+              href={item.routeHref ?? item.href}
               className={commonClass}
               style={commonStyle}
             >

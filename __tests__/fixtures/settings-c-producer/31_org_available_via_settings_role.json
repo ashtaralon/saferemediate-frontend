@@ -1,0 +1,43 @@
+{
+ "body": {
+  "accounts": [
+   {
+    "account_id": "123456789012",
+    "name": "master",
+    "selectable": false,
+    "state": "ACTIVE",
+    "why_not": "PLATFORM_ACCOUNT"
+   },
+   {
+    "account_id": "362215403804",
+    "name": "checkout-staging",
+    "selectable": true,
+    "state": "ACTIVE"
+   },
+   {
+    "account_id": "785313534949",
+    "name": "payments-production",
+    "selectable": true,
+    "state": "ACTIVE"
+   }
+  ],
+  "customer_id": "acme",
+  "discovered_at": "2026-10-05T19:04:21.502992+00:00",
+  "management_account_id": "123456789012",
+  "organization_id": "o-f1jh9t42gi",
+  "source": {
+   "account_id": "123456789012",
+   "role_arn": "arn:aws:iam::123456789012:role/CyntroOrgDiscovery-acme"
+  },
+  "state": "AVAILABLE",
+  "truncated": false
+ },
+ "captured_at": "2026-10-05T19:04:21.512375+00:00",
+ "name": "31_org_available_via_settings_role",
+ "note": "GET /organization after listing through the role from Settings",
+ "request": {
+  "method": "GET",
+  "path": "/api/admin/accounts/organization?customer_id=acme"
+ },
+ "status": 200
+}

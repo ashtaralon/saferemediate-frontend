@@ -39,7 +39,13 @@ import {
   type SharedSGRowRaw,
 } from "./types"
 import { NarrowingDiffPanel } from "./narrowing-diff-panel"
-import { catalogSystemName, useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
+import {
+  catalogEntries,
+  selectCatalogSystem,
+  useScopedSystemCatalog,
+  type CatalogSelection,
+} from "@/lib/scoped-system-catalog"
+import { CatalogSelectionNotice } from "@/components/system-guard"
 
 interface SharedRolesApiResponse {
   shared_roles?: Array<Omit<SharedRoleRow, "type">>
@@ -217,8 +223,16 @@ function normalizeIAM(raw: Omit<SharedRoleRow, "type">): SharedRoleRow {
 
 export function SharedResourcesListView({ systemName: systemNameProp, embedded = false }: Props) {
   const systemsCatalog = useScopedSystemCatalog()
+  const customerId = systemsCatalog.customerId
   const router = useRouter()
   const [resolvedSystemName, setResolvedSystemName] = useState(systemNameProp ?? "")
+  // T10 S1: why no single system was opened (a label several accounts serve, an unverifiable identity, or none in scope).
+  const [selectionNotice, setSelectionNotice] = useState<{
+    selection: Exclude<CatalogSelection, { kind: "SELECTED" }>
+    requested: string | null
+    pathname: string
+    keep: URLSearchParams
+  } | null>(null)
   const [rows, setRows] = useState<SharedResourceRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -244,15 +258,23 @@ export function SharedResourcesListView({ systemName: systemNameProp, embedded =
     const catalogUrl = systemsCatalog.url
     let cancelled = false
     ;(async () => {
-      const fromUrl = new URLSearchParams(window.location.search).get("system")
+      const params = new URLSearchParams(window.location.search)
+      const fromUrl = params.get("system")
       try {
         const response = await fetch(catalogUrl, { cache: "no-store" })
         const json = response.ok ? await response.json() : {}
-        const names = (json.systems ?? [])
-          .map((system: any) => String(system?.name || system?.SystemName || ""))
-          .filter(Boolean)
-        const name = catalogSystemName(fromUrl, names) || names[0]
-        if (!cancelled && typeof name === "string" && name) setResolvedSystemName(name)
+        const selection = selectCatalogSystem(
+          { system: fromUrl, accountId: params.get("account_id"), region: params.get("region") },
+          catalogEntries(json, customerId),
+        )
+        if (cancelled) return
+        if (selection.kind === "SELECTED") {
+          setSelectionNotice(null)
+          setResolvedSystemName(selection.entry.name)
+        } else {
+          setSelectionNotice({ selection, requested: fromUrl, pathname: window.location.pathname, keep: params })
+          setLoading(false)
+        }
       } catch {
         if (!cancelled) setLoading(false)
       }
@@ -260,7 +282,7 @@ export function SharedResourcesListView({ systemName: systemNameProp, embedded =
     return () => {
       cancelled = true
     }
-  }, [resolvedSystemName, systemNameProp, systemsCatalog.ready, systemsCatalog.url])
+  }, [resolvedSystemName, systemNameProp, systemsCatalog.ready, systemsCatalog.url, customerId])
 
   const fetchAll = useCallback(async () => {
     if (!resolvedSystemName) return
@@ -419,6 +441,16 @@ export function SharedResourcesListView({ systemName: systemNameProp, embedded =
             />
           </label>
         </div>
+
+        {selectionNotice && (
+          <CatalogSelectionNotice
+            selection={selectionNotice.selection}
+            systemName={selectionNotice.requested}
+            pathname={selectionNotice.pathname}
+            keep={selectionNotice.keep}
+            back={false}
+          />
+        )}
 
         {loading && (
           <div className="flex items-center justify-center py-20 text-sm text-slate-500">

@@ -31,6 +31,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ResourceConfigTab } from "@/components/inventory/resource-config-tab"
 import { ResourceDossier } from "@/components/inventory/resource-dossier"
 import { canonicalInventoryResourceId } from "@/lib/inventory-resource-identity"
+import { ambiguousSystemCandidates, type SystemCandidate } from "@/lib/scoped-system-catalog"
+import { SystemNameChoice } from "@/components/system-name-choice"
 import { ServiceTypeBadge, getServiceMeta } from "@/lib/service-type"
 
 export interface ServiceNode {
@@ -50,9 +52,7 @@ export interface ServiceNode {
   permissionCount?: number
   // Compute specific
   instanceState?: string
-  // AWS Tags
-  tags?: Record<string, string>
-  isTagged?: boolean
+  // D42: no AWS tag fields -- the system-resources row carries none, and system membership is not a tag.
   vpcId?: string
 }
 
@@ -87,6 +87,10 @@ export function inventoryStatusClassName(status: string): string {
 
 interface AllServicesTabProps {
   systemName: string
+  /** A7 B5: the system's KEY on a v2 install -- addresses exactly one system when two share the name. */
+  systemKey?: string | null
+  /** A7 B5: with a tag / source key, the account of its row (one system per account); null for an authored key. */
+  systemAccountId?: string | null
 }
 
 const COMPUTE_DATA_TYPES = [
@@ -143,9 +147,11 @@ function matchesTypeList(type: string, list: readonly string[]): boolean {
 // 2026-07-13). Covered types render triple-coded (color + icon + short label);
 // uncovered types fall back to the neutral `Resource` tile.
 
-export function AllServicesTab({ systemName }: AllServicesTabProps) {
+export function AllServicesTab({ systemName, systemKey = null, systemAccountId = null }: AllServicesTabProps) {
   const [services, setServices] = useState<ServiceNode[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
+  // B5: the name stands for several systems (409 SYSTEM_NAME_AMBIGUOUS): a person chooses one; none is shown meanwhile.
+  const [ambiguous, setAmbiguous] = useState<SystemCandidate[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set<string>())
@@ -165,7 +171,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
   useEffect(() => {
     fetchServices()
     fetchGapData()
-  }, [systemName])  // Re-fetch when systemName changes
+  }, [systemName, systemKey, systemAccountId])  // Re-fetch when the system (name, key or account) changes
 
   const mapGraphResources = (graphResources: any[]): ServiceNode[] => {
     const TYPE_NORMALIZE: Record<string, string> = {
@@ -201,8 +207,6 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
         },
         attachedPolicies: normalizedType === "IAMRole" ? r.connections || 0 : 0,
         permissionCount: r.connections || 0,
-        tags: {},
-        isTagged: true,
         vpcId: undefined,
       }
     })
@@ -210,10 +214,17 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
 
   const fetchServices = async (attempt = 1) => {
     setLoading(true)
-    if (attempt === 1) setLoadError(null)
+    if (attempt === 1) {
+      setLoadError(null)
+      setAmbiguous(null)
+    }
     try {
+      const keyQuery = systemKey
+        ? `?system_key=${encodeURIComponent(systemKey)}` +
+          (systemAccountId ? `&account_id=${encodeURIComponent(systemAccountId)}` : "")
+        : ""
       const graphResponse = await fetch(
-        `/api/proxy/system-resources/${encodeURIComponent(systemName)}`,
+        `/api/proxy/system-resources/${encodeURIComponent(systemName)}${keyQuery}`,
         { cache: "no-store" },
       )
 
@@ -222,6 +233,13 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
         graphData = await graphResponse.json()
       } catch {
         graphData = null
+      }
+
+      const candidates = ambiguousSystemCandidates(graphResponse.status, graphData)
+      if (candidates) {
+        setAmbiguous(candidates)
+        setServices([])
+        return
       }
 
       if (graphResponse.ok && graphData && !graphData.error) {
@@ -704,20 +722,20 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
           </CardContent>
         </Card>
 
+        {/* D42: every served row is a member of this system -- Cyntro system membership (for example a root a person
+            declared in the System Boundary wizard), which is not an AWS tag: such a root may carry no System/SystemName
+            tag. This card counts members and makes no tag claim. No served row is a non-member, so a percentage would
+            always read 100%; none is shown. A failed or ambiguous load has no member count: "—", never a zero. */}
         <Card className="border-l-4 border-l-purple-500">
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-sm text-[var(--muted-foreground,#6b7280)]">
               <Shield className="w-4 h-4" />
-              Tag Coverage
+              System membership
             </div>
             <div className="text-3xl font-bold text-[#8b5cf6]">
-              {services.length > 0 
-                ? Math.round((services.filter(s => s.systemName !== 'Untagged').length / services.length) * 100) 
-                : 0}%
+              {loadError || ambiguous ? "—" : services.length}
             </div>
-            <div className="text-xs text-[var(--muted-foreground,#9ca3af)] mt-1">
-              {services.filter(s => s.systemName !== 'Untagged').length} tagged • {services.filter(s => s.systemName === 'Untagged').length} untagged
-            </div>
+            <div className="text-xs text-[var(--muted-foreground,#9ca3af)] mt-1">in this system</div>
           </CardContent>
         </Card>
       </div>
@@ -727,6 +745,8 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
           Failed to load system-attributed services: {loadError}. Try Refresh — the backend can take up to 15s.
         </div>
       )}
+
+      {ambiguous && <SystemNameChoice systemName={systemName} candidates={ambiguous} purpose="services" />}
 
       {/* Search */}
       <div className="flex items-center gap-4">
@@ -812,7 +832,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Service Name</TableHead>
-                          <TableHead>SystemName</TableHead>
+                          <TableHead>System</TableHead>
                           <TableHead>Environment</TableHead>
                           <TableHead>Region</TableHead>
                           <TableHead>Status</TableHead>
@@ -836,14 +856,9 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                             </TableCell>
                             <TableCell>
                               <div className="flex flex-col gap-1">
-                                <span
-                                  className={`text-xs px-2 py-1 rounded ${
-                                    service.systemName !== "Untagged"
-                                      ? "bg-[#3b82f620] text-[#3b82f6]"
-                                      : "bg-[#f9731620] text-[#f97316]"
-                                  }`}
-                                >
-                                  {service.systemName === "Untagged" ? "Untagged" : service.systemName}
+                                {/* D42: the system this row is a member of -- not its AWS SystemName tag. */}
+                                <span className="text-xs px-2 py-1 rounded bg-[#3b82f620] text-[#3b82f6]">
+                                  {service.systemName}
                                 </span>
                                 {service.vpcId && (
                                   <span

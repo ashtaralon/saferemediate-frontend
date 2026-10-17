@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { backendError, fromCaughtError } from "@/lib/server/proxy-error";
+import { backendError, fromCaughtError, relayBackendError } from "@/lib/server/proxy-error";
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { normalizeFindingIdentity } from "@/lib/security-finding-identity"
 
@@ -108,13 +108,9 @@ export async function GET(request: Request) {
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      const errorText = await response.text().catch(() => "")
-      console.warn(`[Findings Proxy] Backend returned ${response.status}: ${errorText.slice(0, 200)}`);
-      return backendError({
-        status: response.status,
-        message: `Findings backend returned ${response.status}`,
-        detail: errorText.slice(0, 500),
-      })
+      // Typed refusals relayed typed; raw upstream text is never echoed (relayBackendError allowlists).
+      console.warn(`[Findings Proxy] Backend returned ${response.status}`);
+      return relayBackendError(response)
     }
 
     const data = await response.json();

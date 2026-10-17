@@ -2,6 +2,7 @@
 
 import { Building2, Cloud, Globe2, Layers3, Loader2 } from "lucide-react"
 import { usePathname } from "next/navigation"
+import { accountOptionText } from "@/lib/account-scope"
 import { useAccountScope } from "@/lib/account-scope-context"
 
 function ScopeSelect({
@@ -138,16 +139,14 @@ export function GlobalScopeBar() {
                   const selected = accountOptions.find(
                     (account) => account.account_id === scope.accountId,
                   )
-                  return selected
-                    ? `${selected.display_name} · ${selected.account_id}`
-                    : scope.accountId
+                  return selected ? accountOptionText(selected) : scope.accountId
                 })()
           }
         >
           <option value="all">All accounts</option>
           {accountOptions.map((account) => (
             <option key={account.account_id} value={account.account_id}>
-              {account.display_name} · {account.account_id}
+              {accountOptionText(account)}
             </option>
           ))}
         </ScopeSelect>

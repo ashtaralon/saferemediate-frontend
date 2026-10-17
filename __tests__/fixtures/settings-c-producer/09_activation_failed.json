@@ -1,0 +1,102 @@
+{
+ "body": {
+  "accounts": [
+   {
+    "account_id": "222222222222",
+    "aws_account_name": null,
+    "aws_account_name_error": null,
+    "aws_account_name_read_at": null,
+    "collection_mode": "MEMBER_READ_ROLE",
+    "coverage": null,
+    "customer_id": "acme",
+    "display_name": "222222222222",
+    "environment": "UNCLASSIFIED",
+    "group_ids": [],
+    "install_method": "MEMBER_STACK",
+    "is_platform_account": false,
+    "last_validated_at": null,
+    "mutation_enabled": false,
+    "onboarding_status": "ACTIVATION_FAILED",
+    "organization_id": null,
+    "organizational_unit_ids": [],
+    "pending_request": null,
+    "read_enabled": false,
+    "regions": [
+     "eu-west-1"
+    ],
+    "registered_at": "2026-10-04T16:27:18.264139+00:00",
+    "registered_by": {
+     "identity": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
+     "verified": true
+    },
+    "registration": {
+     "access_check": {
+      "answered_account": "222222222222",
+      "check_id": "ce9f135bd9748eabb85edc84b5b8b039",
+      "completed_at": "2026-10-04T16:27:18.369327+00:00",
+      "identity_observed_at": "2026-10-04T16:27:18.367833+00:00",
+      "name_in_aws": "prod-payments",
+      "name_unreadable": null,
+      "outcome": "REACHED",
+      "refusal": null,
+      "requested_by": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice"
+     },
+     "activating": false,
+     "activation": {
+      "at": "2026-10-04T16:27:18.399590+00:00",
+      "check_id": "ce9f135bd9748eabb85edc84b5b8b039",
+      "decided_by": "CONFIRMATION"
+     },
+     "activation_last": {
+      "at": "2026-10-04T16:27:18.421702+00:00",
+      "outcome": "ACTIVATION_FAILED",
+      "step": "READ_ROLE:MEMBER_ROLE_UNAVAILABLE"
+     },
+     "checking": false,
+     "first_inventory_dispatch": {
+      "blocker": null,
+      "checked_at": null,
+      "completed_at": null,
+      "hold": null,
+      "intended": 0,
+      "queued": 0,
+      "state": "NOT_STARTED"
+     },
+     "owner": null,
+     "registration_id": "3955dd868952d5e18bee2605a444d008",
+     "registration_path": "PENDING",
+     "registration_version": 5
+    },
+    "sources": {},
+    "tags": {},
+    "updated_at": "2026-10-04T16:27:18.421702+00:00",
+    "validation_message": "Activation of account 222222222222 stopped at READ_ROLE:MEMBER_ROLE_UNAVAILABLE. Nothing is collected; fix it, then retry the activation.",
+    "verification_enabled": false
+   }
+  ],
+  "customer_id": "acme",
+  "failed_requests": [],
+  "member_trust": {
+   "organization_id": null,
+   "platform_account_id": "111111111111",
+   "ready": false
+  },
+  "mode": "MEMBER_ACCOUNTS",
+  "registry_available": true,
+  "summary": {
+   "connected": 0,
+   "discovered": 0,
+   "mutation_enabled": 0,
+   "needs_attention": 0
+  },
+  "total": 1
+ },
+ "captured_at": "2026-10-04T16:27:18.699800+00:00",
+ "name": "09_activation_failed",
+ "note": "the activation's READ session was refused: ACTIVATION_FAILED, reads off",
+ "request": {
+  "method": "GET",
+  "path": "/api/admin/accounts?customer_id=acme"
+ },
+ "status": 200
+}

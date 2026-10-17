@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { fromCaughtError, relayBackendError } from "@/lib/server/proxy-error"
 
 const BACKEND_URL = getBackendBaseUrl()
 
@@ -16,17 +17,10 @@ export async function GET(_req: NextRequest) {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
     })
-    if (!res.ok) {
-      return NextResponse.json(
-        { error: "issues_summary_unavailable", backend_status: res.status },
-        { status: 502 },
-      )
-    }
+    // A typed refusal (held route, no data accounts, scope) is relayed typed, never a bare 502.
+    if (!res.ok) return relayBackendError(res)
     return NextResponse.json(await res.json())
   } catch (e) {
-    return NextResponse.json(
-      { error: "issues_summary_proxy_error", message: e instanceof Error ? e.message : String(e) },
-      { status: 502 },
-    )
+    return fromCaughtError(e)
   }
 }

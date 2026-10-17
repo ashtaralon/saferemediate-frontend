@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { normalizeJewelArn } from "@/lib/server/normalize-jewel-id"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { forwardScopeClaims } from "@/lib/server/scope-claims"
+import { systemChoiceDetail } from "@/lib/server/proxy-error"
 
 const BACKEND_URL = getBackendBaseUrl()
 
@@ -15,6 +16,12 @@ export async function GET(
   const jewelId = normalizeJewelArn(rawJewelId)
   const { searchParams } = new URL(request.url)
   const maxPaths = searchParams.get("max_paths") || "5"
+  // A7 B5: a page opened by key names ONE system (backend ?system_key=, with the account for a tag / source key).
+  // Absent, the request -- and the edge cache's URL -- is byte-identical to before.
+  const systemKey = searchParams.get("system_key")
+  const accountId = searchParams.get("account_id")
+  const scope = systemKey ? `&system_key=${encodeURIComponent(systemKey)}${
+    accountId ? `&account_id=${encodeURIComponent(accountId)}` : ""}` : ""
 
   try {
     const upstream = new URLSearchParams({ max_paths: maxPaths })
@@ -32,8 +39,10 @@ export async function GET(
     )
 
     if (!response.ok) {
+      // A7 B5: the 409 system choice is relayed (typed) so the page can offer it; every other refusal answers as before.
+      const choice = response.status === 409 ? systemChoiceDetail(await response.text().catch(() => "")) : undefined
       return NextResponse.json(
-        { error: "Failed to load jewel detail", status: response.status },
+        { error: "Failed to load jewel detail", status: response.status, ...(choice ? { detail: choice } : {}) },
         { status: response.status }
       )
     }

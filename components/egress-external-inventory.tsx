@@ -34,6 +34,8 @@
  */
 
 import React, { useEffect, useMemo, useState } from "react"
+import { SystemNameChoice } from "@/components/system-name-choice"
+import { ambiguousSystemCandidates, type SystemCandidate } from "@/lib/scoped-system-catalog"
 import {
   AlertTriangle,
   ExternalLink,
@@ -390,6 +392,9 @@ interface InventoryProps {
   initialDirection?: Direction
   initialWorkloadId?: string | null
   initialClassFilter?: DestinationClass | null
+  /** A7 B5: the system's KEY (+ a tag / source key's account) when the page was opened by key; absent on v1. */
+  systemKey?: string | null
+  systemAccountId?: string | null
 }
 
 export function EgressExternalInventory({
@@ -398,10 +403,14 @@ export function EgressExternalInventory({
   initialDirection,
   initialWorkloadId,
   initialClassFilter,
+  systemKey = null,
+  systemAccountId = null,
 }: InventoryProps) {
   const [data, setData] = useState<InventoryResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // B5: the name stands for several systems (409) -- the person chooses one; nothing is shown for any of them meanwhile.
+  const [ambiguous, setAmbiguous] = useState<SystemCandidate[] | null>(null)
   const [classFilter, setClassFilter] = useState<string | null>(initialClassFilter ?? null)
   const [strengthFilter, setStrengthFilter] = useState<string | null>(null)
   const [recommendationFilter, setRecommendationFilter] = useState<string | null>(null)
@@ -416,6 +425,7 @@ export function EgressExternalInventory({
   const fetchInventory = async (force = false) => {
     setLoading(true)
     setError(null)
+    setAmbiguous(null)
     try {
       const qs = new URLSearchParams({
         days: "30",
@@ -428,6 +438,11 @@ export function EgressExternalInventory({
       if (strengthFilter) qs.set("strength", strengthFilter)
       if (recommendationFilter) qs.set("recommendation", recommendationFilter)
       if (workloadFilter) qs.set("workload_id", workloadFilter)
+      if (systemKey) {
+        // B5: name ONE system; a tag / source key also names its account (systemScopeQuery's rule).
+        qs.set("system_key", systemKey)
+        if (systemAccountId) qs.set("account_id", systemAccountId)
+      }
       if (force) qs.set("_", String(Date.now()))
       const url = `/api/proxy/egress/system/${encodeURIComponent(
         systemName,
@@ -435,6 +450,12 @@ export function EgressExternalInventory({
       const res = await fetch(url, { cache: "no-store" })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
+        const candidates = ambiguousSystemCandidates(res.status, body)
+        if (candidates) {
+          setData(null)
+          setAmbiguous(candidates)
+          return
+        }
         throw new Error(body.error || `HTTP ${res.status}`)
       }
       const j = await res.json()
@@ -450,7 +471,7 @@ export function EgressExternalInventory({
     if (!systemName) return
     fetchInventory(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [systemName, classFilter, strengthFilter, recommendationFilter, directionFilter, workloadFilter])
+  }, [systemName, systemKey, systemAccountId, classFilter, strengthFilter, recommendationFilter, directionFilter, workloadFilter])
 
   const invariantHealthy = useMemo(() => {
     if (!data?.invariant) return null
@@ -723,6 +744,7 @@ export function EgressExternalInventory({
       )}
 
       {/* Empty / loading / error / data */}
+      {ambiguous && <SystemNameChoice systemName={systemName} candidates={ambiguous} purpose="traffic" />}
       {loading && !data && (
         <div className="rounded border border-slate-200 bg-slate-50 p-6 text-sm text-slate-500 text-center">
           Loading inventory…

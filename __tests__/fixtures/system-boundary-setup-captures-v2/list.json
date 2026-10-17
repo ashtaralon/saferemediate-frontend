@@ -1,0 +1,35 @@
+{
+  "_provenance": {
+    "harness": "tests/test_system_boundary_setup_captures.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/system-boundary/setup/list",
+      "body": null
+    }
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "body": {
+    "setups": [
+      {
+        "setup_id": "5e7a0000-0000-4000-8000-000000000001",
+        "status": "DRAFT",
+        "mode": "create",
+        "owner": "https://acme.okta.test/oauth2/default#00u-alice",
+        "state_version": 3,
+        "intent_revision": 3,
+        "current_attempt": 0,
+        "accounts_seen": [
+          "111111111111"
+        ],
+        "created_at": "2026-10-12T01:00:00.000000+00:00",
+        "updated_at": "2026-10-12T01:00:00.000000+00:00",
+        "predecessor": null,
+        "successor": null,
+        "association": null
+      }
+    ],
+    "next_cursor": null,
+    "contract": "system_boundary_setup/v2"
+  }
+}

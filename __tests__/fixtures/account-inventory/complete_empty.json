@@ -1,0 +1,51 @@
+{
+  "_provenance": {
+    "route": "GET /api/accounts/{account_id}/inventory (api/account_inventory.py)",
+    "harness": "tests/cyntro_data/test_account_inventory_api.py::test_the_real_route_answers_are_exactly_the_producer_goldens",
+    "fixed_clock_epoch": 1800000000,
+    "fixed_attempts": {
+      "empty": "0000000000000000000000000000000e",
+      "first": "00000000000000000000000000000001",
+      "moved": "00000000000000000000000000000002"
+    },
+    "pinned": [
+      "time.time",
+      "uuid.uuid4 around each publish",
+      "LocalEvidenceStore.bucket (recorded identity only)",
+      "cyntro_data.projection.receipt clock"
+    ],
+    "note": "The real route's answer, captured by the harness; nothing removed. Not installed or live evidence.",
+    "backend_commit": "fa2edd53e6743df08e38b15bb35f0d6215ce14ae",
+    "backend_path": "tests/fixtures/account_inventory_api/complete_empty.json",
+    "copied_unchanged": "status, cache_control and body are byte-for-byte the backend golden's"
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "body": {
+    "contract": "account_inventory/v1",
+    "account_id": "111122223333",
+    "state": "complete_empty",
+    "reason_code": null,
+    "account_authority": {
+      "registration_id": "0123456789abcdef0123456789abcdef"
+    },
+    "publication": {
+      "attempt": "0000000000000000000000000000000e",
+      "generation": 1,
+      "source_identity": "v1:583d7f43094983d2b38a8d75e6115df646d6f02b7758f761294e2c9cf98f135c",
+      "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+      "published_at_epoch": 1800000000,
+      "inventory_complete": true,
+      "row_contract": "account_inventory_row/v3"
+    },
+    "totals": {
+      "account_total": 0,
+      "filter_total": 0,
+      "by_type": {},
+      "by_region": {}
+    },
+    "rows": [],
+    "next_cursor": null,
+    "has_more": false
+  }
+}

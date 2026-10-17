@@ -1,0 +1,18 @@
+{
+  "_provenance": {
+    "harness": "tests/test_system_boundary_terraform_captures.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/system-boundary/terraform-bindings/00000000-0000-4000-8000-0000000000ff",
+      "body": null
+    }
+  },
+  "status": 404,
+  "cache_control": null,
+  "content_type": "application/json",
+  "body": {
+    "detail": {
+      "code": "BINDING_NOT_FOUND"
+    }
+  }
+}

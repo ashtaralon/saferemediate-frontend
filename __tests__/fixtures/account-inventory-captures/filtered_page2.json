@@ -1,0 +1,124 @@
+{
+  "_provenance": {
+    "route": "GET /api/accounts/{account_id}/inventory (api/account_inventory.py)",
+    "request": {
+      "method": "GET",
+      "path": "/api/accounts/111122223333/inventory",
+      "query": {
+        "resource_type": "ec2:instance",
+        "limit": "1"
+      },
+      "cursor": {
+        "from": "filtered_page1",
+        "field": "body.next_cursor"
+      }
+    },
+    "harness": "tests/cyntro_data/test_account_inventory_captures.py::test_the_real_route_answers_are_exactly_the_captures",
+    "fixed_clock_epoch": 1800000000,
+    "facts": "REAL normalizers: tests/cyntro_data/account_inventory_capture_facts.py (capture account only)",
+    "publication": "this commit's projector and P3a2 publisher (row contract v3) at the production budget (none passed, as scripts/project_account_inventory.py passes none), uuid4 pinned to 00000000000000000000000000000004",
+    "readiness": "the T11-0 harness provider answering (True, 'pass') -- a stand-in for a READY consumer pass",
+    "pinned": [
+      "time.time",
+      "LocalEvidenceStore.bucket (recorded identity only)",
+      "cyntro_data.projection.receipt clock"
+    ],
+    "note": "The real route's answer over a real publication; nothing removed. Not installed or live evidence."
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "body": {
+    "contract": "account_inventory/v1",
+    "account_id": "111122223333",
+    "state": "populated",
+    "reason_code": null,
+    "account_authority": {
+      "registration_id": "0123456789abcdef0123456789abcdef"
+    },
+    "publication": {
+      "attempt": "00000000000000000000000000000004",
+      "generation": 1,
+      "source_identity": "v1:cb374b0afc8c7eecb7f42ec856858dcf1155c9d40463965de520aaeb207219c6",
+      "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+      "published_at_epoch": 1800000000,
+      "inventory_complete": true,
+      "row_contract": "account_inventory_row/v3"
+    },
+    "totals": {
+      "account_total": 25,
+      "filter_total": 2,
+      "by_type": {
+        "account:regions": 1,
+        "ec2:instance": 2,
+        "ec2:internet-gateway": 1,
+        "ec2:nat-gateway": 1,
+        "ec2:network-acl": 1,
+        "ec2:network-interface": 1,
+        "ec2:route-table": 1,
+        "ec2:security-group": 1,
+        "ec2:subnet": 1,
+        "ec2:vpc": 1,
+        "ec2:vpc-endpoint": 1,
+        "eks:cluster": 1,
+        "elasticloadbalancing:load-balancer": 1,
+        "elasticloadbalancing:target-group": 1,
+        "iam:policy": 1,
+        "iam:role": 2,
+        "k8s:deployment": 1,
+        "k8s:namespace": 1,
+        "kms:key-authorization": 1,
+        "lambda:function": 1,
+        "rds:db-cluster": 1,
+        "rds:db-instance": 1,
+        "s3:bucket": 1
+      },
+      "by_region": {
+        "eu-west-1": 20,
+        "global": 5
+      }
+    },
+    "rows": [
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/instance/i-0f9e8d7c6b5a40312",
+        "resource_type": "ec2:instance",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "i-0f9e8d7c6b5a40312",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:instance/i-0f9e8d7c6b5a40312",
+        "name": null,
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:38661227ccadcbae9840eb2b48b5a8cb275ef9085ea80efb0989027d0e45fbbc",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "provided",
+          "value": "i-0f9e8d7c6b5a40312",
+          "source": "instance_id"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags_withheld": {
+          "reason": "TAGS_OVER_CAP",
+          "count": 50
+        },
+        "details": {
+          "instance_state": "running",
+          "instance_type": "t3.micro",
+          "vpc_id": "vpc-1",
+          "subnet_id": "subnet-abc",
+          "private_ip": "10.20.1.15",
+          "iam_instance_profile": "arn:aws:iam::111122223333:instance-profile/checkout-api",
+          "launch_time": "2026-08-03T07:15:00+00:00"
+        },
+        "eligibility": {
+          "selectable": true,
+          "reason": "SUPPORTED"
+        }
+      }
+    ],
+    "next_cursor": null,
+    "has_more": false
+  }
+}

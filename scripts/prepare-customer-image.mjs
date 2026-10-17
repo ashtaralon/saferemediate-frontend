@@ -44,8 +44,31 @@ async function filesUnder(relative) {
   return result
 }
 
+/**
+ * The hosted backends' addresses live in ONE module (lib/server/hosted-defaults.ts). The
+ * customer image exports `null` there: every resolver then has no hosted fallback to reach for,
+ * and the build's own grep over its output (Dockerfile.customer-pilot) proves the addresses are
+ * gone rather than merely unused.
+ */
+async function blankHostedDefaults() {
+  const modulePath = path.join(root, "lib/server/hosted-defaults.ts")
+  const source = await readFile(modulePath, "utf8")
+  const marker = "export const HOSTED_DEFAULTS: HostedDefaults | null = {"
+  const start = source.indexOf(marker)
+  if (start < 0) throw new Error("Customer hosted-defaults transform no longer matches lib/server/hosted-defaults.ts")
+  const end = source.indexOf("\n}\n", start)
+  if (end < 0) throw new Error("Customer hosted-defaults transform no longer matches lib/server/hosted-defaults.ts")
+  const blanked =
+    source.slice(0, start) +
+    "// Customer-resident image: no hosted backend exists to fall back to (scripts/prepare-customer-image.mjs).\n" +
+    "export const HOSTED_DEFAULTS: HostedDefaults | null = null\n" +
+    source.slice(end + "\n}\n".length)
+  if (!checkOnly) await writeFile(modulePath, blanked)
+}
+
 const files = (await Promise.all(roots.map(filesUnder))).flat()
 await prepareLocalFonts()
+await blankHostedDefaults()
 let replacements = 0
 for (const relative of files) {
   const absolute = path.join(root, relative)
@@ -59,6 +82,7 @@ for (const relative of files) {
 
 const leaks = []
 for (const relative of files) {
+  if (relative === "lib/server/hosted-defaults.ts") continue // blanked above; the build output grep proves it
   const source = await readFile(path.join(root, relative), "utf8")
   const effective = checkOnly ? source.split(hostedBackend).join(localBackend) : source
   if (effective.includes(hostedBackend)) leaks.push(relative)

@@ -1,0 +1,464 @@
+{
+  "_provenance": {
+    "harness": "tests/cyntro_data/test_system_boundary_finish_pair_captures.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/system-boundary/setup/f50016c7-6d3d-4f20-8be1-98333fae1251",
+      "params": null
+    }
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "body": {
+    "setup_id": "f50016c7-6d3d-4f20-8be1-98333fae1251",
+    "status": "FINISHED",
+    "mode": "create",
+    "owner": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
+    "state_version": 4,
+    "intent_revision": 2,
+    "current_attempt": 1,
+    "accounts_seen": [
+      "111122223333"
+    ],
+    "created_at": "2026-10-13T23:52:34.011149+00:00",
+    "updated_at": "2026-10-13T23:52:34.229499+00:00",
+    "predecessor": null,
+    "successor": null,
+    "association": {
+      "completed_revision": 2,
+      "deployments": [
+        {
+          "key": "DEPLOYMENT#authored_deployment:9727d62b9a8cd7b27eb3bf7f0e3c8c55dccab3c667221bbe89e277bf2bdb516e",
+          "version": 1
+        },
+        {
+          "key": "DEPLOYMENT#authored_deployment:46c0c74d4229897e9a38ab45d6d976e9717c9fe428158bb984af12a635c3212d",
+          "version": 1
+        }
+      ],
+      "system": {
+        "key": "SYSTEM#authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f",
+        "version": 1
+      }
+    },
+    "intent": {
+      "declaration": {
+        "bindings": [
+          {
+            "account_id": "111122223333",
+            "deployment_key": "prod",
+            "kind": "exclusive",
+            "region": "eu-west-1",
+            "selection": {
+              "census": {
+                "generation": 1,
+                "source_identity": "v1:ae9272854fe119cfb9febee4412ad0b5a259c0ba2a7ae2e1c1cd09524658e8f1"
+              },
+              "stack_status": "UPDATE_COMPLETE"
+            },
+            "stack_id": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc"
+          },
+          {
+            "account_id": "111122223333",
+            "deployment_key": "staging",
+            "kind": "exclusive",
+            "region": "eu-west-1",
+            "selection": {
+              "census": {
+                "generation": 1,
+                "source_identity": "v1:ae9272854fe119cfb9febee4412ad0b5a259c0ba2a7ae2e1c1cd09524658e8f1"
+              },
+              "stack_status": "UPDATE_COMPLETE"
+            },
+            "stack_id": "arn:aws:cloudformation:eu-west-1:111122223333:stack/api/0e0e0e0e-2222-4333-8444-ddddeeeeffff"
+          }
+        ],
+        "deployments": [
+          {
+            "deployment_key": "prod",
+            "environment": "PRODUCTION",
+            "mode": "new",
+            "scopes": [
+              {
+                "account_id": "111122223333",
+                "region": "eu-west-1"
+              }
+            ]
+          },
+          {
+            "deployment_key": "staging",
+            "environment": "STAGING",
+            "mode": "new",
+            "scopes": [
+              {
+                "account_id": "111122223333",
+                "region": "eu-west-1"
+              }
+            ]
+          }
+        ],
+        "system": {
+          "criticality": "LOW",
+          "display_name": "Payments",
+          "mode": "new"
+        }
+      },
+      "dispositions": [
+        {
+          "choice": "use_existing",
+          "reason_code": "USE_EXISTING",
+          "ref": {
+            "key": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+            "kind": "stack_binding"
+          },
+          "scope": {
+            "account_id": "111122223333",
+            "deployment": "prod",
+            "region": "eu-west-1"
+          },
+          "subject": "iac"
+        },
+        {
+          "choice": "use_existing",
+          "reason_code": "USE_EXISTING",
+          "ref": {
+            "key": "arn:aws:cloudformation:eu-west-1:111122223333:stack/api/0e0e0e0e-2222-4333-8444-ddddeeeeffff",
+            "kind": "stack_binding"
+          },
+          "scope": {
+            "account_id": "111122223333",
+            "deployment": "staging",
+            "region": "eu-west-1"
+          },
+          "subject": "iac"
+        }
+      ],
+      "resume_step": "review_and_start"
+    },
+    "dispositions_derived": [
+      {
+        "subject": "iac",
+        "scope": {
+          "account_id": "111122223333",
+          "deployment": "prod",
+          "region": "eu-west-1"
+        },
+        "choice": "use_existing",
+        "resolution": {
+          "state": "resolved",
+          "reason": null,
+          "registration_id": "0123456789abcdef0123456789abcdef",
+          "proof": {
+            "registration_id": "0123456789abcdef0123456789abcdef",
+            "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+            "publication": {
+              "attempt": "eeb01403aa4842e19ab3ec25745bfe32",
+              "generation": 1,
+              "source_identity": "v1:ae9272854fe119cfb9febee4412ad0b5a259c0ba2a7ae2e1c1cd09524658e8f1",
+              "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7"
+            },
+            "stack_status": "UPDATE_COMPLETE",
+            "read_outcome": "COMPLETE"
+          }
+        },
+        "status_axes": {
+          "assessment": "assessed",
+          "configuration": "assessed",
+          "readability": "unknown",
+          "acquisition": "unknown",
+          "serving": "unknown"
+        },
+        "required_facts": {
+          "support": "UNSUPPORTED",
+          "reason": "IAC_ACQUISITION_NOT_AVAILABLE"
+        },
+        "consequence": []
+      },
+      {
+        "subject": "iac",
+        "scope": {
+          "account_id": "111122223333",
+          "deployment": "staging",
+          "region": "eu-west-1"
+        },
+        "choice": "use_existing",
+        "resolution": {
+          "state": "resolved",
+          "reason": null,
+          "registration_id": "0123456789abcdef0123456789abcdef",
+          "proof": {
+            "registration_id": "0123456789abcdef0123456789abcdef",
+            "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+            "publication": {
+              "attempt": "eeb01403aa4842e19ab3ec25745bfe32",
+              "generation": 1,
+              "source_identity": "v1:ae9272854fe119cfb9febee4412ad0b5a259c0ba2a7ae2e1c1cd09524658e8f1",
+              "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7"
+            },
+            "stack_status": "UPDATE_COMPLETE",
+            "read_outcome": "COMPLETE"
+          }
+        },
+        "status_axes": {
+          "assessment": "assessed",
+          "configuration": "assessed",
+          "readability": "unknown",
+          "acquisition": "unknown",
+          "serving": "unknown"
+        },
+        "required_facts": {
+          "support": "UNSUPPORTED",
+          "reason": "IAC_ACQUISITION_NOT_AVAILABLE"
+        },
+        "consequence": []
+      }
+    ],
+    "requirement_profile": {
+      "hash": "v1:12e6f1d6bab942e8d77010a3e4ffc449c40f04e32ca1b2ba863967626f32dbce",
+      "document": {
+        "schema": "cyntro-requirement-profile/v1",
+        "subjects": [
+          {
+            "subject": "history:cloudtrail",
+            "support": "SUPPORTED",
+            "reason": null,
+            "scope": [
+              "account_id",
+              "region"
+            ],
+            "evidence": {
+              "source": "cloudtrail_iam_usage",
+              "scope": [
+                "account_id",
+                "region"
+              ]
+            },
+            "permission": {
+              "template": "deploy/customer_pilot/account-read-spoke.yaml",
+              "role": "EvidenceReadRole",
+              "policies": [
+                "OwnCloudTrailObjectsOnly"
+              ],
+              "condition": null,
+              "owner_parameters": []
+            }
+          },
+          {
+            "subject": "history:vpc_flow",
+            "support": "SUPPORTED",
+            "reason": null,
+            "scope": [
+              "account_id",
+              "region"
+            ],
+            "evidence": {
+              "source": "vpc_flow",
+              "scope": [
+                "account_id",
+                "region"
+              ]
+            },
+            "permission": {
+              "template": "deploy/customer_pilot/account-read-spoke.yaml",
+              "role": "EvidenceReadRole",
+              "policies": [
+                "NamedFlowLogGroupsOnly"
+              ],
+              "condition": "HasFlowLogs",
+              "owner_parameters": [
+                "ExistingFlowLogGroupArns",
+                "FlowLogVpcId"
+              ]
+            }
+          },
+          {
+            "subject": "iac",
+            "support": "UNSUPPORTED",
+            "reason": "IAC_ACQUISITION_NOT_AVAILABLE",
+            "scope": [],
+            "evidence": null,
+            "permission": null
+          },
+          {
+            "subject": "code",
+            "support": "UNSUPPORTED",
+            "reason": "CODE_ACQUISITION_NOT_AVAILABLE",
+            "scope": [],
+            "evidence": null,
+            "permission": null
+          }
+        ]
+      }
+    },
+    "attempt": {
+      "attempt": 1,
+      "actor": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
+      "created_at": "2026-10-13T23:52:34.215098+00:00",
+      "recover_after": "2026-10-14T00:07:34.215098+00:00",
+      "intent_revision": 2,
+      "base_revision": 1,
+      "expected_versions": {},
+      "save_request_id": "021bc395-8b22-4ee4-b665-7f754f946f54"
+    },
+    "outcome": null,
+    "receipt": {
+      "actor": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
+      "association": {
+        "completed_revision": 2,
+        "deployments": [
+          {
+            "key": "DEPLOYMENT#authored_deployment:9727d62b9a8cd7b27eb3bf7f0e3c8c55dccab3c667221bbe89e277bf2bdb516e",
+            "version": 1
+          },
+          {
+            "key": "DEPLOYMENT#authored_deployment:46c0c74d4229897e9a38ab45d6d976e9717c9fe428158bb984af12a635c3212d",
+            "version": 1
+          }
+        ],
+        "system": {
+          "key": "SYSTEM#authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f",
+          "version": 1
+        }
+      },
+      "attempt": 1,
+      "derived_at_finish": [
+        {
+          "choice": "use_existing",
+          "consequence": [],
+          "required_facts": 0,
+          "resolution": {
+            "proof": {
+              "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+              "publication": {
+                "attempt": "eeb01403aa4842e19ab3ec25745bfe32",
+                "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+                "generation": 1,
+                "source_identity": "v1:ae9272854fe119cfb9febee4412ad0b5a259c0ba2a7ae2e1c1cd09524658e8f1"
+              },
+              "read_outcome": "COMPLETE",
+              "registration_id": "0123456789abcdef0123456789abcdef",
+              "stack_status": "UPDATE_COMPLETE"
+            },
+            "reason": null,
+            "registration_id": "0123456789abcdef0123456789abcdef",
+            "state": "resolved"
+          },
+          "scope": {
+            "account_id": "111122223333",
+            "deployment": "prod",
+            "region": "eu-west-1"
+          },
+          "status_axes": {
+            "acquisition": "unknown",
+            "assessment": "assessed",
+            "configuration": "assessed",
+            "readability": "unknown",
+            "serving": "unknown"
+          },
+          "subject": "iac"
+        },
+        {
+          "choice": "use_existing",
+          "consequence": [],
+          "required_facts": 0,
+          "resolution": {
+            "proof": {
+              "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+              "publication": {
+                "attempt": "eeb01403aa4842e19ab3ec25745bfe32",
+                "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+                "generation": 1,
+                "source_identity": "v1:ae9272854fe119cfb9febee4412ad0b5a259c0ba2a7ae2e1c1cd09524658e8f1"
+              },
+              "read_outcome": "COMPLETE",
+              "registration_id": "0123456789abcdef0123456789abcdef",
+              "stack_status": "UPDATE_COMPLETE"
+            },
+            "reason": null,
+            "registration_id": "0123456789abcdef0123456789abcdef",
+            "state": "resolved"
+          },
+          "scope": {
+            "account_id": "111122223333",
+            "deployment": "staging",
+            "region": "eu-west-1"
+          },
+          "status_axes": {
+            "acquisition": "unknown",
+            "assessment": "assessed",
+            "configuration": "assessed",
+            "readability": "unknown",
+            "serving": "unknown"
+          },
+          "subject": "iac"
+        }
+      ],
+      "dispositions_digest": "23f02f217419cba625d6001eb155103c58615f457203dade666a150bae84d7ee",
+      "expected_versions": {},
+      "intent_revision": 2,
+      "manifest_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "predecessor": null,
+      "preview": {
+        "admission": {
+          "111122223333": [
+            {
+              "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+              "contract": "account_census_stacks_read/v1",
+              "publication": {
+                "attempt": "eeb01403aa4842e19ab3ec25745bfe32",
+                "generation": 1,
+                "source_identity": "v1:ae9272854fe119cfb9febee4412ad0b5a259c0ba2a7ae2e1c1cd09524658e8f1"
+              },
+              "registration_id": "0123456789abcdef0123456789abcdef"
+            }
+          ]
+        },
+        "authored_revision": 1,
+        "basis_digest": "v1:bdcb87e0aae3041e4200ec9a023613da91f3897ad1239488f00d77f207ec1618",
+        "counts": {
+          "dependencies": 0,
+          "held": 0,
+          "members": 4,
+          "not_members": 0,
+          "stale_members": 0,
+          "unlisted": 0
+        },
+        "preview_digest": "v1:484ec3e0253831a6c1fe62a1e6fc3cc946f72050018e1e43f98ad574cf8660b6",
+        "result_digest": "v1:6f9513e85206f27d621373083b2ae5efe1c62062ed90c3b2acf963a17973258a"
+      },
+      "registration_pins": {
+        "111122223333": "0123456789abcdef0123456789abcdef"
+      },
+      "requirement_profile": {
+        "facts": [
+          {
+            "reason": "IAC_ACQUISITION_NOT_AVAILABLE",
+            "support": "UNSUPPORTED"
+          }
+        ],
+        "hash": "v1:12e6f1d6bab942e8d77010a3e4ffc449c40f04e32ca1b2ba863967626f32dbce"
+      },
+      "setup_id": "f50016c7-6d3d-4f20-8be1-98333fae1251",
+      "written_at": "2026-10-13T23:52:34.229499+00:00"
+    },
+    "reconciliation": null,
+    "result_scope": {
+      "v": 2,
+      "state": "SERVED",
+      "accounts": [
+        "111122223333"
+      ],
+      "from": [
+        {
+          "key": "DEPLOYMENT#authored_deployment:9727d62b9a8cd7b27eb3bf7f0e3c8c55dccab3c667221bbe89e277bf2bdb516e",
+          "version": 1
+        },
+        {
+          "key": "DEPLOYMENT#authored_deployment:46c0c74d4229897e9a38ab45d6d976e9717c9fe428158bb984af12a635c3212d",
+          "version": 1
+        }
+      ]
+    },
+    "contract": "system_boundary_setup/v5"
+  }
+}

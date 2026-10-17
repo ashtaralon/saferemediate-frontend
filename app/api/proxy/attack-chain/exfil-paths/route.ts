@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { systemChoiceDetail } from "@/lib/server/proxy-error"
 
 /**
  * POST proxy for /api/attack-chain/exfil-paths.
@@ -31,6 +32,8 @@ export async function POST(req: NextRequest) {
   try {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 55_000)
+    // The body is forwarded verbatim -- including the optional ``system_key`` beside ``system_name`` that a page opened by
+    // key sends (A7 B5: names ONE system). Without it the request is byte-identical to before.
     const upstream = await fetch(`${BACKEND_URL}/api/attack-chain/exfil-paths`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -41,11 +44,14 @@ export async function POST(req: NextRequest) {
     clearTimeout(timeout)
     if (!upstream.ok) {
       const text = await upstream.text()
+      // A7 B5: the 409 system choice is relayed typed (lib/server/proxy-error systemChoiceDetail) so the page can offer it;
+      // every other refusal answers as before.
+      const choice = upstream.status === 409 ? systemChoiceDetail(text) : undefined
       return NextResponse.json(
         {
           ok: false,
           error: `backend ${upstream.status}`,
-          detail: text.slice(0, 500),
+          detail: choice ?? text.slice(0, 500),
         },
         { status: upstream.status },
       )

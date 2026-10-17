@@ -213,8 +213,10 @@ const ACTION_STYLE: Record<
   StatementAction,
   { label: string; color: string; bg: string; border: string }
 > = {
+  // action_class safe_to_remove is evidence-gated; the label says what it is:
+  // a candidate, because absence in the window is not proof of non-use.
   safe_to_remove: {
-    label: "Safe to remove",
+    label: "Removal candidate (not observed in use)",
     color: "#16a34a",
     bg: "#f0fdf4",
     border: "#bbf7d0",

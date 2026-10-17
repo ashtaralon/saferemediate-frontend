@@ -27,7 +27,7 @@ function reading(data: unknown, stale?: { cachedAt: number }): UseCachedFetchRes
   return {
     data: data as PathsResponse, isStale: Boolean(stale), cachedAt: stale?.cachedAt ?? null,
     staleReason: stale ? "cached reading" : null, loading: false, isComputing: false, error: null, hold: null,
-    retry: () => undefined,
+    choice: null, retry: () => undefined,
   }
 }
 

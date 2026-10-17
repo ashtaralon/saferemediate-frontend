@@ -19,6 +19,7 @@ import {
 } from "@/lib/server/proxy-cache-hygiene"
 import { SNAPSHOT_PROXY_TIMEOUT_MS } from "@/lib/server/snapshot-proxy"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { systemChoiceDetail } from "@/lib/server/proxy-error"
 
 export const runtime = "nodejs"
 // Intentionally NOT `dynamic = "force-dynamic"` — that flag opts the
@@ -65,6 +66,12 @@ export async function GET(
   // — the path graph shape is unchanged. Default off so callers that
   // don't render the extra fields see the lighter payload.
   const enriched = searchParams.get("enriched") === "true"
+  // A7 B5: a page opened by key names ONE system (backend ?system_key=, with the account for a tag / source key).
+  // Absent, the request -- and its cache key -- is byte-identical to before.
+  const systemKey = searchParams.get("system_key")
+  const accountId = searchParams.get("account_id")
+  const scope = systemKey ? `&system_key=${encodeURIComponent(systemKey)}${
+    accountId ? `&account_id=${encodeURIComponent(accountId)}` : ""}` : ""
 
   // Server-side cache (5 min TTL — match the /all aggregator pattern).
   // Backend call costs 30–50s on alon-prod-scale systems; without a
@@ -97,6 +104,8 @@ export async function GET(
     includeStale,
     includeDeleted,
     enriched,
+    // A7 B5: another key / account is another system -- never a hit for this one.
+    ...(systemKey ? [`key=${systemKey}`, accountId ?? ""] : []),
   ].join(":")
 
   // Per-instance in-memory cache (warm-instance path — instant on repeat).
@@ -142,7 +151,7 @@ export async function GET(
       includeStale,
       includeDeleted,
     })
-    const url = `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(systemName)}${query}`
+    const url = `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(systemName)}${query}${scope}`
     console.log("[identity-attack-paths] Fetching:", url)
     const t0 = Date.now()
     let res = await fetch(url, {
@@ -216,10 +225,14 @@ export async function GET(
             includeStale,
             includeDeleted,
             cacheKey,
+            scope,
           })
           if (liteRes) return liteRes
         }
       }
+      // A7 B5: the 409 system choice is relayed (typed, lib/server/proxy-error systemChoiceDetail) so the page can offer
+      // it; every other refusal answers as before. Never cached.
+      const choice = res.status === 409 && errorBody ? systemChoiceDetail(JSON.stringify(errorBody)) : undefined
       return NextResponse.json(
         {
           error: "attack_paths_unavailable",
@@ -230,6 +243,7 @@ export async function GET(
           total_jewels: 0,
           total_paths: 0,
           errors: [`backend ${res.status}`],
+          ...(choice ? { detail: choice } : {}),
         },
         { status: res.status }
       )
@@ -296,6 +310,8 @@ async function fetchLighterBudget(opts: {
   includeStale: boolean
   includeDeleted: boolean
   cacheKey: string
+  /** A7 B5: the primary request's ``&system_key=..[&account_id=..]`` (empty without a key): the same ONE system. */
+  scope: string
 }): Promise<NextResponse | null> {
   const liteJewels = "3"
   const litePaths = "4"
@@ -307,7 +323,7 @@ async function fetchLighterBudget(opts: {
     includeStale: opts.includeStale,
     includeDeleted: opts.includeDeleted,
   })
-  const url = `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(opts.systemName)}${query}`
+  const url = `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(opts.systemName)}${query}${opts.scope}`
   console.warn(
     `[identity-attack-paths] lighter-budget retry systemName=${opts.systemName} max_jewels=${liteJewels}`,
   )

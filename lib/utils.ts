@@ -13,8 +13,13 @@ export function riskLabel(score: number): { label: string; color: string } {
   return { label: "High", color: "#ef4444" }
 }
 
-/** Convert a 0-100 health score to a human label + color. Higher = better. */
-export function healthLabel(score: number): { label: string; color: string } {
+/** Convert a 0-100 health score to a human label + color. Higher = better.
+ *  null = not computed: labelled as such, never as "Critical" (which is what
+ *  a coerced 0 would say). */
+export function healthLabel(score: number | null | undefined): { label: string; color: string } {
+  if (score === null || score === undefined || Number.isNaN(score)) {
+    return { label: "Not computed", color: "var(--text-muted)" }
+  }
   if (score >= 80) return { label: "Healthy", color: "#22c55e" }
   if (score >= 60) return { label: "Fair", color: "#eab308" }
   if (score >= 40) return { label: "At Risk", color: "#f97316" }

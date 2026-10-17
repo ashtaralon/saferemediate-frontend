@@ -128,6 +128,8 @@ export interface FindingsListData {
 export interface SystemSummary {
   name: string
   displayName?: string
+  /** A7 B5 (v2 answer): the row's identity -- two rows may share a name, never a row_key. */
+  row_key?: string
   environment?: string
   region?: string
   owner?: string

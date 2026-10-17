@@ -1,0 +1,257 @@
+{
+  "_provenance": {
+    "harness": "tests/cyntro_data/test_system_boundary_preview_captures.py",
+    "request": {
+      "method": "PUT",
+      "path": "/api/system-boundary/setup/a25c4478-a2a5-43d5-87cc-56f37040d2b8",
+      "params": null,
+      "body": {
+        "request_id": "00000000-0000-4000-8000-000000005132",
+        "base_state_version": 1,
+        "steps": {
+          "declaration": {
+            "system": {
+              "mode": "new",
+              "display_name": "Payments",
+              "criticality": "LOW"
+            },
+            "deployment": {
+              "mode": "new",
+              "deployment_key": "prod",
+              "environment": "PRODUCTION",
+              "scopes": [
+                {
+                  "account_id": "111122223333",
+                  "region": "eu-west-1"
+                }
+              ]
+            },
+            "bindings": [
+              {
+                "account_id": "111122223333",
+                "region": "eu-west-1",
+                "stack_id": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+                "kind": "exclusive",
+                "selection": {
+                  "census": {
+                    "generation": 1,
+                    "source_identity": "v1:7a4d655a669719aee49190265c0c380c95534c69e0a1080215425ac2dc3f3ecf"
+                  },
+                  "stack_status": "UPDATE_COMPLETE"
+                }
+              }
+            ]
+          },
+          "resume_step": "review_and_start",
+          "dispositions": [
+            {
+              "subject": "iac",
+              "scope": {
+                "account_id": "111122223333",
+                "region": "eu-west-1"
+              },
+              "choice": "use_existing",
+              "reason_code": "USE_EXISTING",
+              "ref": {
+                "kind": "stack_binding",
+                "key": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "body": {
+    "setup_id": "a25c4478-a2a5-43d5-87cc-56f37040d2b8",
+    "status": "DRAFT",
+    "mode": "create",
+    "owner": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
+    "state_version": 2,
+    "intent_revision": 2,
+    "current_attempt": 0,
+    "accounts_seen": [
+      "111122223333"
+    ],
+    "created_at": "2026-10-13T03:20:10.924192+00:00",
+    "updated_at": "2026-10-13T03:20:10.931335+00:00",
+    "predecessor": null,
+    "successor": null,
+    "association": null,
+    "intent": {
+      "declaration": {
+        "bindings": [
+          {
+            "account_id": "111122223333",
+            "kind": "exclusive",
+            "region": "eu-west-1",
+            "selection": {
+              "census": {
+                "generation": 1,
+                "source_identity": "v1:7a4d655a669719aee49190265c0c380c95534c69e0a1080215425ac2dc3f3ecf"
+              },
+              "stack_status": "UPDATE_COMPLETE"
+            },
+            "stack_id": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc"
+          }
+        ],
+        "deployment": {
+          "deployment_key": "prod",
+          "environment": "PRODUCTION",
+          "mode": "new",
+          "scopes": [
+            {
+              "account_id": "111122223333",
+              "region": "eu-west-1"
+            }
+          ]
+        },
+        "system": {
+          "criticality": "LOW",
+          "display_name": "Payments",
+          "mode": "new"
+        }
+      },
+      "dispositions": [
+        {
+          "choice": "use_existing",
+          "reason_code": "USE_EXISTING",
+          "ref": {
+            "key": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-aaaabbbbcccc",
+            "kind": "stack_binding"
+          },
+          "scope": {
+            "account_id": "111122223333",
+            "region": "eu-west-1"
+          },
+          "subject": "iac"
+        }
+      ],
+      "resume_step": "review_and_start"
+    },
+    "dispositions_derived": [
+      {
+        "subject": "iac",
+        "scope": {
+          "account_id": "111122223333",
+          "region": "eu-west-1"
+        },
+        "choice": "use_existing",
+        "resolution": {
+          "state": "resolved",
+          "reason": null,
+          "registration_id": "0123456789abcdef0123456789abcdef",
+          "proof": {
+            "registration_id": "0123456789abcdef0123456789abcdef",
+            "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+            "publication": {
+              "attempt": "ce8c08ece00546baaeaa1a95f8f24b30",
+              "generation": 1,
+              "source_identity": "v1:7a4d655a669719aee49190265c0c380c95534c69e0a1080215425ac2dc3f3ecf",
+              "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7"
+            },
+            "stack_status": "UPDATE_COMPLETE",
+            "read_outcome": "COMPLETE"
+          }
+        },
+        "status_axes": {
+          "assessment": "assessed",
+          "configuration": "assessed",
+          "readability": "unknown",
+          "acquisition": "unknown",
+          "serving": "unknown"
+        },
+        "required_facts": {
+          "support": "UNSUPPORTED",
+          "reason": "IAC_ACQUISITION_NOT_AVAILABLE"
+        },
+        "consequence": []
+      }
+    ],
+    "requirement_profile": {
+      "hash": "v1:12e6f1d6bab942e8d77010a3e4ffc449c40f04e32ca1b2ba863967626f32dbce",
+      "document": {
+        "schema": "cyntro-requirement-profile/v1",
+        "subjects": [
+          {
+            "subject": "history:cloudtrail",
+            "support": "SUPPORTED",
+            "reason": null,
+            "scope": [
+              "account_id",
+              "region"
+            ],
+            "evidence": {
+              "source": "cloudtrail_iam_usage",
+              "scope": [
+                "account_id",
+                "region"
+              ]
+            },
+            "permission": {
+              "template": "deploy/customer_pilot/account-read-spoke.yaml",
+              "role": "EvidenceReadRole",
+              "policies": [
+                "OwnCloudTrailObjectsOnly"
+              ],
+              "condition": null,
+              "owner_parameters": []
+            }
+          },
+          {
+            "subject": "history:vpc_flow",
+            "support": "SUPPORTED",
+            "reason": null,
+            "scope": [
+              "account_id",
+              "region"
+            ],
+            "evidence": {
+              "source": "vpc_flow",
+              "scope": [
+                "account_id",
+                "region"
+              ]
+            },
+            "permission": {
+              "template": "deploy/customer_pilot/account-read-spoke.yaml",
+              "role": "EvidenceReadRole",
+              "policies": [
+                "NamedFlowLogGroupsOnly"
+              ],
+              "condition": "HasFlowLogs",
+              "owner_parameters": [
+                "ExistingFlowLogGroupArns",
+                "FlowLogVpcId"
+              ]
+            }
+          },
+          {
+            "subject": "iac",
+            "support": "UNSUPPORTED",
+            "reason": "IAC_ACQUISITION_NOT_AVAILABLE",
+            "scope": [],
+            "evidence": null,
+            "permission": null
+          },
+          {
+            "subject": "code",
+            "support": "UNSUPPORTED",
+            "reason": "CODE_ACQUISITION_NOT_AVAILABLE",
+            "scope": [],
+            "evidence": null,
+            "permission": null
+          }
+        ]
+      }
+    },
+    "attempt": null,
+    "outcome": null,
+    "receipt": null,
+    "reconciliation": null,
+    "result_scope": null,
+    "contract": "system_boundary_setup/v4"
+  }
+}

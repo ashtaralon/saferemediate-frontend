@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { pickWorstSystemName } from "@/lib/pick-worst-system"
+import { compareBySeverityWorstFirst, pickWorstSystemName } from "@/lib/pick-worst-system"
 
 describe("pickWorstSystemName", () => {
   // Real /api/proxy/systems payload shape (captured live 2026-07-14):
@@ -49,5 +49,20 @@ describe("pickWorstSystemName", () => {
     expect(pickWorstSystemName(null)).toBeNull()
     expect(pickWorstSystemName(undefined)).toBeNull()
     expect(pickWorstSystemName([{ critical_count: 5 }])).toBeNull()
+  })
+})
+
+describe("systems whose findings were not computed", () => {
+  it("rank after every measured system, so the landing system is actionable", () => {
+    const measured = { name: "measured", critical_count: 0, high_count: 0, health_score: 95 }
+    const unknown = { name: "unknown", critical_count: null, high_count: null, health_score: null }
+    expect(pickWorstSystemName([unknown, measured])).toBe("measured")
+    expect(compareBySeverityWorstFirst(unknown, measured)).toBeGreaterThan(0)
+  })
+
+  it("are picked only when nothing was measured", () => {
+    const a = { name: "a", critical_count: null, high_count: null, health_score: null }
+    const b = { name: "b", critical_count: null, high_count: null, health_score: null }
+    expect(pickWorstSystemName([a, b])).toBe("a")
   })
 })

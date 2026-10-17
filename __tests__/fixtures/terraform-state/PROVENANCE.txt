@@ -1,0 +1,14 @@
+# Terraform state fixtures for the browser reducer (S2 intake I2a). Copied, byte-identical, from saferemediate-backend
+# 286c7754d tests/fixtures/terraform_raw_state_v4/ (written by terraform 1.7.1; the AWS import is a READ-ONLY import of
+# three platform resources -- see that directory's PROVENANCE*.txt). expected-reduced-* are written by the backend test's own
+# _reduce (tests/test_system_boundary_terraform_intake.py at 286c7754d), the reduction the backend I1 suite proves it accepts.
+# Reproduced byte-identically by the SW111 (I2-R1) _reduce at b13f3204c (identity strings only, unmarked; marks rebuilt):
+# these states carry no marked or non-string id / arn, so the expected reductions are unchanged.
+sha256 c531a3ab14c4851b546a72444e50aa7eeded5c12e6cea4833670d2f8eaed2632 aws_import.tfstate
+sha256 44bb293f07b098d0b6b3f2cf762263a794899cf0a9ef2409c83f5c403c938534 aws_import.show.json
+sha256 dbc00c6dd1531f6b5d4f5518f41033599c52761a70e93c87d19d82a1cf2f88c1 basic.tfstate
+sha256 2b6c6208cacb02ca365c3124c076cf71ea053f79f5615b48c0982fd7133eedfa basic.show.json
+sha256 72401ec6f952e76e9a5db8fd83f6bbce0192199295239b022ee8b892f428672e deposed.tfstate
+sha256 66082969f6dd7b41eb2ad3dc839b912e7ba334082d0b9cc187d5117bb9c5ecea empty.show.json
+sha256 c42ee665465215126f0e238124318f46a5b2c5a153001403785a14ec78a8b0ac expected-reduced-aws_import.tfstate.json
+sha256 d90e62df3c0fe3dba20861be272e192e1cc025329b7c38cf3f70f892670c5b45 expected-reduced-aws_import.show.json

@@ -4,6 +4,8 @@ import React, { useState, useEffect, useCallback, useId, useMemo, useRef } from 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { riskLabel } from '@/lib/utils';
 import { useCachedFetch } from '@/lib/use-cached-fetch';
+import { systemScopeQuery } from '@/lib/scoped-system-catalog';
+import { SystemNameChoice } from '@/components/system-name-choice';
 import { resolveVerbChipY } from '@/lib/attack-paths/verb-chip-placement';
 import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, KeyRound, LockKeyhole, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, PanelLeftOpen, PanelLeftClose, Target, GitBranch, Search, ExternalLink, Download, Crown, Gem, Clock, FileText, HelpCircle, Bug } from 'lucide-react';
 import { derivePrecedenceForDestination, type RoutePrecedence } from "@/lib/route-precedence";
@@ -32,7 +34,8 @@ import { AttackPathDetailPanel } from './attack-path-detail-panel';
 import { S3ObjectAccessExpander } from './s3-object-access-expander';
 import { StackSidebar } from './stack-sidebar';
 import { HeatmapControls } from './heatmap-controls';
-import { TimelineSlider } from './timeline-slider';
+import { ObservationChip } from '@/components/coverage/observation-chip';
+import { readObservation } from '@/lib/observation-coverage';
 import { VPCBoundaries } from './vpc-boundaries';
 import { ExportControls } from './export-controls';
 import {
@@ -8597,6 +8600,8 @@ function resolveDamageScopeNodeType(
 
 export default function TrafficFlowMap({
   systemName,
+  systemKey = null,
+  systemAccountId = null,
   pathFilter,
   onPathNodeAction,
   onDamageScopeDataNode,
@@ -8630,6 +8635,10 @@ export default function TrafficFlowMap({
   cveAssessments = [],
 }: {
   systemName: string;
+  /** A7 B5 / reader 4: the system's KEY (+ a tag / source key's account) when opened by key; the dependency read and its
+   *  client cache name ONE system. */
+  systemKey?: string | null;
+  systemAccountId?: string | null;
   pathFilter?: TrafficFlowMapPathFilter;
   onPathNodeAction?: OnPathNodeAction;
   /** Data-plane nodes (S3, DDB, RDS, KMS, Secrets) → damage-scope drawer */
@@ -9100,8 +9109,9 @@ export default function TrafficFlowMap({
     // covers all 7 EC2 instances + their SGs/NACLs/Subnets/VPCs + the
     // top IAM roles, which is what this viz actually renders.
     const cacheBust = manualBustEpoch > 0 ? `&_t=${manualBustEpoch}` : "";
-    return `/api/proxy/dependency-map/full?systemName=${systemName}&includeUnused=true&maxNodes=300${cacheBust}`;
-  }, [systemName, manualBustEpoch, pathAuthorityOnly]);
+    return `/api/proxy/dependency-map/full?systemName=${systemName}&includeUnused=true&maxNodes=300${systemScopeQuery(
+      systemKey, systemAccountId)}${cacheBust}`;
+  }, [systemName, systemKey, systemAccountId, manualBustEpoch, pathAuthorityOnly]);
 
   const depMapFetchInit = useMemo<RequestInit>(() => {
     return manualBustEpoch > 0
@@ -9114,9 +9124,11 @@ export default function TrafficFlowMap({
     loading: depMapLoading,
     error: depMapError,
     hold: depMapHold,
+    choice: depMapChoice,
     retry: retryDepMap,
   } = useCachedFetch<{ nodes?: any[]; edges?: any[]; relationships?: any[] }>(depMapUrl, {
-    cacheKey: `tfm-depmap:${systemName}`,
+    // B5: another key / account is another system -- never one cache entry (by name: the key is as before).
+    cacheKey: systemKey ? `tfm-depmap:${systemName}:key=${systemKey}:${systemAccountId ?? ""}` : `tfm-depmap:${systemName}`,
     // 5-min freshness — aligns with the proxy's edge cache (s-maxage=120)
     // with headroom; older cache still renders with isStale=true (up to
     // the hook's 7d hard cap), keeping the architecture on screen even
@@ -9272,9 +9284,10 @@ export default function TrafficFlowMap({
     leafType: string | null;
     displayName?: string;
   } | null>(null);
-  const [timelineActive, setTimelineActive] = useState(false);
-  const [timeWindow, setTimeWindow] = useState<'7d' | '30d' | '90d'>('30d');
-  const [timePoint, setTimePoint] = useState(100);
+  // The "Time Travel" slider that lived here only moved its own thumb: no
+  // request read its window or time point, so it implied a historical view the
+  // map never rendered. Removed; the observed range the map DOES cover comes
+  // from the dep-map response's `observation` block (ObservationChip below).
   const containerRef = useRef<HTMLDivElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const previousArchRef = useRef<SystemArchitecture | null>(null);
@@ -11180,11 +11193,11 @@ export default function TrafficFlowMap({
       // from an earlier answer must not stay on screen as current: drop it so
       // the `error && !architecture` gate names the refusal. Untyped failures
       // keep the last map (the hook keeps its data for those).
-      if (depMapHold) setRawArchitecture(null);
+      if (depMapHold || depMapChoice) setRawArchitecture(null);
       return;
     }
     runEnrichment(rawDepMap);
-  }, [rawDepMap, runEnrichment, pathAuthorityOnly, depMapHold]);
+  }, [rawDepMap, runEnrichment, pathAuthorityOnly, depMapHold, depMapChoice]);
 
   // Auto-refresh with configurable interval. retryDepMap refetches the
   // same URL → proxy edge cache may serve (matches old loadData(false)).
@@ -11354,6 +11367,15 @@ export default function TrafficFlowMap({
           <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
           <p className="text-foreground text-sm font-medium">Building Architecture...</p>
         </div>
+      </div>
+    );
+  }
+
+  if (depMapChoice && !pathAuthorityOnly && !architectureOverride) {
+    // A7 B5 / reader 4: several systems answer to this name -- offer the choice, never a map of one of them.
+    return (
+      <div className="h-full w-full p-4">
+        <SystemNameChoice systemName={systemName} candidates={depMapChoice} purpose="traffic map" />
       </div>
     );
   }
@@ -11534,6 +11556,17 @@ export default function TrafficFlowMap({
             <span className="text-muted-foreground text-xs">
               View updated: {lastUpdated.toLocaleTimeString()}
             </span>
+          )}
+
+          {/* The range the flows on this map cover, from the dep-map
+              response itself; "not recorded yet" when it carries none. */}
+          {!pathAuthorityOnly && (
+            <ObservationChip
+              observation={readObservation(rawDepMap)}
+              pending={depMapLoading && !rawDepMap}
+              tone="theme"
+              testId="traffic-map-observation"
+            />
           )}
 
           {/* Enrichment-failure indicator. Surfaces honestly when an
@@ -11900,16 +11933,6 @@ export default function TrafficFlowMap({
         )}
 
       </div>
-
-      {/* Timeline Slider */}
-      <TimelineSlider
-        currentWindow={timeWindow}
-        onWindowChange={(w) => setTimeWindow(w as '7d' | '30d' | '90d')}
-        timePoint={timePoint}
-        onTimePointChange={setTimePoint}
-        isActive={timelineActive}
-        onToggle={() => setTimelineActive(!timelineActive)}
-      />
 
       {/* Service Details Popup */}
       {selectedService && architecture && (

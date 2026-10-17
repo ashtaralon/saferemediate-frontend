@@ -103,6 +103,30 @@ export function servingReadRefusal(body: unknown): IapHold | null {
   return typedServingRefusal(body)
 }
 
+/** What an upstream answer's Cache-Control lets a proxy do with it (B5 review, 2026-10-08). */
+export type UpstreamCachePolicy = "no-store" | "cacheable" | "unspecified"
+
+/**
+ * The backend sends a published / cohort answer `no-store` (e.g. api/egress_visibility `_egress_no_store`): its membership
+ * pin and the recovery fence are decided per request, so a proxy must never keep it -- not even for a name-only request,
+ * which can be answered from v2 -- and must pass the `no-store` on. "cacheable" ONLY when the upstream says so explicitly
+ * (public, s-maxage or max-age > 0, and none of no-store / no-cache / private). Absent or anything else: "unspecified".
+ */
+export function upstreamCachePolicy(cacheControl: string | null | undefined): UpstreamCachePolicy {
+  const directives = String(cacheControl || "").toLowerCase().split(",").map((d) => d.trim()).filter(Boolean)
+  if (directives.some((d) => d === "no-store" || d === "no-cache" || d === "private" || d.startsWith("no-cache="))) {
+    return "no-store"
+  }
+  const age = (name: string) => {
+    const found = directives.find((d) => d.startsWith(`${name}=`))
+    const value = found ? Number(found.slice(name.length + 1)) : NaN
+    return Number.isFinite(value) ? value : null
+  }
+  const maxAge = age("s-maxage") ?? age("max-age")
+  if (maxAge !== null) return maxAge > 0 ? "cacheable" : "no-store"
+  return directives.includes("public") ? "cacheable" : "unspecified"
+}
+
 /** Any typed IAP 503: a refusal, a held route, or SEMANTIC_READ_UNAVAILABLE. */
 export function isTypedSemanticRefusal(body: unknown): boolean {
   return typedServingRefusal(body) != null || typedReaderUnavailable(body) != null

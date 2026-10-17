@@ -19,7 +19,13 @@ export async function GET(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-    const backendUrl = `${BACKEND_URL}/api/dependency-map/path/${encodeURIComponent(sourceId)}/${encodeURIComponent(targetId)}?system_name=${encodeURIComponent(systemName)}`;
+    // A7 B5: a page opened by key names ONE system (backend ?system_key=, with the account for a tag / source key).
+    const systemKey = url.searchParams.get("system_key");
+    const accountId = url.searchParams.get("account_id");
+    const scope = systemKey
+      ? `&system_key=${encodeURIComponent(systemKey)}${accountId ? `&account_id=${encodeURIComponent(accountId)}` : ""}`
+      : "";
+    const backendUrl = `${BACKEND_URL}/api/dependency-map/path/${encodeURIComponent(sourceId)}/${encodeURIComponent(targetId)}?system_name=${encodeURIComponent(systemName)}${scope}`;
 
     const res = await fetch(backendUrl, {
       cache: "no-store",

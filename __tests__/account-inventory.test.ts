@@ -1,0 +1,541 @@
+/**
+ * T11b: the strict account_inventory/v1 reader and its epoch / cursor / publication-bound state machine.
+ *
+ * Every envelope is a PRODUCER golden: the real backend route's answer, copied byte-for-byte from backend commit
+ * 92b2c54f7ea6fbf09b50ae06cec98f9c268bedd0 (tests/fixtures/account_inventory_api/); the four SERVED states are the
+ * re-captures of fa2edd53e6743df08e38b15bb35f0d6215ce14ae (I2(b1) row v3 tags + details, I2(b2) account-wide by_type /
+ * by_region and publication.row_contract), and the two populated pages again of 8b492146e2906767aa44ecd9158a40b0e12f6e3c
+ * (A7 P2-ID (a)-1: an AWS-generated id is a row's incarnation). A malformed case is one of those
+ * goldens with ONE field broken, named as such. The single "inventory_complete: false" case is an explicitly MUTATED
+ * robustness case: the producer at that commit never emits it (a SERVED page is always complete).
+ */
+import { createHash } from "node:crypto"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+import { describe, expect, it } from "vitest"
+import {
+  applyInventoryResponse,
+  firstPageRequest,
+  isCursorRestart,
+  nextPageRequest,
+  PAGE_PROGRESSION_INVALID,
+  parseInventoryResponse,
+  RESPONSE_MALFORMED,
+  RESPONSE_NOT_CONTRACT,
+  startRead,
+  type InventoryKey,
+  type InventoryModel,
+  type ParsedInventory,
+} from "@/lib/account-inventory"
+
+const PRODUCER_COMMIT = "92b2c54f7ea6fbf09b50ae06cec98f9c268bedd0"
+/** The tenth golden (the route held by its readiness gate) was added by a later backend commit, which asserts all ten. */
+const PRODUCER_COMMIT_OF: Partial<Record<string, string>> = {
+  held_consumer_not_recorded: "95dea3288a8b713b37be95114060c227ff5d0af8",
+  populated_page1: "8b492146e2906767aa44ecd9158a40b0e12f6e3c",
+  populated_page2: "8b492146e2906767aa44ecd9158a40b0e12f6e3c",
+  filter_empty: "fa2edd53e6743df08e38b15bb35f0d6215ce14ae",
+  complete_empty: "fa2edd53e6743df08e38b15bb35f0d6215ce14ae",
+}
+/** The type filter each golden's request carried (the backend harness: filter_empty asked for "ec2:no-such-type"). */
+const FILTER_OF: Partial<Record<string, string>> = { filter_empty: "ec2:no-such-type" }
+const NAMES = [
+  "populated_page1", "populated_page2", "complete_empty", "filter_empty", "not_published", "held_authority_changed",
+  "refused_cursor_restart_publication_moved", "refused_not_authorized_403", "unavailable_registry_unreadable",
+  "held_consumer_not_recorded",
+] as const
+type Name = (typeof NAMES)[number]
+
+interface Golden {
+  _provenance: { backend_commit: string; backend_path: string }
+  status: number
+  cache_control: string
+  body: Record<string, any>
+}
+
+function golden(name: Name): Golden {
+  return JSON.parse(readFileSync(resolve(process.cwd(), "__tests__/fixtures/account-inventory", `${name}.json`), "utf8"))
+}
+
+function body(name: Name): Record<string, any> {
+  return structuredClone(golden(name).body)
+}
+
+const ACCOUNT: string = golden("populated_page1").body.account_id
+const KEY: InventoryKey = { customerId: "acme", accountId: ACCOUNT, resourceType: null }
+
+function parse(name: Name, mutate?: (b: Record<string, any>) => void, status?: number): ParsedInventory {
+  const b = body(name)
+  mutate?.(b)
+  return parseInventoryResponse(status ?? golden(name).status, b, ACCOUNT, FILTER_OF[name] ?? null)
+}
+
+describe("the producer goldens", () => {
+  it("are the backend's own answers, pinned to the producing commit, all no-store", () => {
+    for (const name of NAMES) {
+      const g = golden(name)
+      expect(g._provenance.backend_commit).toBe(PRODUCER_COMMIT_OF[name] ?? PRODUCER_COMMIT)
+      expect(g._provenance.backend_path).toBe(`tests/fixtures/account_inventory_api/${name}.json`)
+      expect(g.cache_control).toBe("no-store")
+      expect(g.body.contract).toBe("account_inventory/v1")
+    }
+  })
+
+  it("each parse to its own kind and state", () => {
+    const seen = Object.fromEntries(NAMES.map((name) => {
+      const p = parse(name)
+      return [name, [p.kind, p.state, p.kind === "data" ? p.rows.length : (p as { reasonCode: string | null }).reasonCode]]
+    }))
+    expect(seen).toEqual({
+      populated_page1: ["data", "populated", 4],
+      populated_page2: ["data", "populated", 4],
+      complete_empty: ["data", "complete_empty", 0],
+      filter_empty: ["data", "filter_empty", 0],
+      not_published: ["evidence", "not_published", "no_publication_recorded"],
+      held_authority_changed: ["evidence", "held", "AUTHORITY_CHANGED"],
+      refused_cursor_restart_publication_moved: ["refused", "refused", "CURSOR_RESTART_REQUIRED:publication_moved"],
+      refused_not_authorized_403: ["refused", "refused", "PERSON_NOT_AUTHORIZED"],
+      unavailable_registry_unreadable: ["unavailable", "unavailable", "INVENTORY_SCOPE_UNAVAILABLE"],
+      held_consumer_not_recorded: ["evidence", "held", "111122223333:CONSUMER_NOT_READY:not_recorded"],
+    })
+    expect(isCursorRestart(parse("refused_cursor_restart_publication_moved"))).toBe(true)
+    expect(isCursorRestart(parse("refused_not_authorized_403"))).toBe(false)
+  })
+
+  it("a short populated page continues by cursor, not by count", () => {
+    const first = parse("populated_page1")
+    if (first.kind !== "data") throw new Error("expected data")
+    expect(first.rows.length).toBeLessThan(20)
+    expect(first.hasMore).toBe(true)
+    expect(typeof first.nextCursor).toBe("string")
+  })
+
+  it("keeps eligibility, assignment and incarnation as data and never as a selection", () => {
+    const first = parse("populated_page1")
+    if (first.kind !== "data") throw new Error("expected data")
+    for (const row of first.rows) {
+      expect(row.eligibility).toBeTypeOf("object")
+      expect(row.assignment).toEqual({ status: "not_evaluated" })
+      expect(row.observed_incarnation).toBeTypeOf("object")
+    }
+  })
+})
+
+describe("row v3 (I1): tags and details exactly as the producer serves them", () => {
+  it("reads the re-captured page's tags and details, and no tags for a type whose collector reads none", () => {
+    const first = parse("populated_page1")
+    if (first.kind !== "data") throw new Error("expected data")
+    const byType = Object.fromEntries(first.rows.map((row) => [row.resource_type, row]))
+    expect(byType["account:regions"].details).toEqual({})
+    expect("tags" in byType["account:regions"]).toBe(false)
+    expect(byType["ec2:instance"].tags).toEqual({})
+    expect(byType["ec2:instance"].details).toEqual({
+      iam_instance_profile: "arn:aws:iam::111122223333:instance-profile/app-role",
+    })
+  })
+
+  it("MUTATED (an older backend): no counts and no row contract still read, as unknown", () => {
+    const p = parse("populated_page1", (b) => {
+      delete b.totals.by_type
+      delete b.totals.by_region
+      delete b.publication.row_contract
+    })
+    expect(p).toMatchObject({ kind: "data", byType: null, byRegion: null, rowContract: null })
+  })
+
+  it("accepts a detail text of exactly the producer's 512 characters, counted as Python counts them", () => {
+    const astral = "\u{1F600}".repeat(512)
+    expect(astral.length).toBe(1024)
+    expect(parse("populated_page1", (b) => { b.rows[1].details.description = astral }).kind).toBe("data")
+    expect(parse("populated_page1", (b) => { b.rows[1].details.description = `${astral}x` }).kind).toBe("unavailable")
+  })
+
+  it("accepts withheld tags and withheld detail names in the producer's shape", () => {
+    const p = parse("populated_page1", (b) => {
+      delete b.rows[1].tags
+      b.rows[1].tags_withheld = { reason: "TAGS_OVER_CAP", count: 51 }
+      b.rows[1].details_withheld = ["private_ip"]
+    })
+    expect(p.kind === "data" && p.rows[1]).toMatchObject({
+      tags_withheld: { reason: "TAGS_OVER_CAP", count: 51 }, details_withheld: ["private_ip"],
+    })
+  })
+
+  const brokenV3: Array<[string, (b: Record<string, any>) => void]> = [
+    ["a tag value that is not text", (b) => { b.rows[1].tags = { team: 7 } }],
+    ["tags that are not an object", (b) => { b.rows[1].tags = ["team"] }],
+    ["tags and withheld tags together", (b) => { b.rows[1].tags_withheld = { reason: "TAGS_OVER_CAP", count: 1 } }],
+    ["a withheld-tags reason the producer never gives", (b) => {
+      delete b.rows[1].tags
+      b.rows[1].tags_withheld = { reason: "TOO_MANY", count: 1 }
+    }],
+    ["a withheld-tags count that is not a count", (b) => {
+      delete b.rows[1].tags
+      b.rows[1].tags_withheld = { reason: "TAGS_NOT_TEXT", count: -1 }
+    }],
+    ["a detail that is an object", (b) => { b.rows[1].details.vpc_id = { id: "vpc-1" } }],
+    ["a detail that is null (the producer omits it)", (b) => { b.rows[1].details.vpc_id = null }],
+    ["a detail that is a fraction", (b) => { b.rows[1].details.memory_size = 1.5 }],
+    ["details that are not an object", (b) => { b.rows[1].details = "i-1" }],
+    ["withheld detail names that are not a list", (b) => { b.rows[1].details_withheld = "private_ip" }],
+    ["a detail both shown and withheld", (b) => { b.rows[1].details_withheld = ["iam_instance_profile"] }],
+  ]
+  it.each(brokenV3)("refuses %s", (_why, mutate) => {
+    expect(parse("populated_page1", mutate)).toMatchObject({ kind: "unavailable", reasonCode: RESPONSE_MALFORMED })
+  })
+})
+
+describe("I2(b2): the publication's account-wide counts and its row contract", () => {
+  it("reads by_type and by_region exactly, both summing to the account's total", () => {
+    const first = parse("populated_page1")
+    if (first.kind !== "data") throw new Error("expected data")
+    expect(first.rowContract).toBe("account_inventory_row/v3")
+    expect(Object.keys(first.byType!)).toHaveLength(30)
+    expect(first.byRegion).toEqual({ "eu-west-1": 24, global: 6 })
+    expect(Object.values(first.byType!).reduce((a, b) => a + b, 0)).toBe(first.totals.accountTotal)
+  })
+
+  it("keeps the counts account-wide under a filter, and a complete-empty publication has empty counts", () => {
+    const filtered = parse("filter_empty")
+    expect(filtered.kind === "data" && [filtered.totals.filterTotal, Object.keys(filtered.byType!).length]).toEqual([0, 30])
+    expect(parse("complete_empty")).toMatchObject({ kind: "data", byType: {}, byRegion: {} })
+  })
+
+  it("binds a filtered page to its type: its total is that type's count and every row is of it", () => {
+    const one = (b: Record<string, any>) => {
+      b.rows = b.rows.filter((row: { resource_type: string }) => row.resource_type === "ec2:instance")
+      b.totals.filter_total = 1
+      b.has_more = false
+      b.next_cursor = null
+    }
+    const asked = (filter: string, mutate: (b: Record<string, any>) => void) => {
+      const b = body("populated_page1")
+      mutate(b)
+      return parseInventoryResponse(200, b, ACCOUNT, filter)
+    }
+    expect(asked("ec2:instance", one).kind).toBe("data")
+    expect(asked("s3:bucket", one)).toMatchObject({ kind: "unavailable", reasonCode: RESPONSE_MALFORMED })
+    expect(asked("ec2:instance", (b) => { one(b); b.totals.filter_total = 2 }).kind).toBe("unavailable")
+    expect(parse("filter_empty", (b) => { b.totals.filter_total = 1 }).kind).toBe("unavailable")
+  })
+
+  const brokenCounts: Array<[string, Name, (b: Record<string, any>) => void]> = [
+    ["by_type not summing to the account", "populated_page1", (b) => { b.totals.by_type["s3:bucket"] += 1 }],
+    ["by_region not summing to the account", "populated_page1", (b) => { b.totals.by_region.global += 1 }],
+    ["a zero count (the manifest never records one)", "populated_page1", (b) => {
+      b.totals.by_type["s3:bucket"] -= 1
+      b.totals.by_type["iam:role"] += 1
+      b.totals.by_type["s3:bucket"] = 0
+    }],
+    ["a count that is not an integer", "populated_page1", (b) => { b.totals.by_region.global = "6" }],
+    ["counts that are not a map", "populated_page1", (b) => { b.totals.by_type = [] }],
+    ["an unnamed type", "populated_page1", (b) => {
+      b.totals.by_type[""] = b.totals.by_type["s3:bucket"]
+      delete b.totals.by_type["s3:bucket"]
+    }],
+    ["a row contract the producer has none of (otherwise shaped as an older one)", "populated_page1", (b) => {
+      b.publication.row_contract = "account_inventory_row/v4"
+      delete b.totals.by_region
+      for (const row of b.rows) {
+        delete row.tags
+        delete row.details
+      }
+    }],
+    ["a v3 publication without Region counts", "populated_page1", (b) => { delete b.totals.by_region }],
+    ["a v3 row without details", "populated_page1", (b) => { delete b.rows[1].details }],
+    ["an older publication with Region counts", "populated_page1", (b) => {
+      b.publication.row_contract = "account_inventory_row/v2"
+      for (const row of b.rows) {
+        delete row.tags
+        delete row.details
+      }
+    }],
+    ["an older publication whose rows carry v3 members", "populated_page1", (b) => {
+      b.publication.row_contract = "account_inventory_row/v2"
+      delete b.totals.by_region
+    }],
+  ]
+  it.each(brokenCounts)("refuses %s", (_why, name, mutate) => {
+    expect(parse(name, mutate)).toMatchObject({ kind: "unavailable", reasonCode: RESPONSE_MALFORMED })
+  })
+
+  it("refuses the filtered answer as the answer to an unfiltered request (its total is not the account's)", () => {
+    expect(parseInventoryResponse(200, body("filter_empty"), ACCOUNT, null))
+      .toMatchObject({ kind: "unavailable", reasonCode: RESPONSE_MALFORMED })
+  })
+})
+
+/** I2(d): the real route over real publications (fixtures/account-inventory-captures). The files are the backend's own capture
+ *  bytes, copied unchanged from saferemediate-backend 1e0349235b42 (generated by its harness at 5b13f041; FE commit 8de3fe55
+ *  records both and each file's sha256). Nothing is embedded in a file about where it was copied from, so each is pinned here
+ *  by its raw hash, and by the harness and request its own _provenance names. Each capture names the request it answers
+ *  (_provenance.request); these tests replay exactly that filter and cursor sequence. */
+describe("I2(d) captures: the real route over a real v3 publication, and a genuine v2 one", () => {
+  type Capture = Omit<Golden, "_provenance"> & {
+    _provenance: {
+      harness: string
+      request: { method: string; path: string; query: Record<string, string>; cursor?: { from: string } }
+    }
+  }
+  /** sha256 of each raw file, exactly as recorded in 8de3fe55's message. A re-copy changes these on purpose. */
+  const RAW_SHA256: Record<string, string> = {
+    filtered_page1: "7d889b81f39861f7cba28490a0b2c6931582a28e3458d24669cf44610155a661",
+    filtered_page2: "1b2ce2f8f6994b66780811efc80ffd53c98f35610f48a9bdfbc811e6441732d0",
+    held_lifecycle_not_active: "621de5189b144cdcd2eca9ce2c5ef0be1cdf43e3ba3a1bfa1cf2c102396b384a",
+    populated_page1: "bf351f3785722e605e7a2be386f1998cec239847ee9e9457af7423d7beb34fd0",
+    populated_page2: "4c82fed0a7fe246914f6d51baf26d0ae5cc54d27a57ee0c6945d7e49df412f36",
+    refused_scope_mismatch_403: "7576df12afda670fcd6f1d9b504da08b021418fc3576d813a0b36b49eb63649a",
+    v2_publication_served: "a41c8ca5141e4f2be25afe1f59db14689e662cbb296e27afaddf499408fbcf6d",
+  }
+  const HARNESS = "tests/cyntro_data/test_account_inventory_captures.py::test_the_real_route_answers_are_exactly_the_captures"
+  const HARNESS_OF: Partial<Record<string, string>> = {
+    v2_publication_served:
+      "tests/cyntro_data/test_account_inventory_captures.py::test_a_genuine_v2_publication_served_by_this_backend_is_exactly_its_capture",
+  }
+  const capture = (name: string): Capture => {
+    const raw = readFileSync(resolve(process.cwd(), "__tests__/fixtures/account-inventory-captures", `${name}.json`))
+    expect(createHash("sha256").update(raw).digest("hex")).toBe(RAW_SHA256[name])
+    return JSON.parse(raw.toString("utf8"))
+  }
+  const parsed = (name: string) => {
+    const c = capture(name)
+    expect(c._provenance.harness).toBe(HARNESS_OF[name] ?? HARNESS)
+    expect([c._provenance.request.method, c._provenance.request.path]).toEqual(["GET", `/api/accounts/${ACCOUNT}/inventory`])
+    return parseInventoryResponse(c.status, structuredClone(c.body), ACCOUNT, c._provenance.request.query.resource_type ?? null)
+  }
+  function walk(first: string, second: string, resourceType: string | null) {
+    expect(capture(second)._provenance.request.cursor?.from).toBe(first)
+    const model = startRead(1, { ...KEY, resourceType })
+    const one = applyInventoryResponse(model, firstPageRequest(model), parsed(first)).model
+    const request = nextPageRequest(one)
+    expect(request?.cursor).toBe(capture(first).body.next_cursor)
+    return applyInventoryResponse(one, request!, parsed(second)).model
+  }
+
+  it("walks the whole publication by cursor: 20 + 5 rows, every type counted, every Region counted", () => {
+    const all = walk("populated_page1", "populated_page2", null)
+    if (all.kind !== "data") throw new Error(`expected data, got ${all.kind}`)
+    expect([all.rows.length, all.hasMore, all.totals.accountTotal]).toEqual([25, false, 25])
+    expect(all.rowContract).toBe("account_inventory_row/v3")
+    const counted = new Map<string, number>()
+    for (const row of all.rows) counted.set(row.resource_type, (counted.get(row.resource_type) ?? 0) + 1)
+    expect(Object.fromEntries(counted)).toEqual(all.byType)
+    expect(all.byRegion).toEqual({ "eu-west-1": 20, global: 5 })
+    expect(all.rows.every((row) => row.details !== undefined)).toBe(true)
+  })
+
+  it("walks one type by cursor under its filter: its count is by_type's", () => {
+    const one = walk("filtered_page1", "filtered_page2", "ec2:instance")
+    if (one.kind !== "data") throw new Error(`expected data, got ${one.kind}`)
+    expect(one.rows.map((row) => row.resource_type)).toEqual(["ec2:instance", "ec2:instance"])
+    expect(one.totals.filterTotal).toBe(one.byType!["ec2:instance"])
+    expect(one.rows.some((row) => row.tags_withheld?.reason === "TAGS_OVER_CAP")).toBe(true)
+  })
+
+  it("reads a genuine v2 publication served as stored: no Region counts, no v3 member on a row", () => {
+    const p = parsed("v2_publication_served")
+    expect(p).toMatchObject({ kind: "data", rowContract: "account_inventory_row/v2", byRegion: null })
+    if (p.kind !== "data") throw new Error("expected data")
+    expect(p.rows.some((row) => "details" in row || "tags" in row)).toBe(false)
+  })
+
+  it("reads the scope refusal and the lifecycle hold as the route answers them", () => {
+    expect(parsed("refused_scope_mismatch_403")).toMatchObject({ kind: "refused", status: 403, reasonCode: "INVENTORY_SCOPE_MISMATCH" })
+    expect(parsed("held_lifecycle_not_active")).toMatchObject({
+      kind: "evidence", state: "held", reasonCode: "111122223333:CONSUMER_NOT_READY:lifecycle_not_active:BOOTSTRAPPING",
+    })
+  })
+})
+
+describe("the strict reader refuses anything it cannot read exactly", () => {
+  const broken: Array<[string, Name, (b: Record<string, any>) => void]> = [
+    ["another account", "populated_page1", (b) => { b.account_id = "999988887777" }],
+    ["another contract", "populated_page1", (b) => { b.contract = "account_inventory/v2" }],
+    ["generation 0", "populated_page1", (b) => { b.publication.generation = 0 }],
+    ["generation not an integer", "populated_page1", (b) => { b.publication.generation = 1.5 }],
+    ["attempt not 32 hex", "populated_page1", (b) => { b.publication.attempt = "attempt-1" }],
+    ["source identity not a digest", "populated_page1", (b) => { b.publication.source_identity = "v1:xyz" }],
+    ["registration not 32 hex", "populated_page1", (b) => { b.account_authority.registration_id = "R" }],
+    ["completeness not a boolean", "populated_page1", (b) => { b.publication.inventory_complete = "true" }],
+    ["filter total above account total", "populated_page1", (b) => { b.totals.filter_total = b.totals.account_total + 1 }],
+    ["populated with no rows", "populated_page1", (b) => { b.rows = [] }],
+    ["more pages without a cursor", "populated_page1", (b) => { b.next_cursor = null }],
+    ["a cursor with no more pages", "populated_page1", (b) => { b.has_more = false }],
+    ["a row state outside the producer's", "populated_page1", (b) => { b.rows[0].state = "RUNNING" }],
+    ["a row name over its byte cap", "populated_page1", (b) => { b.rows[0].name = "x".repeat(1025) }],
+    ["a global row with a regional scope", "populated_page1", (b) => { b.rows[0].scope_kind = "regional" }],
+    ["a row without eligibility data", "populated_page1", (b) => { delete b.rows[0].eligibility }],
+    ["a row repeated within one page", "populated_page1", (b) => { b.rows[1] = structuredClone(b.rows[0]) }],
+    ["more rows than the filter total", "populated_page1", (b) => { b.totals.filter_total = b.rows.length - 1 }],
+    ["complete_empty that has more", "complete_empty", (b) => { b.has_more = true }],
+    ["filter_empty with no account rows", "filter_empty", (b) => { b.totals.account_total = 0 }],
+    ["a hold that carries rows", "held_authority_changed", (b) => { b.rows = body("populated_page1").rows }],
+    ["a refusal that carries a publication", "refused_not_authorized_403", (b) => {
+      b.publication = body("populated_page1").publication
+    }],
+  ]
+  it.each(broken)("%s", (_why, name, mutate) => {
+    const p = parse(name, mutate)
+    expect(p.kind).toBe("unavailable")
+    if (p.kind !== "data") expect(p.reasonCode).toBe(_why === "another contract" ? RESPONSE_NOT_CONTRACT : RESPONSE_MALFORMED)
+  })
+
+  it("an HTTP status that disagrees with the body is never accepted data", () => {
+    expect(parse("populated_page1", undefined, 500).kind).toBe("unavailable")
+    expect(parse("populated_page1", undefined, 403).kind).toBe("unavailable")
+    expect(parse("refused_not_authorized_403", undefined, 200)).toMatchObject({ kind: "unavailable", reasonCode: RESPONSE_MALFORMED })
+    expect(parse("unavailable_registry_unreadable", undefined, 200)).toMatchObject({ kind: "unavailable", reasonCode: RESPONSE_MALFORMED })
+    expect(parse("not_published", undefined, 503)).toMatchObject({ kind: "unavailable", reasonCode: RESPONSE_MALFORMED })
+  })
+
+  it("a proxy refusal is named; any other non-contract body is not", () => {
+    expect(parseInventoryResponse(502, { error: "PROXY_BACKEND_REDIRECT" }, ACCOUNT))
+      .toMatchObject({ kind: "unavailable", reasonCode: "PROXY_BACKEND_REDIRECT" })
+    expect(parseInventoryResponse(502, { error: "something the proxy never says" }, ACCOUNT))
+      .toMatchObject({ kind: "unavailable", reasonCode: RESPONSE_NOT_CONTRACT })
+    expect(parseInventoryResponse(0, null, ACCOUNT)).toMatchObject({ kind: "unavailable", reasonCode: RESPONSE_NOT_CONTRACT })
+  })
+
+  it("MUTATED robustness case (the producer never emits it): a partial publication is still data, marked partial", () => {
+    const p = parse("populated_page1", (b) => { b.publication.inventory_complete = false })
+    expect(p).toMatchObject({ kind: "data", inventoryComplete: false })
+  })
+})
+
+describe("the state machine binds every page to one epoch, key, cursor and publication", () => {
+  function loaded(epoch = 1): InventoryModel {
+    const model = startRead(epoch, KEY)
+    return applyInventoryResponse(model, firstPageRequest(model), parse("populated_page1")).model
+  }
+
+  it("drops a response for another epoch or another key", () => {
+    const model = startRead(2, KEY)
+    const old = { ...firstPageRequest(model), epoch: 1 }
+    expect(applyInventoryResponse(model, old, parse("populated_page1")).model).toBe(model)
+    const otherKey = { ...firstPageRequest(model), key: { ...KEY, resourceType: "s3:bucket" } }
+    expect(applyInventoryResponse(model, otherKey, parse("populated_page1")).model).toBe(model)
+  })
+
+  it("A -> B -> A: the first A request can never land in the second A read", () => {
+    const a1 = startRead(1, KEY)
+    const requestA1 = firstPageRequest(a1)
+    const a3 = startRead(3, KEY)          // B was epoch 2
+    expect(applyInventoryResponse(a3, requestA1, parse("populated_page1")).model).toBe(a3)
+  })
+
+  it("appends the next page only for the cursor and publication it was issued for", () => {
+    const first = loaded()
+    const request = nextPageRequest(first)
+    expect(request).not.toBeNull()
+    const second = applyInventoryResponse(first, request!, parse("populated_page2")).model
+    expect(second.kind === "data" && second.rows.length).toBe(8)
+    // The same completion again (an overlapping load-more): its cursor is no longer the current one.
+    expect(applyInventoryResponse(second, request!, parse("populated_page2")).model).toBe(second)
+  })
+
+  it("no next request while one is loading, or when there is no more", () => {
+    const first = loaded()
+    if (first.kind !== "data") throw new Error("expected data")
+    expect(nextPageRequest({ ...first, loadingMore: true })).toBeNull()
+    expect(nextPageRequest({ ...first, hasMore: false })).toBeNull()
+  })
+
+  it("a moved publication restarts once, then shows republishing", () => {
+    const first = loaded()
+    const request = nextPageRequest(first)!
+    const moved = parse("populated_page2", (b) => { b.publication.attempt = "f".repeat(32) })
+    expect(applyInventoryResponse(first, request, moved).effect).toBe("restart")
+    expect(applyInventoryResponse(first, request, parse("refused_cursor_restart_publication_moved")).effect).toBe("restart")
+    const again = { ...first, restarts: 1 }
+    const second = applyInventoryResponse(again, request, parse("refused_cursor_restart_publication_moved"))
+    expect([second.effect, second.model.kind]).toEqual(["none", "republishing"])
+  })
+
+  it("every non-data outcome replaces the rows, never leaving old success as current", () => {
+    const first = loaded()
+    const request = nextPageRequest(first)!
+    for (const name of ["refused_not_authorized_403", "unavailable_registry_unreadable", "held_authority_changed"] as const) {
+      const next = applyInventoryResponse(first, request, parse(name)).model
+      expect(next.kind).not.toBe("data")
+      expect("rows" in next).toBe(false)
+    }
+    const page1Again = applyInventoryResponse(first, firstPageRequest(first), parse("not_published")).model
+    expect(page1Again.kind).toBe("evidence")
+  })
+})
+
+describe("one publication must be walked forward (bounded progression cases, each a golden with one field broken)", () => {
+  function firstPage(): InventoryModel {
+    const model = startRead(1, KEY)
+    return applyInventoryResponse(model, firstPageRequest(model), parse("populated_page1")).model
+  }
+
+  function append(model: InventoryModel, mutate: (b: Record<string, any>) => void) {
+    const request = nextPageRequest(model)!
+    return applyInventoryResponse(model, request, parse("populated_page2", mutate)).model
+  }
+
+  function invalid(model: InventoryModel): boolean {
+    return model.kind === "unavailable" && model.reasonCode === PAGE_PROGRESSION_INVALID && !("rows" in model)
+  }
+
+  it("a legitimate short page continues: has_more decides, never the row count", () => {
+    const second = append(firstPage(), () => {})
+    expect(second.kind === "data" && [second.rows.length, second.hasMore]).toEqual([8, true])
+  })
+
+  it("a cursor that does not advance (an echo of the request) is refused, rows cleared", () => {
+    const first = firstPage()
+    const echoed = (first as { nextCursor: string }).nextCursor
+    expect(invalid(append(first, (b) => { b.next_cursor = echoed }))).toBe(true)
+  })
+
+  it("a cursor seen earlier in this read (a cycle) is refused", () => {
+    const first = firstPage()
+    const firstCursor = (first as { nextCursor: string }).nextCursor
+    const second = append(first, () => {})
+    expect(second.kind).toBe("data")
+    expect(invalid(append(second, (b) => { b.next_cursor = firstCursor }))).toBe(true)
+  })
+
+  it("rows seen on an earlier page are refused even with an advancing cursor", () => {
+    expect(invalid(append(firstPage(), (b) => { b.rows = body("populated_page1").rows }))).toBe(true)
+  })
+
+  it("changed totals within one publication are refused", () => {
+    expect(invalid(append(firstPage(), (b) => {
+      b.totals.account_total += 1
+      b.totals.filter_total += 1
+      b.totals.by_type["s3:bucket"] += 1
+      b.totals.by_region["eu-west-1"] += 1
+    }))).toBe(true)
+  })
+
+  it("changed counts within one publication are refused even when every total still adds up", () => {
+    expect(invalid(append(firstPage(), (b) => {
+      b.totals.by_type["s3:bucket"] += 1
+      b.totals.by_type["iam:role"] -= 1
+      delete b.totals.by_type["iam:role"]
+    }))).toBe(true)
+    expect(invalid(append(firstPage(), (b) => {
+      b.totals.by_region["eu-west-1"] -= 1
+      b.totals.by_region.global += 1
+    }))).toBe(true)
+  })
+
+  it("an end of the walk with fewer rows than the publication's count is refused", () => {
+    expect(invalid(append(firstPage(), (b) => {
+      b.has_more = false
+      b.next_cursor = null
+    }))).toBe(true)
+  })
+
+  it("a first page that is also the last must hold exactly the count", () => {
+    const model = startRead(1, KEY)
+    const terminal = parse("populated_page1", (b) => {
+      b.has_more = false
+      b.next_cursor = null
+    })
+    expect(invalid(applyInventoryResponse(model, firstPageRequest(model), terminal).model)).toBe(true)
+  })
+})

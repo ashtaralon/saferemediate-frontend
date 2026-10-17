@@ -2,9 +2,10 @@ import type { CrownJewelSummary } from "@/components/identity-attack-paths/types
 import { appendScopeClaims, type ScopeClaims } from "./scope-claims"
 
 /**
- * The page's per-jewel read URLs, in one place. Each takes the operator's tenant / account CLAIMS (AP201, R11):
- * on a control plane with several registered workload accounts the backend refuses an unnamed read by name, so the
- * selected account travels with every read. Absent claims leave the URL as before.
+ * The page's per-jewel read URLs, in one place. Each takes the read's scope (AP201, R11 + A7 B5): the operator's tenant /
+ * account CLAIMS -- on a control plane with several registered workload accounts the backend refuses an unnamed read by
+ * name -- and, when the page was opened by key, the system KEY (+ a tag / source key's account) that names ONE system
+ * (`appendScopeClaims`). Absent scope leaves the URL as before.
  */
 
 function convergenceQueryParams(jewel: CrownJewelSummary): URLSearchParams {

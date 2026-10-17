@@ -1,0 +1,115 @@
+{
+  "_provenance": {
+    "harness": "tests/test_system_boundary_setup_captures.py",
+    "request": {
+      "method": "PUT",
+      "path": "/api/system-boundary/setup/5e7a0000-0000-4000-8000-000000000001",
+      "body": {
+        "request_id": "00000000-0000-4000-8000-00000000c0f0",
+        "base_state_version": 1,
+        "steps": {
+          "declaration": {
+            "system": {
+              "mode": "new",
+              "display_name": "Payments",
+              "criticality": "LOW"
+            },
+            "deployment": {
+              "mode": "new",
+              "deployment_key": "prod",
+              "environment": "PRODUCTION",
+              "environment_raw": "prd",
+              "scopes": [
+                {
+                  "account_id": "111111111111",
+                  "region": "eu-west-1"
+                }
+              ]
+            },
+            "roots": [
+              {
+                "account_id": "111111111111",
+                "region": "eu-west-1",
+                "resource_uid": "arn:aws:ec2:eu-west-1:111111111111:instance/i-00000000000000000",
+                "selection": {
+                  "resource_type": "iam:role",
+                  "publication": {
+                    "attempt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "generation": 1,
+                    "source_identity": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                    "authority_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                  },
+                  "observed_incarnation": {
+                    "status": "provided",
+                    "source": "iam:RoleId",
+                    "value": "AROAEXAMPLE"
+                  }
+                }
+              },
+              {
+                "account_id": "111111111111",
+                "region": "eu-west-1",
+                "resource_uid": "arn:aws:ec2:eu-west-1:111111111111:instance/i-00000000000000001",
+                "selection": {
+                  "resource_type": "iam:role",
+                  "publication": {
+                    "attempt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "generation": 1,
+                    "source_identity": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                    "authority_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                  },
+                  "observed_incarnation": {
+                    "status": "provided",
+                    "source": "iam:RoleId",
+                    "value": "AROAEXAMPLE"
+                  }
+                }
+              },
+              {
+                "account_id": "111111111111",
+                "region": "eu-west-1",
+                "resource_uid": "arn:aws:ec2:eu-west-1:111111111111:instance/i-00000000000000002",
+                "selection": {
+                  "resource_type": "iam:role",
+                  "publication": {
+                    "attempt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "generation": 1,
+                    "source_identity": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                    "authority_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                  },
+                  "observed_incarnation": {
+                    "status": "provided",
+                    "source": "iam:RoleId",
+                    "value": "AROAEXAMPLE"
+                  }
+                }
+              }
+            ]
+          },
+          "resume_step": "review_and_start",
+          "dispositions": [
+            {
+              "subject": "code",
+              "scope": {
+                "account_id": "111111111111"
+              },
+              "choice": "not_used",
+              "reason_code": "NO_REPOSITORY",
+              "status_axes": {
+                "serving": "assessed"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "status": 422,
+  "cache_control": null,
+  "body": {
+    "detail": {
+      "code": "FIELD_NOT_AUTHORED",
+      "field": "steps.dispositions[0].status_axes"
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+ "body": {
+  "customer_id": "acme",
+  "reason": "NOT_CONFIGURED",
+  "requested_at": "2026-10-05T19:04:21.347777+00:00",
+  "setup": {
+   "parameters": {
+    "AccountConnectorRoleArn": "arn:aws:iam::123456789012:role/cyntro-orchestrator-acme-AccountConnectorRole-7KQ2M9XW1D4E",
+    "ExternalId": "1367e1a82c90bf2af1c495dfb2e103c48e409172fba23a289e6ec1e788b8c0aa",
+    "TenantId": "acme"
+   },
+   "role": {
+    "name": "CyntroOrgDiscovery-acme",
+    "output": "OrgDiscoveryRoleArn"
+   },
+   "template": "deploy/organizations/cyntro-organizations-discovery.yaml"
+  },
+  "state": "UNAVAILABLE"
+ },
+ "captured_at": "2026-10-05T19:04:21.413231+00:00",
+ "name": "29_org_not_configured_setup",
+ "note": "GET /organization after the real connector answered NOT_CONFIGURED",
+ "request": {
+  "method": "GET",
+  "path": "/api/admin/accounts/organization?customer_id=acme"
+ },
+ "status": 200
+}

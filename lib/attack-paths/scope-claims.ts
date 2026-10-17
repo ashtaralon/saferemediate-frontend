@@ -11,6 +11,10 @@ import { normalizeBlastRadiusScope } from "@/components/attack-paths-v2/blast-ra
 export interface ScopeClaims {
   customerId: string | null
   accountId: string | null
+  /** A7 B5 (release/resident): the page's system KEY when it was opened by key -- names ONE system. */
+  systemKey?: string | null
+  /** A7 B5: the account a tag / source system key belongs to (sent only with a key, as `systemScopeQuery` does). */
+  systemAccountId?: string | null
 }
 
 export const NO_SCOPE_CLAIMS: ScopeClaims = { customerId: null, accountId: null }
@@ -25,10 +29,15 @@ export function scopeClaimsFrom(
   return { customerId, accountId: normalized.accountId ?? null }
 }
 
-/** Put the claims on a query (nothing when a claim is absent). */
+/** Put the claims on a query (nothing when a claim is absent). With a system key (A7 B5) the key goes on, and the key's
+ *  own account -- the account that system lives in -- replaces the selected-account claim: one `account_id`, never two. */
 export function appendScopeClaims(qs: URLSearchParams, claims: ScopeClaims | null | undefined): URLSearchParams {
   if (claims?.customerId) qs.set("customer_id", claims.customerId)
   if (claims?.accountId) qs.set("account_id", claims.accountId)
+  if (claims?.systemKey) {
+    qs.set("system_key", claims.systemKey)
+    if (claims.systemAccountId) qs.set("account_id", claims.systemAccountId)
+  }
   return qs
 }
 

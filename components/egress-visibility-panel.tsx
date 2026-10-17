@@ -23,6 +23,8 @@
  */
 
 import React, { useEffect, useMemo, useState } from "react"
+import { SystemNameChoice } from "@/components/system-name-choice"
+import { ambiguousSystemCandidates, systemScopeQuery, type SystemCandidate } from "@/lib/scoped-system-catalog"
 import {
   AlertTriangle,
   ExternalLink,
@@ -237,10 +239,21 @@ function SignalChip({ code }: { code: string }) {
   )
 }
 
-export function EgressVisibilityPanel({ systemName }: { systemName: string }) {
+export function EgressVisibilityPanel({
+  systemName,
+  systemKey = null,
+  systemAccountId = null,
+}: {
+  systemName: string
+  /** A7 B5: the system's KEY (+ a tag / source key's account) when the page was opened by key; absent on v1. */
+  systemKey?: string | null
+  systemAccountId?: string | null
+}) {
   const [data, setData] = useState<EgressResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // B5: the name stands for several systems (409) -- the person chooses one; nothing is shown for any of them meanwhile.
+  const [ambiguous, setAmbiguous] = useState<SystemCandidate[] | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [kindFilters, setKindFilters] = useState<Record<string, KindFilter>>({})
   // Per-(workload, kind) drill-down cache. Populated lazily when the operator
@@ -257,18 +270,24 @@ export function EgressVisibilityPanel({ systemName }: { systemName: string }) {
   const fetchEgress = async (force = false) => {
     setLoading(true)
     setError(null)
+    setAmbiguous(null)
     if (force) {
       // Force-refresh invalidates any per-kind drill-downs the operator
       // had loaded — they're now stale relative to the new system snapshot.
       setKindCache({})
     }
     try {
-      const url = `/api/proxy/egress/system/${encodeURIComponent(systemName)}?days=30&top_n=20${
-        force ? `&_=${Date.now()}` : ""
-      }`
+      const url = `/api/proxy/egress/system/${encodeURIComponent(systemName)}?days=30&top_n=20${systemScopeQuery(
+        systemKey, systemAccountId)}${force ? `&_=${Date.now()}` : ""}`
       const res = await fetch(url, { cache: "no-store" })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
+        const candidates = ambiguousSystemCandidates(res.status, body)
+        if (candidates) {
+          setData(null)
+          setAmbiguous(candidates)
+          return
+        }
         throw new Error(body.error || `HTTP ${res.status}`)
       }
       const j = await res.json()
@@ -318,7 +337,7 @@ export function EgressVisibilityPanel({ systemName }: { systemName: string }) {
     setKindCache({})
     fetchEgress(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [systemName])
+  }, [systemName, systemKey, systemAccountId])
 
   const toggleExpand = (id: string) => {
     setExpanded((prev) => {
@@ -438,6 +457,7 @@ export function EgressVisibilityPanel({ systemName }: { systemName: string }) {
       )}
 
       {/* States */}
+      {ambiguous && <SystemNameChoice systemName={systemName} candidates={ambiguous} purpose="traffic" />}
       {loading && !data && (
         <div className="rounded border border-slate-200 bg-slate-50 p-6 text-sm text-slate-500 text-center">
           Loading egress data…

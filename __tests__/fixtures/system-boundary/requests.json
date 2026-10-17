@@ -1,0 +1,514 @@
+{
+  "_provenance": {
+    "fixed_attempt": "0000000000000000000000000000000a",
+    "fixed_clock_epoch": 1800000000,
+    "fixed_request_ids": {
+      "add": "00000000-0000-4000-8000-0000000000a8",
+      "correction": "00000000-0000-4000-8000-0000000000a6",
+      "create": "00000000-0000-4000-8000-0000000000a2",
+      "env": "00000000-0000-4000-8000-0000000000ac",
+      "env_conflict": "00000000-0000-4000-8000-0000000000ab",
+      "missing": "00000000-0000-4000-8000-0000000000a5",
+      "move": "00000000-0000-4000-8000-0000000000ae",
+      "raced": "00000000-0000-4000-8000-0000000000a7",
+      "raw": "00000000-0000-4000-8000-0000000000aa",
+      "refused": "00000000-0000-4000-8000-0000000000a1",
+      "remove": "00000000-0000-4000-8000-0000000000af",
+      "replace": "00000000-0000-4000-8000-0000000000a9",
+      "second": "00000000-0000-4000-8000-0000000000ad",
+      "stale": "00000000-0000-4000-8000-0000000000a4",
+      "taken": "00000000-0000-4000-8000-0000000000a3"
+    },
+    "fixed_saved_at": "2026-10-06T12:00:00+00:00",
+    "harness": "tests/cyntro_data/test_system_boundary_root_admission.py::test_r6_the_authoring_answers_are_exactly_the_producer_goldens",
+    "note": "The real route's answer on the real stack (real resolver, real person verifier, real P3a2 publication, the real IAM normalizer's role), captured by the harness; nothing removed. Not installed or live evidence.",
+    "pinned": [
+      "time.time",
+      "uuid.uuid4 around the publish",
+      "LocalEvidenceStore.bucket (recorded identity only)",
+      "cyntro_data.projection.receipt clock",
+      "system_boundary_save.now",
+      "request ids (the envelopes')"
+    ],
+    "routes": "/api/system-boundary/declarations{,/corrections,/view,/head,/requests,/requests/{id}} (api/system_boundary.py)"
+  },
+  "add": {
+    "base_revision": 3,
+    "correction": {
+      "deployment": {
+        "deployment_id": "authored_deployment:9727d62b9a8cd7b27eb3bf7f0e3c8c55dccab3c667221bbe89e277bf2bdb516e",
+        "expected_version": 1
+      },
+      "roots": {
+        "add": [
+          {
+            "account_id": "111122223333",
+            "region": "global",
+            "resource_uid": "aws://aws/111122223333/global/iam/role/api-role",
+            "selection": {
+              "observed_incarnation": {
+                "source": "role_id",
+                "status": "provided",
+                "value": "AROAAPIROLE00000009"
+              },
+              "publication": {
+                "attempt": "0000000000000000000000000000000a",
+                "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+                "generation": 1,
+                "source_identity": "v1:1c64ebc36b8f824d767ee0375888fb9480e7d4bd2f476ebb2d696a21cb01a929"
+              },
+              "resource_type": "iam:role"
+            }
+          }
+        ]
+      },
+      "system": {
+        "expected_version": 2,
+        "system_id": "authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f"
+      }
+    },
+    "request_id": "00000000-0000-4000-8000-0000000000a8"
+  },
+  "correction": {
+    "base_revision": 2,
+    "correction": {
+      "system": {
+        "expected_version": 1,
+        "set": {
+          "criticality": "CRITICAL"
+        },
+        "system_id": "authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f"
+      }
+    },
+    "request_id": "00000000-0000-4000-8000-0000000000a6"
+  },
+  "create": {
+    "base_revision": 1,
+    "declaration": {
+      "deployment": {
+        "deployment_key": "prod",
+        "environment": "PRODUCTION",
+        "environment_raw": "prd",
+        "mode": "new",
+        "scopes": [
+          {
+            "account_id": "111122223333",
+            "region": "global"
+          }
+        ]
+      },
+      "roots": [
+        {
+          "account_id": "111122223333",
+          "region": "global",
+          "resource_uid": "aws://aws/111122223333/global/iam/role/web-role",
+          "selection": {
+            "observed_incarnation": {
+              "source": "role_id",
+              "status": "provided",
+              "value": "AROAWEBROLE00000009"
+            },
+            "publication": {
+              "attempt": "0000000000000000000000000000000a",
+              "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+              "generation": 1,
+              "source_identity": "v1:1c64ebc36b8f824d767ee0375888fb9480e7d4bd2f476ebb2d696a21cb01a929"
+            },
+            "resource_type": "iam:role"
+          }
+        }
+      ],
+      "system": {
+        "criticality": "LOW",
+        "display_name": "Payments",
+        "mode": "new"
+      }
+    },
+    "request_id": "00000000-0000-4000-8000-0000000000a2"
+  },
+  "env": {
+    "base_revision": 6,
+    "correction": {
+      "deployment": {
+        "deployment_id": "authored_deployment:9727d62b9a8cd7b27eb3bf7f0e3c8c55dccab3c667221bbe89e277bf2bdb516e",
+        "expected_version": 2,
+        "set": {
+          "environment": "STAGING",
+          "environment_raw": null
+        }
+      },
+      "system": {
+        "expected_version": 2,
+        "system_id": "authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f"
+      }
+    },
+    "request_id": "00000000-0000-4000-8000-0000000000ac"
+  },
+  "env_conflict": {
+    "base_revision": 6,
+    "correction": {
+      "deployment": {
+        "deployment_id": "authored_deployment:9727d62b9a8cd7b27eb3bf7f0e3c8c55dccab3c667221bbe89e277bf2bdb516e",
+        "expected_version": 2,
+        "set": {
+          "environment": "STAGING"
+        }
+      },
+      "system": {
+        "expected_version": 2,
+        "system_id": "authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f"
+      }
+    },
+    "request_id": "00000000-0000-4000-8000-0000000000ab"
+  },
+  "move": {
+    "base_revision": 8,
+    "correction": {
+      "deployment": {
+        "deployment_id": "authored_deployment:9727d62b9a8cd7b27eb3bf7f0e3c8c55dccab3c667221bbe89e277bf2bdb516e",
+        "expected_version": 3
+      },
+      "roots": {
+        "move": [
+          {
+            "account_id": "111122223333",
+            "expected_version": 1,
+            "region": "global",
+            "resource_uid": "aws://aws/111122223333/global/iam/role/web-role",
+            "to_deployment_expected_version": 1,
+            "to_deployment_id": "authored_deployment:3aba12710bce5dc5b9a3233e408f3d2eb59ef6839b5da8266e73861a03183783",
+            "to_system_expected_version": 2,
+            "to_system_id": "authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f"
+          }
+        ]
+      },
+      "system": {
+        "expected_version": 2,
+        "system_id": "authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f"
+      }
+    },
+    "request_id": "00000000-0000-4000-8000-0000000000ae"
+  },
+  "raced": {
+    "base_revision": 2,
+    "declaration": {
+      "deployment": {
+        "deployment_key": "prod",
+        "environment": "PRODUCTION",
+        "environment_raw": "prd",
+        "mode": "new",
+        "scopes": [
+          {
+            "account_id": "111122223333",
+            "region": "global"
+          }
+        ]
+      },
+      "roots": [
+        {
+          "account_id": "111122223333",
+          "region": "global",
+          "resource_uid": "aws://aws/111122223333/global/iam/role/web-role",
+          "selection": {
+            "observed_incarnation": {
+              "source": "role_id",
+              "status": "provided",
+              "value": "AROAWEBROLE00000009"
+            },
+            "publication": {
+              "attempt": "0000000000000000000000000000000a",
+              "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+              "generation": 1,
+              "source_identity": "v1:1c64ebc36b8f824d767ee0375888fb9480e7d4bd2f476ebb2d696a21cb01a929"
+            },
+            "resource_type": "iam:role"
+          }
+        }
+      ],
+      "system": {
+        "criticality": "LOW",
+        "display_name": "Raced",
+        "mode": "new"
+      }
+    },
+    "request_id": "00000000-0000-4000-8000-0000000000a7"
+  },
+  "raw": {
+    "base_revision": 5,
+    "correction": {
+      "deployment": {
+        "deployment_id": "authored_deployment:9727d62b9a8cd7b27eb3bf7f0e3c8c55dccab3c667221bbe89e277bf2bdb516e",
+        "expected_version": 1,
+        "set": {
+          "environment_raw": "production"
+        }
+      },
+      "system": {
+        "expected_version": 2,
+        "system_id": "authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f"
+      }
+    },
+    "request_id": "00000000-0000-4000-8000-0000000000aa"
+  },
+  "refused": {
+    "base_revision": 1,
+    "declaration": {
+      "deployment": {
+        "deployment_key": "prod",
+        "environment": "PRODUCTION",
+        "environment_raw": "prd",
+        "mode": "new",
+        "scopes": [
+          {
+            "account_id": "111122223333",
+            "region": "global"
+          }
+        ]
+      },
+      "roots": [
+        {
+          "account_id": "111122223333",
+          "region": "global",
+          "resource_uid": "aws://aws/111122223333/global/iam/role/web-role",
+          "selection": {
+            "observed_incarnation": {
+              "source": "role_id",
+              "status": "provided",
+              "value": "AROAWEBROLE00000009"
+            },
+            "publication": {
+              "attempt": "0000000000000000000000000000000a",
+              "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+              "generation": 1,
+              "source_identity": "v1:1c64ebc36b8f824d767ee0375888fb9480e7d4bd2f476ebb2d696a21cb01a929"
+            },
+            "resource_type": "iam:role"
+          }
+        },
+        {
+          "account_id": "111122223333",
+          "region": "global",
+          "resource_uid": "aws://aws/111122223333/global/s3/bucket/bucket-02",
+          "selection": {
+            "observed_incarnation": {
+              "status": "not_provided"
+            },
+            "publication": {
+              "attempt": "0000000000000000000000000000000a",
+              "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+              "generation": 1,
+              "source_identity": "v1:1c64ebc36b8f824d767ee0375888fb9480e7d4bd2f476ebb2d696a21cb01a929"
+            },
+            "resource_type": "s3:bucket"
+          }
+        }
+      ],
+      "system": {
+        "criticality": "LOW",
+        "display_name": "Refused",
+        "mode": "new"
+      }
+    },
+    "request_id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "remove": {
+    "base_revision": 9,
+    "correction": {
+      "deployment": {
+        "deployment_id": "authored_deployment:9727d62b9a8cd7b27eb3bf7f0e3c8c55dccab3c667221bbe89e277bf2bdb516e",
+        "expected_version": 3
+      },
+      "roots": {
+        "remove": [
+          {
+            "account_id": "111122223333",
+            "expected_version": 1,
+            "region": "global",
+            "resource_uid": "aws://aws/111122223333/global/iam/role/batch-role"
+          }
+        ]
+      },
+      "system": {
+        "expected_version": 2,
+        "system_id": "authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f"
+      }
+    },
+    "request_id": "00000000-0000-4000-8000-0000000000af"
+  },
+  "replace": {
+    "base_revision": 4,
+    "correction": {
+      "deployment": {
+        "deployment_id": "authored_deployment:9727d62b9a8cd7b27eb3bf7f0e3c8c55dccab3c667221bbe89e277bf2bdb516e",
+        "expected_version": 1
+      },
+      "roots": {
+        "add": [
+          {
+            "account_id": "111122223333",
+            "region": "global",
+            "resource_uid": "aws://aws/111122223333/global/iam/role/batch-role",
+            "selection": {
+              "observed_incarnation": {
+                "source": "role_id",
+                "status": "provided",
+                "value": "AROABATCHROLE0000009"
+              },
+              "publication": {
+                "attempt": "0000000000000000000000000000000a",
+                "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+                "generation": 1,
+                "source_identity": "v1:1c64ebc36b8f824d767ee0375888fb9480e7d4bd2f476ebb2d696a21cb01a929"
+              },
+              "resource_type": "iam:role"
+            }
+          }
+        ],
+        "remove": [
+          {
+            "account_id": "111122223333",
+            "expected_version": 1,
+            "region": "global",
+            "resource_uid": "aws://aws/111122223333/global/iam/role/api-role"
+          }
+        ]
+      },
+      "system": {
+        "expected_version": 2,
+        "system_id": "authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f"
+      }
+    },
+    "request_id": "00000000-0000-4000-8000-0000000000a9"
+  },
+  "second": {
+    "base_revision": 7,
+    "declaration": {
+      "deployment": {
+        "deployment_key": "dr",
+        "environment": "DISASTER_RECOVERY",
+        "mode": "new",
+        "scopes": [
+          {
+            "account_id": "111122223333",
+            "region": "global"
+          }
+        ]
+      },
+      "roots": [
+        {
+          "account_id": "111122223333",
+          "region": "global",
+          "resource_uid": "aws://aws/111122223333/global/iam/role/dr-role",
+          "selection": {
+            "observed_incarnation": {
+              "source": "role_id",
+              "status": "provided",
+              "value": "AROADRROLE000000009"
+            },
+            "publication": {
+              "attempt": "0000000000000000000000000000000a",
+              "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+              "generation": 1,
+              "source_identity": "v1:1c64ebc36b8f824d767ee0375888fb9480e7d4bd2f476ebb2d696a21cb01a929"
+            },
+            "resource_type": "iam:role"
+          }
+        }
+      ],
+      "system": {
+        "expected_version": 2,
+        "mode": "ref",
+        "system_id": "authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f"
+      }
+    },
+    "request_id": "00000000-0000-4000-8000-0000000000ad"
+  },
+  "stale": {
+    "base_revision": 1,
+    "declaration": {
+      "deployment": {
+        "deployment_key": "prod",
+        "environment": "PRODUCTION",
+        "environment_raw": "prd",
+        "mode": "new",
+        "scopes": [
+          {
+            "account_id": "111122223333",
+            "region": "global"
+          }
+        ]
+      },
+      "roots": [
+        {
+          "account_id": "111122223333",
+          "region": "global",
+          "resource_uid": "aws://aws/111122223333/global/iam/role/web-role",
+          "selection": {
+            "observed_incarnation": {
+              "source": "role_id",
+              "status": "provided",
+              "value": "AROAWEBROLE00000009"
+            },
+            "publication": {
+              "attempt": "0000000000000000000000000000000a",
+              "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+              "generation": 1,
+              "source_identity": "v1:1c64ebc36b8f824d767ee0375888fb9480e7d4bd2f476ebb2d696a21cb01a929"
+            },
+            "resource_type": "iam:role"
+          }
+        }
+      ],
+      "system": {
+        "criticality": "LOW",
+        "display_name": "Stale",
+        "mode": "new"
+      }
+    },
+    "request_id": "00000000-0000-4000-8000-0000000000a4"
+  },
+  "taken": {
+    "base_revision": 2,
+    "declaration": {
+      "deployment": {
+        "deployment_key": "prod",
+        "environment": "PRODUCTION",
+        "environment_raw": "prd",
+        "mode": "new",
+        "scopes": [
+          {
+            "account_id": "111122223333",
+            "region": "global"
+          }
+        ]
+      },
+      "roots": [
+        {
+          "account_id": "111122223333",
+          "region": "global",
+          "resource_uid": "aws://aws/111122223333/global/iam/role/web-role",
+          "selection": {
+            "observed_incarnation": {
+              "source": "role_id",
+              "status": "provided",
+              "value": "AROAWEBROLE00000009"
+            },
+            "publication": {
+              "attempt": "0000000000000000000000000000000a",
+              "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+              "generation": 1,
+              "source_identity": "v1:1c64ebc36b8f824d767ee0375888fb9480e7d4bd2f476ebb2d696a21cb01a929"
+            },
+            "resource_type": "iam:role"
+          }
+        }
+      ],
+      "system": {
+        "criticality": "LOW",
+        "display_name": "Payments",
+        "mode": "new"
+      }
+    },
+    "request_id": "00000000-0000-4000-8000-0000000000a3"
+  }
+}

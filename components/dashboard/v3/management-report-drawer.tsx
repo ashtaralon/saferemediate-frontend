@@ -367,6 +367,47 @@ function buildManagementAsks(snapshot: ManagementReportSnapshot | null | undefin
   return asks.slice(0, 4)
 }
 
+/**
+ * A report metric for a narrowed scope, recounted from the rows in scope -- or
+ * null. The rows (top risks, one page of candidates) are a capped sample, so a
+ * recount is the metric only when the sample holds every item the full metric
+ * counted (`listed === full`). Otherwise the narrowed value is unknown: the
+ * recount used to turn an unknown or truncated metric into 0, and the headline
+ * then read "No viable route to a crown jewel" from missing rows.
+ */
+export function narrowedCount(full: number | null, listed: number | null, inScope: number | null): number | null {
+  if (full === null || listed === null || inScope === null) return null
+  return listed === full ? inScope : null
+}
+
+/** Paths across jewels, or null when any jewel's path count is unknown. */
+export function pathSum(jewels: ReportCrownJewel[]): number | null {
+  let total = 0
+  for (const jewel of jewels) {
+    if (jewel.pathCount === null) return null
+    total += jewel.pathCount
+  }
+  return total
+}
+
+/**
+ * Systems needing attention in a narrowed scope: one with a known critical or
+ * high finding, or a known score under 75. Null when any system in scope lacks
+ * all three figures -- an unmeasured system is not one that needs no attention.
+ */
+export function narrowedAttention(systems: ReportSystem[]): number | null {
+  let count = 0
+  for (const system of systems) {
+    const flagged = (system.critical ?? 0) > 0 || (system.high ?? 0) > 0 || (system.score !== null && system.score < 75)
+    if (flagged) {
+      count += 1
+      continue
+    }
+    if (system.critical === null || system.high === null || system.score === null) return null
+  }
+  return count
+}
+
 function executiveHeadline(snapshot: ManagementReportSnapshot | null | undefined): string {
   if (!snapshot) return "The current estate reading is incomplete; no risk conclusion should be drawn from missing data."
   if (
@@ -521,19 +562,27 @@ export function ManagementReportDrawer({
     const allowedNames = new Set(systems.map((system) => normalized(system.name)))
     const crownJewels = fullSnapshot.crownJewels.filter((jewel) => systemReferenceMatches(jewel.systemName, allowedNames))
     const candidates = fullSnapshot.candidates.filter((candidate) => systemReferenceMatches(candidate.system, allowedNames))
-    const attackPaths = crownJewels.reduce((total, jewel) => total + (jewel.pathCount || 0), 0)
+    const full = fullSnapshot.metrics
+    const exposed = (jewel: ReportCrownJewel) => jewel.internetExposed === true
+    const ready = (candidate: ReportCandidate) => candidate.canAutoApply === true
+    const held = (candidate: ReportCandidate) => candidate.canAutoApply === false
     return {
       ...fullSnapshot,
       metrics: {
-        ...fullSnapshot.metrics,
+        ...full,
         systems: systems.length,
-        systemsPartial: false,
-        systemsRequiringAttention: systems.filter((system) => (system.critical || 0) > 0 || (system.high || 0) > 0 || (system.score !== null && system.score < 75)).length,
-        reachableCrownJewels: crownJewels.length,
-        internetExposedJewels: crownJewels.filter((jewel) => jewel.internetExposed === true).length,
-        viableAttackPaths: attackPaths,
-        proposedChanges: candidates.filter((candidate) => candidate.canAutoApply === true).length,
-        heldChanges: candidates.filter((candidate) => candidate.canAutoApply === false).length,
+        // The narrowing does not make a partial reading complete.
+        systemsPartial: full.systemsPartial,
+        systemsRequiringAttention: narrowedAttention(systems),
+        reachableCrownJewels: narrowedCount(full.reachableCrownJewels, fullSnapshot.crownJewels.length, crownJewels.length),
+        internetExposedJewels: narrowedCount(
+          full.internetExposedJewels,
+          fullSnapshot.crownJewels.filter(exposed).length,
+          crownJewels.filter(exposed).length,
+        ),
+        viableAttackPaths: narrowedCount(full.viableAttackPaths, pathSum(fullSnapshot.crownJewels), pathSum(crownJewels)),
+        proposedChanges: narrowedCount(full.proposedChanges, fullSnapshot.candidates.filter(ready).length, candidates.filter(ready).length),
+        heldChanges: narrowedCount(full.heldChanges, fullSnapshot.candidates.filter(held).length, candidates.filter(held).length),
       },
       systems,
       crownJewels,

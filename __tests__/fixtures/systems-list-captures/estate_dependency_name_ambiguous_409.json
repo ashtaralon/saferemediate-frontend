@@ -1,0 +1,35 @@
+{
+  "_provenance": {
+    "harness": "tests/test_estate_cohort_serving.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/dependency-map/full",
+      "query": {
+        "systemName": "payments",
+        "max_nodes": "300"
+      }
+    }
+  },
+  "status": 409,
+  "body": {
+    "detail": {
+      "code": "SYSTEM_NAME_AMBIGUOUS",
+      "system_name": "payments",
+      "reason": "several systems answer to this name; name one (system_key)",
+      "candidate_keys": [
+        {
+          "system_key": "authored_system:pay",
+          "system_name": "Payments",
+          "account_id": null,
+          "deployments": []
+        },
+        {
+          "system_key": "payments",
+          "system_name": "Payments",
+          "account_id": "111111111111",
+          "deployments": []
+        }
+      ]
+    }
+  }
+}

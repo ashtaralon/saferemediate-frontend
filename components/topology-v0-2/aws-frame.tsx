@@ -899,29 +899,61 @@ function severityRing(node: TopologyNode): { ring: string; halo: string } {
 }
 
 /**
- * Prefer official AWS Architecture Icons (thesvg.org / CC BY-ND).
- * Fallback glyphs only when slug is unknown — never invents a resource.
+ * The official icon, served by this app (`/aws-icons/<slug>.svg`). If the file does not load --
+ * a customer image built without the vendored set, a proxy that strips it -- the card shows the
+ * in-app glyph for the type instead of a broken image. Never a lookalike, never an invented type.
+ */
+function OfficialIcon({ url, type }: { url: string; type: string | null }) {
+  const [failed, setFailed] = useState(false)
+  if (failed) {
+    const fallback = fallbackIcon(type)
+    return (
+      <span
+        className="inline-flex items-center justify-center w-7 h-7 rounded-[6px] text-[10px] font-semibold"
+        style={{ background: fallback.bg, color: fallback.fg }}
+        data-icon-fallback={type ?? ""}
+      >
+        {fallback.symbol}
+      </span>
+    )
+  }
+  return (
+    <img
+      src={url}
+      alt=""
+      width={28}
+      height={28}
+      className="w-7 h-7 object-contain"
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(true)}
+    />
+  )
+}
+
+/** Exported for the unit test only: the runtime fallback is asserted, not assumed. */
+export const __OfficialIconForTest = OfficialIcon
+
+/**
+ * Prefer official AWS Architecture Icons (served from the app; see aws-architecture-icons.ts).
+ * Fallback glyphs only when the slug is unknown or the file does not load -- never invents a
+ * resource.
  */
 function nodeIcon(type: string | null): { symbol: ReactNode; bg: string; fg: string; official?: boolean } {
   const url = awsIconUrl(type)
   if (url) {
     return {
-      symbol: (
-        <img
-          src={url}
-          alt=""
-          width={28}
-          height={28}
-          className="w-7 h-7 object-contain"
-          loading="lazy"
-          referrerPolicy="no-referrer"
-        />
-      ),
+      symbol: <OfficialIcon url={url} type={type} />,
       bg: "transparent",
       fg: "inherit",
       official: true,
     }
   }
+  return fallbackIcon(type)
+}
+
+/** The in-app glyph for a type: what the card shows when no official icon is available. */
+function fallbackIcon(type: string | null): { symbol: ReactNode; bg: string; fg: string; official?: boolean } {
   switch (type) {
     case "EC2":
       return { symbol: <AwsServiceGlyph kind="ec2" />, bg: "#FF9900", fg: "white" }
@@ -6842,7 +6874,7 @@ export function unplacedSubnetReason(
   hasSubnet: (id: string) => SubnetMeta | undefined,
 ): UnplacedReason {
   // A group never had a subnet to lose; asking the collector for one would
-  // send the operator after a gap that does not exist (2026-09-11 review).
+  // send the operator after a gap that is not there (2026-09-11 review).
   if (isLogicalGroupNode(n)) return "logical-group"
   const ids = workloadSubnetIds(n)
   if (ids.length === 0) return "no-subnet-in-graph"
@@ -9577,8 +9609,8 @@ export function AwsFrame({
       crossVpc,
     ],
   )
-  // Cells the frames ACTUALLY draw, so the picker can never offer a column that
-  // does not exist. `f.grid.azs` is already hidden-AZ filtered, which is the
+  // Cells the frames ACTUALLY draw, so the picker can never offer a column the
+  // frames do not draw. `f.grid.azs` is already hidden-AZ filtered, which is the
   // behaviour we want: an operator who hid a zone is not offered it.
   const placeableCells = useMemo<PlaceableCell[]>(
     () =>

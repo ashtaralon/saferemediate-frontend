@@ -1,0 +1,24 @@
+{
+  "_provenance": {
+    "harness": "tests/cyntro_data/test_system_boundary_finish_pair_captures.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/system-boundary/declarations/applied",
+      "params": {
+        "account_id": "111122223333"
+      }
+    }
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "body": {
+    "contract": "declarations_applied/v1",
+    "state": "applied_known",
+    "reason_code": null,
+    "account_id": "111122223333",
+    "saved_revision": 2,
+    "applied_revision": 2,
+    "generation": 1790942400000000,
+    "published_at": "2026-10-02T13:01:00+00:00"
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "_provenance": {
+    "harness": "tests/cyntro_data/test_account_resources_api.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/accounts/333333333333/resources",
+      "query": {
+        "resource_type": "ec2:instance"
+      }
+    },
+    "real": "the routes, the browse store and its fenced writer, the registry row, the contract, the person check over installed keys (moto tables)"
+  },
+  "status": 200,
+  "body": {
+    "schema_version": "account_resources/v1",
+    "account_id": "333333333333",
+    "state": "complete_empty",
+    "reason_code": null,
+    "registration_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "run_id": "33455e90b43f4c8d786663070ae62c5e",
+    "coverage_state": "COMPLETE",
+    "complete": true,
+    "observed_total": 0,
+    "observed_total_label": "found",
+    "totals_by_type": {},
+    "filter": {
+      "resource_type": "ec2:instance"
+    },
+    "type_state": {
+      "state": "LISTED",
+      "found": 0,
+      "missing_actions": []
+    },
+    "items": [],
+    "next_cursor": null
+  }
+}

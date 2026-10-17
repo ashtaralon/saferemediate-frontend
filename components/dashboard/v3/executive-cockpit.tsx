@@ -13,7 +13,7 @@ import {
 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useAccountScope } from "@/lib/account-scope-context"
-import { withAccountScope } from "@/lib/account-scope"
+import { NO_ACCOUNTS_TITLE, noAccountsDescription, noAccountsInScope, withAccountScope } from "@/lib/account-scope"
 import {
   RECOVERY_POLL_MS,
   STALE_BACKEND_RECOVERING,
@@ -98,8 +98,9 @@ function reportSnapshot(data: ExecutiveSnapshot, catalog?: SystemsCatalogRespons
         high: null,
         weakestPlane: null,
       }
-      if (risk.severity === "CRITICAL") row.critical = (row.critical || 0) + 1
-      if (risk.severity === "HIGH") row.high = (row.high || 0) + 1
+      // Critical / High are the system's own counts, from the catalog below. The
+      // top-risk rows are a capped sample (five), so counting them here labelled
+      // "how many of the top five are CRITICAL" as the system's Critical total.
       systemRows.set(name, row)
     }
   }
@@ -445,21 +446,27 @@ export function ExecutiveCockpit({
       fetchInit: { cache: "no-store" },
       transientRetries: 1,
       autoRetryMs: RECOVERY_POLL_MS,
+      // This read carries the selected account: a refusal for want of one can point at the scope bar.
+      accountSelection: accountScope.accountId === "all" ? "offer" : "diagnose",
       isCacheable: (value) => Boolean(value && typeof value === "object" && Array.isArray((value as SystemsCatalogResponse).systems)),
     },
   )
 
   const scopedSystems = useMemo(() => {
-    const byCanonicalName = new Map<string, string>()
+    // One entry per system IDENTITY (A7 B5): a v2 row's row_key; a v1 answer's rows are one per canonical name, as before.
+    // Two v2 systems that share a name are two systems here, so the single-system snapshot below never opens for either.
+    const byIdentity = new Map<string, string>()
     for (const system of systemsCatalog.data?.systems || []) {
       const name = system.SystemName || system.name
       if (typeof name !== "string" || !name.trim()) continue
       const trimmed = name.trim()
-      if (!byCanonicalName.has(trimmed.toLocaleLowerCase())) {
-        byCanonicalName.set(trimmed.toLocaleLowerCase(), trimmed)
+      const rowKey = (system as { row_key?: unknown }).row_key
+      const identity = typeof rowKey === "string" && rowKey ? `row:${rowKey}` : trimmed.toLocaleLowerCase()
+      if (!byIdentity.has(identity)) {
+        byIdentity.set(identity, trimmed)
       }
     }
-    return Array.from(byCanonicalName.values())
+    return Array.from(byIdentity.values())
   }, [systemsCatalog.data])
   // When the SCOPED catalog is empty while a narrowing filter is active, probe
   // the same endpoint with the filters lifted so the card can say what the
@@ -557,6 +564,27 @@ export function ExecutiveCockpit({
     (scopedCatalogEmpty && narrowedScope && unscopedProbe.loading && !unscopedProbe.data)
   ) {
     return <LoadingCard label="Cloud risk and remediation overview" />
+  }
+  // No workload account connected: this state answers before any catalog hold or error -- the
+  // systems proxy relays the backend's NO_DATA_ACCOUNTS hold rather than an empty list.
+  if (noAccountsInScope(accountScope)) {
+    // No workload account is connected yet (a control plane before its first
+    // account): an expected state with one way forward, not a fault to retry.
+    return (
+      <div className="rounded-[14px] border border-slate-200 bg-white p-5">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+          Cloud risk and remediation overview
+        </div>
+        <div className="mt-2 text-sm font-medium text-slate-800">{NO_ACCOUNTS_TITLE}</div>
+        <div className="mt-1 text-sm text-slate-600">{noAccountsDescription(accountScope.customerId)}</div>
+        <button
+          onClick={() => router.push("/settings/accounts")}
+          className="mt-3 rounded-md border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+        >
+          Open Settings › Accounts
+        </button>
+      </div>
+    )
   }
   if (accountScope.error || systemsCatalog.error) {
     return <ErrorCard

@@ -1,0 +1,176 @@
+{
+ "body": {
+  "accounts": [
+   {
+    "account_id": "222222222222",
+    "aws_account_name": "prod-payments",
+    "aws_account_name_error": null,
+    "aws_account_name_read_at": "2026-10-05T07:58:18.349719+00:00",
+    "collection_mode": "MEMBER_READ_ROLE",
+    "coverage": [
+     {
+      "feature": "inventory",
+      "label": "Inventory, Systems and All Services",
+      "regions_lacking": [],
+      "status": "COVERED"
+     },
+     {
+      "feature": "observed_traffic",
+      "label": "Observed traffic and dependency maps",
+      "regions_lacking": [
+       "eu-west-1"
+      ],
+      "status": "LACKING"
+     },
+     {
+      "feature": "iam_usage",
+      "label": "IAM usage evidence (least privilege)",
+      "regions_lacking": [
+       "eu-west-1"
+      ],
+      "status": "LACKING"
+     }
+    ],
+    "customer_id": "acme",
+    "display_name": "prod-payments",
+    "environment": "UNCLASSIFIED",
+    "group_ids": [],
+    "install_method": "MEMBER_STACK",
+    "is_platform_account": false,
+    "last_validated_at": "2026-10-05T07:58:18.255109+00:00",
+    "mutation_enabled": false,
+    "onboarding_status": "CONNECTED",
+    "organization_id": "o-install",
+    "organizational_unit_ids": [],
+    "pending_request": null,
+    "read_enabled": true,
+    "regions": [
+     "eu-west-1"
+    ],
+    "registered_at": "2026-10-05T07:58:17.412212+00:00",
+    "registered_by": {
+     "identity": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
+     "verified": true
+    },
+    "registration": {
+     "access_check": {
+      "answered_account": "222222222222",
+      "check_id": "c1746ed82146605c01a504cb06723705",
+      "completed_at": "2026-10-05T07:58:17.595351+00:00",
+      "identity_observed_at": "2026-10-05T07:58:17.593827+00:00",
+      "name_in_aws": "prod-payments",
+      "name_unreadable": null,
+      "outcome": "REACHED",
+      "refusal": null,
+      "requested_by": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice"
+     },
+     "activating": false,
+     "activation": {
+      "at": "2026-10-05T07:58:17.633107+00:00",
+      "check_id": "c1746ed82146605c01a504cb06723705",
+      "decided_by": "CONFIRMATION"
+     },
+     "activation_last": {
+      "at": "2026-10-05T07:58:18.255109+00:00",
+      "outcome": "ACTIVATED",
+      "step": null
+     },
+     "checking": false,
+     "first_inventory": {
+      "counts": {},
+      "items": [],
+      "observed_at": "2026-10-05T07:58:18.422994Z",
+      "reason": "RUN_STORE_NOT_CONFIGURED",
+      "registration_id": "1b8c6c5fdff7d5b1a4883efdb3a53846",
+      "scope": "INVENTORY_BOOTSTRAP",
+      "state": "UNAVAILABLE"
+     },
+     "first_inventory_dispatch": {
+      "blocker": null,
+      "checked_at": "2026-10-05T07:58:18.345144+00:00",
+      "completed_at": "2026-10-05T07:58:18.345144+00:00",
+      "hold": null,
+      "intended": 31,
+      "queued": 31,
+      "state": "ALL_QUEUED"
+     },
+     "listed_evidence": {
+      "at": "2026-10-05T07:58:17.421687+00:00",
+      "basis": "TIMELY_COMMIT",
+      "kind": "ORGANIZATION_LIST"
+     },
+     "owner": null,
+     "registration_id": "1b8c6c5fdff7d5b1a4883efdb3a53846",
+     "registration_path": "LISTED",
+     "registration_version": 6
+    },
+    "sources": {
+     "config_prices": {
+      "eu-west-1": {
+       "error": "404"
+      }
+     },
+     "discovery_errors": [],
+     "eks_clusters": [],
+     "evidence_role": true,
+     "flow_log_groups": [],
+     "region_sources": {
+      "eu-west-1": {
+       "config": {
+        "delivery_channels": [],
+        "recorders": []
+       },
+       "discovered_at": "2026-10-05T07:58:17.787788+00:00",
+       "eni_history": {
+        "error": "NotImplementedError",
+        "lookup_events": "UNREADABLE"
+       },
+       "network_interfaces": {
+        "count": "0"
+       },
+       "region": "eu-west-1",
+       "vpcs": {
+        "ids": [
+         "vpc-8ceb052e64dc159f2"
+        ]
+       }
+      }
+     },
+     "regions": [
+      "eu-west-1"
+     ],
+     "trail_logging": {},
+     "trails": []
+    },
+    "tags": {},
+    "updated_at": "2026-10-05T07:58:18.255109+00:00",
+    "validation_message": "Connected. Found 0 CloudTrail trail(s), 0 usable flow-log group(s) of 0, 0 EKS cluster(s).",
+    "verification_enabled": false
+   }
+  ],
+  "customer_id": "acme",
+  "failed_requests": [],
+  "member_trust": {
+   "organization_id": "o-install",
+   "platform_account_id": "111111111111",
+   "ready": true
+  },
+  "mode": "MEMBER_ACCOUNTS",
+  "registry_available": true,
+  "summary": {
+   "connected": 1,
+   "discovered": 0,
+   "mutation_enabled": 0,
+   "needs_attention": 0
+  },
+  "total": 1
+ },
+ "captured_at": "2026-10-05T07:58:18.423971+00:00",
+ "name": "20_k2_run_store_not_configured",
+ "note": "confirmed and queued; this web has no run table: UNAVAILABLE, never a guess",
+ "request": {
+  "method": "GET",
+  "path": "/api/admin/accounts?customer_id=acme"
+ },
+ "status": 200
+}

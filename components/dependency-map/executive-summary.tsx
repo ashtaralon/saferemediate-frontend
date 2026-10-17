@@ -6,7 +6,7 @@
 // same PostureResponse data but reframes everything in plain English:
 //
 //   "ISOLATED"         → "Locked down — cannot reach the internet"
-//   "LATENT_EXPOSURE"  → "Open doors nobody uses"
+//   "LATENT_EXPOSURE"  → "Open doors not observed in use"
 //   "AWS_REDIRECTABLE" → "Wasted spend (paying for internet to reach AWS)"
 //   "ACTIVE_INTERNET"  → "Talking to the public internet right now"
 //   "Crown Jewel"      → "Sensitive data store"
@@ -34,6 +34,7 @@ import {
   Wifi,
 } from "lucide-react"
 import type { PostureResponse, PostureWorkload } from "./trust-boundary-map"
+import { formatCoverageInstant, readObservation } from "@/lib/observation-coverage"
 
 interface UpstreamCrownJewel {
   id: string
@@ -115,6 +116,16 @@ export function ExecutiveSummary({
 }: Props) {
   const risk = useMemo(() => deriveSensitiveDataRisk(data.workloads), [data.workloads])
   const summary = data.summary
+  // The window "not observed" refers to: the response's verified observation
+  // range when it carries one, else the recorded window. Never a fixed 30 days.
+  const observation = readObservation(data)
+  const windowSuffix = observation
+    ? `between ${formatCoverageInstant(observation.from)} and ${formatCoverageInstant(observation.to)}`
+    : "in the recorded window"
+  const lookbackLabel =
+    typeof data.lookback_days === "number" && Number.isFinite(data.lookback_days) && data.lookback_days > 0
+      ? `last ${data.lookback_days} days requested`
+      : "window not reported"
 
   // The three plain-English problem cards, derived from the bucket counts
   // + jewel risk. Each card hides if its count is zero — no fabricated
@@ -142,8 +153,8 @@ export function ExecutiveSummary({
   if (openDoorsUnused > 0) {
     nextStep = {
       kind: "close-unused",
-      headline: `Close ${openDoorsUnused} unused door${openDoorsUnused === 1 ? "" : "s"}`,
-      body: `${openDoorsUnused} server${openDoorsUnused === 1 ? " has" : "s have"} permission to send data to the internet but ${openDoorsUnused === 1 ? "hasn't" : "haven't"} used it in the past 30 days. Removing the permission costs nothing and reduces your attack surface.`,
+      headline: `Review ${openDoorsUnused} open door${openDoorsUnused === 1 ? "" : "s"} not observed in use`,
+      body: `${openDoorsUnused} server${openDoorsUnused === 1 ? " has" : "s have"} permission to send data to the internet but ${openDoorsUnused === 1 ? "was" : "were"} not observed using it ${windowSuffix}. Each is a removal candidate that would reduce your attack surface; absence in the window is not proof the permission is unneeded.`,
       cta: "Show me how",
     }
   } else if (wastedSpend > 0) {
@@ -181,8 +192,8 @@ export function ExecutiveSummary({
         </div>
         <span className="ml-auto text-[10px] text-slate-500">
           {coverageAvailable
-            ? `${totalWorkloads} server${totalWorkloads === 1 ? "" : "s"} analyzed · last 30 days`
-            : "Workload coverage unavailable · last 30 days"}
+            ? `${totalWorkloads} server${totalWorkloads === 1 ? "" : "s"} analyzed · ${lookbackLabel}`
+            : `Workload coverage unavailable · ${lookbackLabel}`}
         </span>
       </div>
 
@@ -260,14 +271,15 @@ export function ExecutiveSummary({
                 icon={<Wifi className="w-5 h-5" />}
                 count={openDoorsUnused}
                 unit={`server${openDoorsUnused === 1 ? "" : "s"}`}
-                title="Open doors nobody uses"
+                title="Open doors not observed in use"
                 body={
                   <>
                     {openDoorsUnused} of your {totalWorkloads} servers
                     {openDoorsUnused === 1 ? " has" : " have"} permission to send
-                    data to the internet but {openDoorsUnused === 1 ? "has" : "have"}{" "}
-                    <strong>never used it in 30 days.</strong> Closing the permission
-                    is safe — the server doesn't depend on it.
+                    data to the internet but {openDoorsUnused === 1 ? "was" : "were"}{" "}
+                    <strong>not observed using it {windowSuffix}.</strong> Closing the
+                    permission is a removal candidate; absence in the window is not proof
+                    the server does not depend on it.
                   </>
                 }
                 actionLabel="See the list"

@@ -9,6 +9,8 @@ import { ChevronDown, ChevronUp, LoaderCircle, Maximize2, Minimize2, ZoomIn, Zoo
 import { isTrustEnvelope } from "@/components/trust/trust-envelope-badge"
 import { clearCachedFetch, useCachedFetch } from "@/lib/use-cached-fetch"
 import { HeadlineStrip, staleNote } from "@/components/topology-v0-2/headline-strip"
+import { ObservationChip } from "@/components/coverage/observation-chip"
+import { readObservation } from "@/lib/observation-coverage"
 import { AwsFrame, dedupeLambdaServiceTwins, listTopologyAzs } from "@/components/topology-v0-2/aws-frame"
 import { CanvasPane } from "@/components/topology-v0-2/canvas-pane"
 import {
@@ -38,6 +40,8 @@ import {
   resolveTopologyScopeParams,
   scopeFromSearch,
 } from "@/components/topology-v0-2/topology-scope-url"
+import { systemScopeQuery } from "@/lib/scoped-system-catalog"
+import { SystemNameChoice } from "@/components/system-name-choice"
 import { EVIDENCE_TIER_LABEL } from "@/lib/types/scope"
 import { EstateIdentityAccessTab } from "@/components/topology-v0-2/estate-identity-access-tab"
 import {
@@ -143,6 +147,10 @@ export const IDENTITY_LEGACY_PARITY = true
 
 export interface EstateMapViewProps {
   systemName: string
+  /** A7 B5 / reader 4: the system's KEY (+ a tag / source key's account) when opened by key. Absent, the page URL's
+   *  system_key (scopeFromSearch) applies; absent both, every read is by name exactly as before. */
+  systemKey?: string | null
+  systemAccountId?: string | null
   embedded?: boolean
   /** Which Estate view opens first. Deep links pass `?view=identity`. */
   defaultView?: EstateViewId
@@ -193,7 +201,7 @@ function topologyGridWouldBeEmpty(data: TopologyRiskResponse): boolean {
   return true
 }
 
-export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, defaultFlowMode = "all_access", collapseEmptyAzsByDefault = false, defaultToAllVpcs = false, defaultView = "inventory" }: EstateMapViewProps) {
+export function EstateMapView({ systemName, systemKey = null, systemAccountId = null, embedded = false, onOpenTrafficMap, defaultFlowMode = "all_access", collapseEmptyAzsByDefault = false, defaultToAllVpcs = false, defaultView = "inventory" }: EstateMapViewProps) {
   const productScope = useAccountScope()
   // useCachedFetch can synchronously recover a browser-local last-good map.
   // Hold the server and first client render on the same loading shell so a
@@ -231,10 +239,17 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   }, [productScope.accountId, productScope.region, selectedAccountId])
 
   const scopedVpc = selectedVpcId === "all" ? null : selectedVpcId
-  const openingScope = typeof window !== "undefined" ? scopeFromSearch(window.location.search) : {}
+  const urlScope = typeof window !== "undefined" ? scopeFromSearch(window.location.search) : {}
+  // B5 (review of 7b8de86e): ONE identity -- key AND account -- for every read below: the caller's (props), else the page
+  // URL's (systemDetailHref writes both). A tag / source key is one system PER ACCOUNT, so its account is pinned for the
+  // topology read too: a remembered or picked account must never pair this key's topology with another account's
+  // (the dependency read already carries the same pair).
+  const identityKey = systemKey ?? urlScope.systemKey ?? null
+  const identityAccount = systemKey ? (systemAccountId ?? null) : (urlScope.systemKey ? (urlScope.accountId ?? null) : null)
+  const openingScope = identityKey ? { ...urlScope, systemKey: identityKey } : urlScope
   const scopeParams = useMemo(
-    () =>
-      resolveTopologyScopeParams(
+    () => {
+      const resolved = resolveTopologyScopeParams(
         { accountId: selectedAccountId, regionId: selectedRegionId, vpcId: scopedVpc },
         {
           customerId: productScope.customerId,
@@ -242,7 +257,12 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
           region: productScope.region,
         },
         openingScope,
-      ),
+      )
+      return identityKey
+        ? { ...resolved, systemKey: identityKey, ...(identityAccount ? { accountId: identityAccount } : {}) }
+        : resolved
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- openingScope is derived from identityKey + the URL
     [
       productScope.customerId,
       productScope.accountId,
@@ -250,6 +270,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       selectedAccountId,
       selectedRegionId,
       scopedVpc,
+      identityKey,
+      identityAccount,
     ],
   )
   const azScopeKey = `${scopeParams.accountId ?? "all"}:${scopeParams.region ?? "all"}:${scopedVpc ?? "all"}`
@@ -280,7 +302,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     openingScope.accountId && !fetchScope.accountId
       ? ""
       : buildTopologyRiskProxyUrl(systemName, fetchScope)
-  const { data, loading, error, isStale, cachedAt, retry, isComputing } = useCachedFetch<TopologyRiskResponse>(url, {
+  const { data, loading, error, isStale, cachedAt, retry, isComputing, choice } = useCachedFetch<TopologyRiskResponse>(url, {
     cacheKey,
     maxStaleMs: 10 * 60 * 1000,
     fetchInit: { cache: "no-store" },
@@ -476,11 +498,13 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   const [flowMode, setFlowMode] = useState<EstateFlowMode>(defaultFlowMode)
 
   // Cap at 300 — matches Traffic map; 500 routinely timed out the proxy.
-  const depMapUrl = `/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}&maxNodes=300`
+  const depMapUrl = `/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}&maxNodes=300${systemScopeQuery(
+    identityKey, identityAccount)}`
   const {
     data: depMapData,
     isStale: depMapIsStale,
     cachedAt: depMapCachedAt,
+    choice: depMapChoice,
   } = useCachedFetch<{
     edges?: Array<{ source: string; target: string; type: string; port?: string | null; protocol?: string | null; last_seen?: string | null }>
     nodes?: Array<{ id: string; name?: string; type?: string; properties?: Record<string, unknown> }>
@@ -489,7 +513,9 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     snapshot_age_seconds?: number | null
     staleReason?: string | null
   }>(depMapUrl, {
-    cacheKey: `estate-dep-map:300:${systemName}`,
+    // B5: another key / account is another system's map -- never combined with this one (by name: the key is as before).
+    cacheKey: identityKey ? `estate-dep-map:300:${systemName}:key=${identityKey}:${identityAccount ?? ""}`
+      : `estate-dep-map:300:${systemName}`,
     maxStaleMs: 10 * 60 * 1000,
     fetchInit: { cache: "no-store" },
   })
@@ -1041,12 +1067,15 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
 
   // IAP only when Attack-paths overlay is on — All Access does not need
   // the 30–55s cold IAP compute. Cap 5×5 to stay under the proxy abort.
+  // A7 B5: the same ONE identity (key + account) as the topology and dependency reads; absent, by name as before.
   const iapUrl =
     flowMode === "attack_paths"
-      ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&max_jewels=12&max_paths_per_jewel=8`
+      ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&max_jewels=12&max_paths_per_jewel=8${systemScopeQuery(
+        identityKey, identityAccount)}`
       : null
   const { data: rawIap } = useCachedFetch<unknown>(iapUrl, {
-    cacheKey: `estate-iap:5x5:${systemName}`,
+    cacheKey: identityKey ? `estate-iap:5x5:${systemName}:key=${identityKey}:${identityAccount ?? ""}`
+      : `estate-iap:5x5:${systemName}`,
     maxStaleMs: 10 * 60 * 1000,
     fetchInit: { cache: "no-store" },
   })
@@ -1446,6 +1475,16 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
             long this takes depends on the worker, which this view cannot observe.
           </div>
         </div>
+      </div>
+    )
+  }
+
+  if (choice || depMapChoice) {
+    // A7 B5 / reader 4: several systems answer to this name (topology or its dependency companion) -- offer the choice;
+    // never a map that combines one system's topology with another's dependencies.
+    return (
+      <div className={`${outerClass} p-8`}>
+        <SystemNameChoice systemName={systemName} candidates={(choice ?? depMapChoice)!} purpose="estate map" />
       </div>
     )
   }
@@ -1904,6 +1943,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       <div className={`flex flex-1 min-h-0 gap-2 ${ESTATE_SHELL_X} py-2`}>
         <main className="flex-1 min-w-0 min-h-0 flex flex-col">
           <div className="flex items-center justify-between gap-3 mb-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
             <div className="flex items-center gap-1.5" role="tablist" aria-label="Estate view">
               {([
                 ["inventory", "Command map"],
@@ -1944,6 +1984,17 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                     : ""}
                 </span>
               ) : null}
+            </div>
+            {/* The range each payload on screen covers, from its own
+                `observation` block; "not recorded yet" when absent. */}
+            <ObservationChip observation={readObservation(data)} testId="estate-observation" />
+            {view === "map" ? (
+              <ObservationChip
+                observation={readObservation(depMapData)}
+                label="Flows"
+                testId="estate-flow-observation"
+              />
+            ) : null}
             </div>
             {view === "map" ? (
               <>

@@ -193,10 +193,16 @@ export function useAtlasLateral({
   systemName,
   jewelRef,
   enabled,
+  systemKey = null,
+  systemAccountId = null,
 }: {
   systemName: string
   jewelRef: string | null
   enabled: boolean
+  /** A7 B5: the system's KEY (+ a tag / source key's account) when the page was opened by key -- the foothold read names
+   *  ONE system. Absent, the request is by name exactly as before. */
+  systemKey?: string | null
+  systemAccountId?: string | null
 }): UseAtlasLateralResult {
   const [candidates, setCandidates] = useState<AtlasFootholdCandidate[]>([])
   const [selectedFootholdId, setSelectedFootholdId] = useState<string | null>(null)
@@ -211,7 +217,9 @@ export function useAtlasLateral({
   const [emptyAnswer, setEmptyAnswer] = useState(false)
   const [nonce, setNonce] = useState(0)
   const retry = useCallback(() => setNonce((n) => n + 1), [])
-  const scopeKey = enabled && systemName && jewelRef ? `${systemName}\u0000${jewelRef}` : null
+  // B5: another key / account is another system's footholds (by name: the scope key is as before).
+  const identitySuffix = systemKey ? `\u0000key=${systemKey}\u0000${systemAccountId ?? ""}` : ""
+  const scopeKey = enabled && systemName && jewelRef ? `${systemName}\u0000${jewelRef}${identitySuffix}` : null
   // AP201 (R11): the operator's tenant / account claims travel with the read; no provider = no claims.
   const claims = scopeClaimsFrom(useOptionalAccountScope())
   const claimedCustomer = claims.customerId
@@ -239,7 +247,7 @@ export function useAtlasLateral({
     setEvaluation(null)
     setResolvedSearchKey(null)
     setError(null)
-    const claimsArg = { customerId: claimedCustomer, accountId: claimedAccount }
+    const claimsArg = { customerId: claimedCustomer, accountId: claimedAccount, systemKey, systemAccountId }
     let heldNow = false
     // A 200 hold (`semantic_status: not_recorded` / `unavailable`) is not a candidate list: say it, never "no compute".
     const answerOf = (raw: unknown, capability: string): FootholdPayload => {

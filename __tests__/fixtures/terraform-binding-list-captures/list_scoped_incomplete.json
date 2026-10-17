@@ -1,0 +1,19 @@
+{
+  "_provenance": {
+    "harness": "tests/test_system_boundary_terraform_captures.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/system-boundary/terraform-bindings/list",
+      "body": null
+    }
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "content_type": "application/json",
+  "body": {
+    "bindings": [],
+    "complete": false,
+    "next_cursor": "eyJhY2NvdW50X2lkIjpudWxsLCJhY3RvciI6ImI2YWY4OWUzYTk3Y2ExMmY4YzgzYzk2Y2RiNWY5OWY2IiwiYWZ0ZXIiOiJjNDM5ODg2NWM2ZWM2N2E2N2E4ZGEyNTBhMmQ5ODAwNyIsInRlbmFudCI6ImN1c3QtYWNtZSIsInYiOjJ9",
+    "contract": "terraform_workspace_binding_list/v1"
+  }
+}

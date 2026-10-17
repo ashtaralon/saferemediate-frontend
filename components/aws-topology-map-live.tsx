@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react'
 import cytoscape, { Core } from 'cytoscape'
 import coseBilkent from 'cytoscape-cose-bilkent'
 import { Shield, Database, Key, Globe, Server, RefreshCw, ZoomIn, ZoomOut, Maximize2, ChevronRight, X, Layers, Search, ArrowRight, Play, Pause, AlertTriangle, CheckCircle, Activity } from 'lucide-react'
+import { notObservedInDaysCopy } from '@/lib/observation-coverage'
 
 if (typeof window !== 'undefined') { try { cytoscape.use(coseBilkent) } catch (e) {} }
 
@@ -127,7 +128,8 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
                   gaps.push({
                     severity: "medium",
                     rule: `${rule.protocol}:${rule.port_range} from ${rule.source}`,
-                    recommendation: `Unused rule - no traffic observed in ${gapData.observation_days} days`
+                    // Absent in the window, not "unused": the window is the analysis's own.
+                    recommendation: `${notObservedInDaysCopy(gapData.observation_days)}; absence in the window is not proof the rule is unused`
                   })
                 }
                 if (rule.is_public && rule.port_range === "0-65535") {

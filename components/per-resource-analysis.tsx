@@ -25,6 +25,7 @@ import {
 } from "lucide-react"
 import { getServiceMeta, ServiceTypeBadge } from "@/lib/service-type"
 import { legacyControlHeld, legacyMutationHold } from "@/lib/legacy-mutation-hold"
+import { NOT_OBSERVED_IN_RECORDED_WINDOW, notObservedInUsePhrase } from "@/lib/observation-coverage"
 
 // ── Types ────────────────────────────────────────────
 
@@ -591,7 +592,7 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
             if (r.resource_type === "SecurityGroup") {
               const inbound = r.inbound_rules || r.total_permissions || 0
               const ports = r.active_ports || 0
-              // Action required: public SG, unused rules, or over-exposed ports
+              // Action required: public SG, rules without observed traffic, or over-exposed ports
               if (r.has_public) return true
               if (inbound > 0 && ports === 0) return true  // no traffic at all
               if (ports > 0 && ports < inbound) return true  // unused ports open
@@ -971,10 +972,10 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                   <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" style={{ color: "#f97316" }} />
                   <div>
                     <p className="text-sm font-semibold" style={{ color: "#f97316" }}>
-                      {sgInbound - sgPorts} unused rule{sgInbound - sgPorts !== 1 ? "s" : ""} — only {sgPorts} of {sgInbound} have traffic
+                      {sgInbound - sgPorts} rule{sgInbound - sgPorts !== 1 ? "s" : ""} {notObservedInUsePhrase(null)} — only {sgPorts} of {sgInbound} have observed traffic
                     </p>
                     <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
-                      {sgResCount} resources are exposed to ports they don&apos;t use. Per-resource SGs would close unused ports.
+                      {sgResCount} resources are exposed to ports with no traffic observed in the recorded window. Per-resource SGs would close those ports (removal candidates).
                     </p>
                   </div>
                 </div>
@@ -1666,7 +1667,7 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                             )}
                           </div>
                           <div>
-                            <p className="text-xs uppercase tracking-wider mb-1.5 font-semibold" style={{ color: "var(--text-muted)" }}>{unusedList ? `Never used (${unusedList.length}):` : "Never used: not derivable"}</p>
+                            <p className="text-xs uppercase tracking-wider mb-1.5 font-semibold" style={{ color: "var(--text-muted)" }}>{unusedList ? `${NOT_OBSERVED_IN_RECORDED_WINDOW} (${unusedList.length}):` : `${NOT_OBSERVED_IN_RECORDED_WINDOW}: not derivable`}</p>
                             {!unusedList && (
                               <p className="text-xs italic" style={{ color: "var(--text-muted)" }}>
                                 {observed ? (a.unused_reason || "The role-level grant is not this resource's own.") : "No behavior observed for this resource."}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { getCached, getStaleCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
 import { forwardScopeClaims } from "@/lib/server/scope-claims"
+import { systemChoiceDetail } from "@/lib/server/proxy-error"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -10,7 +11,7 @@ const BACKEND_URL = getBackendBaseUrl()
 
 /** AP201 (R11): the tenant / account claims are part of the key — one account's summary is never another's. */
 function cacheKey(systemName: string, cjArn: string | null, cjName: string | null, claims: string): string {
-  return `cj-summary:${systemName}:${cjArn ?? ""}:${cjName ?? ""}:${claims}`
+  return `cj-summary:${systemName}:${cjArn ?? ""}:${cjName ?? ""}${claims ? `:${claims}` : ""}`   // no claim: today's key
 }
 
 /** GET /api/attack-paths/{system}/by-crown-jewel/summary — path list only */
@@ -68,8 +69,10 @@ export async function GET(
           )
         }
       }
+      // A7 B5: the 409 system choice is relayed (typed) so the page can offer it; every other refusal answers as before.
+      const choice = systemChoiceDetail(body)
       return NextResponse.json(
-        { error: "Failed to load crown jewel summary", status: res.status },
+        { error: "Failed to load crown jewel summary", status: res.status, ...(choice ? { detail: choice } : {}) },
         { status: res.status },
       )
     }

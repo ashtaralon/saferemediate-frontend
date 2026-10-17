@@ -1,0 +1,154 @@
+{
+  "_provenance": {
+    "fixed_attempt": "0000000000000000000000000000000a",
+    "fixed_clock_epoch": 1800000000,
+    "fixed_request_ids": {
+      "add": "00000000-0000-4000-8000-0000000000a8",
+      "correction": "00000000-0000-4000-8000-0000000000a6",
+      "create": "00000000-0000-4000-8000-0000000000a2",
+      "env": "00000000-0000-4000-8000-0000000000ac",
+      "env_conflict": "00000000-0000-4000-8000-0000000000ab",
+      "missing": "00000000-0000-4000-8000-0000000000a5",
+      "move": "00000000-0000-4000-8000-0000000000ae",
+      "raced": "00000000-0000-4000-8000-0000000000a7",
+      "raw": "00000000-0000-4000-8000-0000000000aa",
+      "refused": "00000000-0000-4000-8000-0000000000a1",
+      "remove": "00000000-0000-4000-8000-0000000000af",
+      "replace": "00000000-0000-4000-8000-0000000000a9",
+      "second": "00000000-0000-4000-8000-0000000000ad",
+      "stale": "00000000-0000-4000-8000-0000000000a4",
+      "taken": "00000000-0000-4000-8000-0000000000a3"
+    },
+    "fixed_saved_at": "2026-10-06T12:00:00+00:00",
+    "harness": "tests/cyntro_data/test_system_boundary_root_admission.py::test_r6_the_authoring_answers_are_exactly_the_producer_goldens",
+    "note": "The real route's answer on the real stack (real resolver, real person verifier, real P3a2 publication, the real IAM normalizer's role), captured by the harness; nothing removed. Not installed or live evidence.",
+    "pinned": [
+      "time.time",
+      "uuid.uuid4 around the publish",
+      "LocalEvidenceStore.bucket (recorded identity only)",
+      "cyntro_data.projection.receipt clock",
+      "system_boundary_save.now",
+      "request ids (the envelopes')"
+    ],
+    "routes": "/api/system-boundary/declarations{,/corrections,/view,/head,/requests,/requests/{id}} (api/system_boundary.py)"
+  },
+  "body": {
+    "completed_revision": 2,
+    "deployments": [
+      {
+        "actor": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
+        "body": {
+          "deployment_id": "authored_deployment:9727d62b9a8cd7b27eb3bf7f0e3c8c55dccab3c667221bbe89e277bf2bdb516e",
+          "deployment_key": "prod",
+          "environment": "PRODUCTION",
+          "environment_raw": "prd",
+          "scopes": [
+            {
+              "account_id": "111122223333",
+              "region": "global"
+            }
+          ],
+          "system_id": "authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f"
+        },
+        "key": "DEPLOYMENT#authored_deployment:9727d62b9a8cd7b27eb3bf7f0e3c8c55dccab3c667221bbe89e277bf2bdb516e",
+        "kind": "DEPLOYMENT",
+        "tombstoned": false,
+        "version": 1,
+        "written_at": "2026-10-06T12:00:00.000000+00:00"
+      }
+    ],
+    "limits": {
+      "binding_kinds": [
+        "exclusive",
+        "several_systems",
+        "shared_foundation"
+      ],
+      "criticalities": [
+        "MISSION CRITICAL",
+        "BUSINESS CRITICAL",
+        "CRITICAL",
+        "IMPORTANT",
+        "STANDARD",
+        "MEDIUM",
+        "LOW"
+      ],
+      "decision_verdicts": [
+        "include",
+        "exclude"
+      ],
+      "environments": [
+        "PRODUCTION",
+        "STAGING",
+        "DEVELOPMENT",
+        "TEST",
+        "SANDBOX",
+        "DISASTER_RECOVERY"
+      ],
+      "max_actions": 100,
+      "max_bindings": 50,
+      "max_display_name": 120,
+      "max_environment_raw": 64,
+      "max_move_targets": 4,
+      "max_new_cells": 10,
+      "max_resource_decisions": 200,
+      "max_resource_uid": 1024,
+      "max_roots": 36,
+      "max_write_accounts": 10,
+      "save_envelope_level": 3
+    },
+    "protocol_phase": "ACTIVE",
+    "resource_decisions": [],
+    "roots": [
+      {
+        "actor": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
+        "body": {
+          "account_id": "111122223333",
+          "deployment_id": "authored_deployment:9727d62b9a8cd7b27eb3bf7f0e3c8c55dccab3c667221bbe89e277bf2bdb516e",
+          "provenance": {
+            "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+            "incarnation": {
+              "source": "role_id",
+              "status": "provided",
+              "value": "AROAWEBROLE00000009"
+            },
+            "publication": {
+              "attempt": "0000000000000000000000000000000a",
+              "generation": 1,
+              "source_identity": "v1:1c64ebc36b8f824d767ee0375888fb9480e7d4bd2f476ebb2d696a21cb01a929"
+            },
+            "registration_id": "0123456789abcdef0123456789abcdef",
+            "resolver_contract": "account_inventory_roots/v2",
+            "resource_type": "iam:role"
+          },
+          "region": "global",
+          "resource_uid": "aws://aws/111122223333/global/iam/role/web-role",
+          "system_id": "authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f"
+        },
+        "key": "SEED#111122223333#global#seed_target:b2e11ca85a032ae3b57a4ea44289b5e770dd1610aabc6f420aa2f30719dfcbb8",
+        "kind": "SEED",
+        "tombstoned": false,
+        "version": 1,
+        "written_at": "2026-10-06T12:00:00.000000+00:00"
+      }
+    ],
+    "source": "SNAPSHOT",
+    "stack_bindings": [],
+    "systems": [
+      {
+        "actor": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
+        "body": {
+          "criticality": "LOW",
+          "display_key": "payments",
+          "display_name": "Payments",
+          "system_id": "authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f"
+        },
+        "key": "SYSTEM#authored_system:004f651f35aa5aeca75fcde456a03e400f7f95d927a3a49c14601614b84a8d1f",
+        "kind": "SYSTEM",
+        "tombstoned": false,
+        "version": 1,
+        "written_at": "2026-10-06T12:00:00.000000+00:00"
+      }
+    ]
+  },
+  "status": 200
+}

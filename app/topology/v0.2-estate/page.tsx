@@ -17,7 +17,7 @@ import { Suspense, useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { EstateMapView, type EstateViewId } from "@/components/topology-v0-2/estate-map-view"
 import { pickWorstSystemName } from "@/lib/pick-worst-system"
-import { catalogSystemName, useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
+import { catalogSystemName, unrepeatedLabels, useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
 
 const ESTATE_VIEWS: readonly EstateViewId[] = ["inventory", "map", "identity"]
 
@@ -33,6 +33,8 @@ function EstateView() {
   const defaultView = estateViewFromParam(params.get("view"))
   const [systemName, setSystemName] = useState<string | null>(fromUrl)
   const [resolving, setResolving] = useState(true)
+  // T10 S1: the URL named a system this scope cannot open as ONE system (not found, or served by several accounts).
+  const [unresolved, setUnresolved] = useState<string | null>(null)
   const systemsCatalog = useScopedSystemCatalog()
 
   useEffect(() => {
@@ -56,8 +58,20 @@ function EstateView() {
         // Default to the WORST system (most criticals, then highs, then lowest
         // health) — mirrors the dashboard's "Systems Needing Attention" ranking,
         // so a bare /topology/v0.2-estate lands on the system that needs eyes,
-        // not an arbitrary first entry.
-        if (!cancelled) setSystemName(requested || pickWorstSystemName(json.systems))
+        // not an arbitrary first entry. Only labels exactly one account serves
+        // can be that default, and a system the URL names is never swapped for
+        // another one (T10 S1).
+        const unrepeated = new Set(unrepeatedLabels(names))
+        const single = (json.systems ?? []).filter((system: any) =>
+          unrepeated.has(String(system?.name || system?.SystemName || "")))
+        if (cancelled) return
+        if (fromUrl && !requested) {
+          setUnresolved(fromUrl)
+          setSystemName(null)
+        } else {
+          setUnresolved(null)
+          setSystemName(requested || pickWorstSystemName(single))
+        }
       } catch {
         if (!cancelled) setSystemName(null)
       } finally {
@@ -72,10 +86,18 @@ function EstateView() {
   if (resolving) {
     return <div className="min-h-screen p-8" style={{ background: "#F4F6F8", color: "#5A6B7A" }}>Resolving system…</div>
   }
+  if (unresolved) {
+    return (
+      <div className="min-h-screen p-8" style={{ background: "#F4F6F8", color: "#5A6B7A" }}>
+        {unresolved} is not one system of this scope: it was not found, or several accounts serve it. Open it from the
+        dashboard to choose an account.
+      </div>
+    )
+  }
   if (!systemName) {
     return (
       <div className="min-h-screen p-8" style={{ background: "#F4F6F8", color: "#5A6B7A" }}>
-        No systems available yet. Run a sync, then open a system from the dashboard.
+        No systems available yet. Systems appear after an account's first inventory has been collected and projected; Settings &gt; Accounts shows its progress.
       </div>
     )
   }

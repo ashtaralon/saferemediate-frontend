@@ -1,0 +1,99 @@
+{
+ "body": {
+  "accounts": [
+   {
+    "account_id": "222222222222",
+    "aws_account_name": null,
+    "aws_account_name_error": null,
+    "aws_account_name_read_at": null,
+    "collection_mode": "MEMBER_READ_ROLE",
+    "coverage": null,
+    "customer_id": "acme",
+    "display_name": "222222222222",
+    "environment": "UNCLASSIFIED",
+    "group_ids": [],
+    "install_method": "MEMBER_STACK",
+    "is_platform_account": false,
+    "last_validated_at": null,
+    "mutation_enabled": false,
+    "onboarding_status": "PENDING_UNVERIFIED",
+    "organization_id": null,
+    "organizational_unit_ids": [],
+    "pending_request": null,
+    "read_enabled": false,
+    "regions": [
+     "eu-west-1"
+    ],
+    "registered_at": "2026-10-06T13:46:45.023132+00:00",
+    "registered_by": {
+     "identity": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
+     "verified": true
+    },
+    "registration": {
+     "access_check": null,
+     "activating": false,
+     "activation": null,
+     "activation_last": null,
+     "checking": false,
+     "first_inventory": {
+      "counts": {},
+      "facts_emitted_total": null,
+      "items": [],
+      "observed_at": "2026-10-06T13:46:45.279760Z",
+      "reason": null,
+      "registration_id": "0e89f5b4f8b6a2880e3fb4dc3785cf44",
+      "scope": "INVENTORY_BOOTSTRAP",
+      "state": "NOT_ACTIVATED"
+     },
+     "first_inventory_dispatch": null,
+     "listed_evidence": null,
+     "owner": null,
+     "registration_id": "0e89f5b4f8b6a2880e3fb4dc3785cf44",
+     "registration_path": "PENDING",
+     "registration_version": 1
+    },
+    "sources": {},
+    "tags": {},
+    "updated_at": "2026-10-06T13:46:45.023132+00:00",
+    "validation_message": "Registered without organization evidence: an access check and your confirmation are required before Cyntro reads this account",
+    "verification_enabled": false
+   }
+  ],
+  "customer_id": "acme",
+  "failed_requests": [],
+  "member_trust": {
+   "organization_id": null,
+   "platform_account_id": "111111111111",
+   "ready": false
+  },
+  "mode": "MEMBER_ACCOUNTS",
+  "registry_available": true,
+  "removed": [
+   {
+    "account_id": "222222222222",
+    "at": "2026-10-06T13:46:44.993968+00:00",
+    "by": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
+    "by_display": null,
+    "display_name": "222222222222",
+    "from_status": "CONNECTED",
+    "removal_id": "c8398d02818b5d681de3e2f2e9c11ec4",
+    "status": "OFFBOARDED"
+   }
+  ],
+  "summary": {
+   "connected": 0,
+   "discovered": 0,
+   "mutation_enabled": 0,
+   "needs_attention": 0
+  },
+  "total": 1
+ },
+ "captured_at": "2026-10-06T13:46:45.280895+00:00",
+ "name": "45_re_added_listing",
+ "note": "GET /accounts after the immediate re-add: the new registration, and the removal kept",
+ "request": {
+  "method": "GET",
+  "path": "/api/admin/accounts?customer_id=acme"
+ },
+ "status": 200
+}

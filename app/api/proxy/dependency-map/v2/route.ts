@@ -20,9 +20,13 @@ export async function GET(req: NextRequest) {
   try {
     const window = url.searchParams.get("window") || "7d"
     const mode = url.searchParams.get("mode") || "observed"
+    // A custom observation window carries its range; both ends or neither.
+    const from = url.searchParams.get("from")
+    const to = url.searchParams.get("to")
+    const range = from && to ? { from, to } : null
 
-    // Create cache key
-    const cacheKey = `${systemId}-${window}-${mode}`
+    // Create cache key (the range is part of the answer, so part of the key)
+    const cacheKey = `${systemId}-${window}-${range ? `${range.from}-${range.to}` : ""}-${mode}`
 
     // Check cache
     const now = Date.now()
@@ -37,7 +41,7 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    const backendParams = new URLSearchParams({ systemId, window, mode })
+    const backendParams = new URLSearchParams({ systemId, window, ...(range ?? {}), mode })
     const backendUrl = `${BACKEND_URL}/api/dependency-map-v2?${backendParams.toString()}`
 
     console.log(`[proxy] dependency-map/v2 -> ${backendUrl}`)

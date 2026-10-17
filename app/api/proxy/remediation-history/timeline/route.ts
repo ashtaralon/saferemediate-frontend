@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getCached, getStaleCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
+import { clearCached, getCached, getStaleCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export const dynamic = "force-dynamic"
@@ -17,28 +17,40 @@ const BACKEND_URL = getBackendBaseUrl()
 // last-good on ANY failure, and always return 200 with an honest empty envelope
 // when there's nothing to serve. (Matches the proxy contract in CLAUDE.md:
 // timeout + cache + stale fallback + honest error envelope.)
-const EMPTY_TIMELINE = {
-  events: [] as unknown[],
-  chart_data: [] as unknown[],
-  summary: {
-    total_events: 0,
-    permissions_removed: 0,
-    rollbacks: 0,
-    avg_confidence: 0,
-  },
-}
-
-// Same empty shape, but flagged so the consumer can tell "the backend genuinely
-// has no events" (honest idle) apart from "we failed to load and have no stale"
-// (a degraded refresh). Without this, the LIVE NOW strip would render an empty
-// error-fallback as "no remediations recorded yet" — a lie when events exist but
-// the herd-saturated backend just couldn't answer this one cold cache key.
-const DEGRADED_TIMELINE = { ...EMPTY_TIMELINE, degraded: true }
+// A failed load with nothing stale to serve. Flagged so the consumer can tell
+// "the backend genuinely has no events" (honest idle, only ever the backend's own
+// 200) apart from "we failed to load" (a degraded refresh). It carries no summary:
+// a zero `total_events` here would be a count nobody read. Every failure path --
+// a 5xx, a 404 (the endpoint is absent, which is not "no remediations"), a
+// timeout or a network error -- answers this, never an unflagged empty.
+const DEGRADED_TIMELINE = { events: [] as unknown[], chart_data: [] as unknown[], degraded: true }
 
 // Cap the upstream fetch below the browser's 25s AbortSignal so a cold/hung
 // Render worker fails over to stale here instead of timing out in the component.
 const UPSTREAM_TIMEOUT_MS = 20_000
 const EMPTY_RETRY_TIMEOUT_MS = 5_000
+
+// A REFUSAL (401/403/422, or a typed hold: detail.code) is the server's answer about this caller/scope.
+// It REVOKES the key: the cached list is dropped (no later HIT or replay serves it) and the key's
+// revocation count moves, so a request that was already in flight cannot store its older list after it.
+const revocations = new Map<string, number>()
+
+function isRefusal(status: number, body: any): boolean {
+  return [401, 403, 422].includes(status) || typeof body?.detail?.code === "string"
+}
+
+function revoke(cacheKey: string): void {
+  clearCached(cacheKey)
+  revocations.set(cacheKey, (revocations.get(cacheKey) ?? 0) + 1)
+}
+
+/** The degraded envelope, SAYING it is a refusal (status + the typed code/reason only), so a consumer can
+ *  tell "the server refused this caller/scope" from "the read failed" -- the strip drops a shown event
+ *  for the first and keeps it over the second. */
+function refusedTimeline(status: number, body: any) {
+  const text = (value: unknown) => (typeof value === "string" ? value : null)
+  return { ...DEGRADED_TIMELINE, refused: { status, code: text(body?.detail?.code), reason: text(body?.detail?.reason) } }
+}
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -71,6 +83,11 @@ export async function GET(req: NextRequest) {
   // distinct entry from limit=200 (the history page), so one never serves the
   // other's shape.
   const cacheKey = `remediation-timeline:${canonicalQs}`
+  const revokedAtStart = revocations.get(cacheKey) ?? 0
+  // Not if the key was revoked while this request was in flight: its list is older than that refusal.
+  const storeIfCurrent = (value: unknown) => {
+    if ((revocations.get(cacheKey) ?? 0) === revokedAtStart) setCached(cacheKey, value, TTL_STD)
+  }
 
   const cached = forceRefresh ? null : getCached(cacheKey)
   if (cached) {
@@ -95,16 +112,25 @@ export async function GET(req: NextRequest) {
     }
 
     if (!response.ok) {
-      // 404 = endpoint genuinely absent → honest empty (nothing to serve stale).
+      // 404 = the endpoint is absent: nothing was read, so this is degraded,
+      // never "no remediations recorded".
       if (response.status === 404) {
-        return NextResponse.json(EMPTY_TIMELINE, { headers: { "X-Cache": "EMPTY-404" } })
+        return NextResponse.json(DEGRADED_TIMELINE, { headers: { "X-Cache": "DEGRADED-404" } })
       }
       // Any other backend failure (500/502 under load): prefer last-good over a
       // raw error status. NEVER propagate a 5xx to a nice-to-have activity feed.
+      // Never over a REFUSAL, though: a 401/403/422 or a typed hold (detail.code) is the
+      // server's answer about this caller/scope, and data read earlier must not cover it.
       console.error("[Remediation Timeline Proxy] backend", response.status)
-      const stale = getStaleCached(cacheKey)
+      const body = await response.json().catch(() => null)
+      if (isRefusal(response.status, body)) {
+        revoke(cacheKey)
+        return NextResponse.json(refusedTimeline(response.status, body), { headers: { "X-Cache": "ERROR-EMPTY" } })
+      }
+      const stale = getStaleCached<Record<string, unknown>>(cacheKey)
       if (stale) {
-        return NextResponse.json(stale, { headers: { "X-Cache": "STALE-ERROR" } })
+        // Stamped: an older list served over a failed read is not current.
+        return NextResponse.json({ ...stale, stale: true }, { headers: { "X-Cache": "STALE-ERROR" } })
       }
       return NextResponse.json(DEGRADED_TIMELINE, { headers: { "X-Cache": "ERROR-EMPTY" } })
     }
@@ -135,6 +161,13 @@ export async function GET(req: NextRequest) {
             data = retryData
             freshCount = retryCount
           }
+        } else {
+          // The retry is the NEWER answer: refused, it revokes -- older events are never put over it.
+          const retryBody = await retryResponse.json().catch(() => null)
+          if (isRefusal(retryResponse.status, retryBody)) {
+            revoke(cacheKey)
+            return NextResponse.json(refusedTimeline(retryResponse.status, retryBody), { headers: { "X-Cache": "ERROR-EMPTY" } })
+          }
         }
       } catch {
         // The existing stale/empty fallback below remains authoritative.
@@ -144,7 +177,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (freshCount > 0) {
-      setCached(cacheKey, data, TTL_STD)
+      storeIfCurrent(data)
       return NextResponse.json(data, { headers: { "X-Cache": "MISS" } })
     }
     // Backend answered 200 but with zero events. That's legitimate for a quiet
@@ -154,17 +187,17 @@ export async function GET(req: NextRequest) {
     // the honest empty so a truly-quiet query still reads idle.
     const staleWithEvents = getStaleCached<{ events?: unknown[] }>(cacheKey)
     if (staleWithEvents && Array.isArray(staleWithEvents.events) && staleWithEvents.events.length > 0) {
-      return NextResponse.json(staleWithEvents, { headers: { "X-Cache": "STALE-OVER-EMPTY" } })
+      return NextResponse.json({ ...staleWithEvents, stale: true }, { headers: { "X-Cache": "STALE-OVER-EMPTY" } })
     }
-    setCached(cacheKey, data, TTL_STD)
+    storeIfCurrent(data)
     return NextResponse.json(data, { headers: { "X-Cache": "MISS-EMPTY" } })
   } catch (error: any) {
-    // Timeout / network / parse — same posture: last-good, else empty. Always 200.
+    // Timeout / network / parse — same posture: last-good, else degraded. Always 200.
     console.error("[Remediation Timeline Proxy] error:", error?.message ?? String(error))
-    const stale = getStaleCached(cacheKey)
+    const stale = getStaleCached<Record<string, unknown>>(cacheKey)
     if (stale) {
-      return NextResponse.json(stale, { headers: { "X-Cache": "STALE-ERROR" } })
+      return NextResponse.json({ ...stale, stale: true }, { headers: { "X-Cache": "STALE-ERROR" } })
     }
-    return NextResponse.json(EMPTY_TIMELINE, { headers: { "X-Cache": "ERROR-EMPTY" } })
+    return NextResponse.json(DEGRADED_TIMELINE, { headers: { "X-Cache": "ERROR-DEGRADED" } })
   }
 }

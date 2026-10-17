@@ -1,12 +1,10 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { coerceProxyErrorMessage } from "@/lib/proxy-error-message"
 import { healthLabel } from "@/lib/utils"
 import {
   Download,
-  Plus,
-  ChevronDown,
   Loader2,
   Search,
   Filter,
@@ -17,23 +15,33 @@ import {
   RefreshCw,
   RotateCcw,
 } from "lucide-react"
-import { useToast } from "@/hooks/use-toast"
-import { NewSystemsModal } from "./new-systems-modal"
+import { AddSystemEntry } from "@/components/system-boundary/add-system-entry"
 import { PageHeader } from "@/components/ui/page-header"
 import { BackToDashboard } from "@/components/back-to-dashboard"
 import { useAccountScope } from "@/lib/account-scope-context"
-import { withAccountScope } from "@/lib/account-scope"
+import { NO_ACCOUNTS_TITLE, noAccountsDescription, noAccountsInScope, withAccountScope } from "@/lib/account-scope"
+import { semanticHoldMessage, semanticStatusHold } from "@/lib/semantic-hold"
+import { systemsCoverageGaps } from "@/lib/systems-coverage"
 import { RefreshEvidenceButton } from "@/components/RefreshEvidenceButton"
+import Link from "next/link"
+import { ObservationChip } from "@/components/coverage/observation-chip"
+import { coveragePageHref, readObservation, type Observation } from "@/lib/observation-coverage"
+import { deploymentIdentity, systemRowIdentity, systemsListLevel, type SystemDeployment } from "@/lib/scoped-system-catalog"
 
 interface System {
   name: string
   criticality: number
   criticalityLabel: string
   environment: string
-  health: number
-  critical: number
-  high: number
-  total: number
+  // null = not computed for this system (a fresh install serves the systems
+  // list from the published collection before any LP findings exist; the
+  // backend then sends null, never 0). Rendered as "—", never as a score.
+  health: number | null
+  critical: number | null
+  high: number | null
+  // How many resources the Systems list counts in this system (D3: this column used to be headed "Total findings").
+  // null = the list did not report a count; shown as "—", never as 0.
+  resourceCount: number | null
   lastScan: string
   // ISO timestamp from backend (or null if never scanned). Used to compute
   // staleness deterministically — if older than STALE_THRESHOLD_DAYS, the
@@ -43,6 +51,16 @@ interface System {
   // the freshness story. Per dashboard design review (2026-04-30).
   lastScanAt: string | null
   owner: string
+  // A7 B5 (v2 install): the row's identity -- its system KEY, and for a tag / source key (one system per account) that
+  // account; rowKey names the identity exactly -- and the deployments / cells it spans, shown beneath its row. The name is
+  // display only and two rows may share it. null / [] on a v1 answer.
+  systemKey?: string | null
+  rowKey?: string | null
+  identityAccountId?: string | null
+  deployments?: SystemDeployment[]
+  // The v1 answer's provisional identity (catalog_identity): two rows of one name in two accounts are two rows.
+  accountId?: string | null
+  region?: string | null
 }
 
 // Threshold for marking a row as stale. Picked at 7 days because most
@@ -50,6 +68,44 @@ interface System {
 // out-of-date for security posture purposes. Tunable; if/when we surface
 // per-tenant scan SLOs we should drive this from config.
 const STALE_THRESHOLD_DAYS = 7
+/** B5: a Systems list contract newer than this page reads. Shown as the reason, never read as the v1 shape. */
+const NEWER_SYSTEMS_LIST = "This Systems list comes from a newer backend than this page can read"
+/**
+ * SW-84: on a customer install the backend admits the person behind each Systems read. Its typed refusals -- a 401,
+ * a 403 whose code names the person, or a 503 PERSON_KEYS_* (the installed sign-in keys could not judge the sign-in) --
+ * are shown as themselves, with what to do, and nothing from an earlier answer.
+ */
+const PERSON_REFUSALS: Record<string, string> = {
+  "Your sign-in could not be verified for the Systems list":
+    "Sign in again, then reload this page. Nothing from an earlier session is shown.",
+  "Your sign-in is not authorized to view Systems":
+    "Ask an administrator for Cyntro access. Nothing from an earlier session is shown.",
+  "Your access covers specific accounts, not the whole organization":
+    "Choose one of your accounts in the scope bar to see its systems. Nothing from an earlier session is shown.",
+  // SW-86: the sign-in was not judged at all -- neither accepted nor refused. Never worded as "not authorized".
+  "Your sign-in could not be checked right now":
+    "Cyntro could not verify sign-ins against this installation's identity keys, so nothing is shown. Retry later; if "
+    + "it persists, an administrator must renew the installation's sign-in keys.",
+}
+
+/** The refusal message for a person refusal from the Systems proxy, or null when the answer is not one. */
+async function personRefusal(response: Response): Promise<string | null> {
+  if (response.status !== 401 && response.status !== 403 && response.status !== 503) return null
+  let code: unknown = null
+  try {
+    code = (await response.json())?.detail?.code
+  } catch {
+    return null
+  }
+  if (typeof code !== "string") return null
+  // A 503 is a person refusal only when its code is PERSON_KEYS_*; every other 503 keeps its behaviour.
+  if (response.status === 503) return code.startsWith("PERSON_KEYS_") ? "Your sign-in could not be checked right now" : null
+  if (response.status === 401) return "Your sign-in could not be verified for the Systems list"
+  if (!code.startsWith("PERSON_")) return null
+  return code === "PERSON_NOT_TENANT_WIDE"
+    ? "Your access covers specific accounts, not the whole organization"
+    : "Your sign-in is not authorized to view Systems"
+}
 
 function daysSinceScan(lastScanAt: string | null): number | null {
   if (!lastScanAt) return null
@@ -69,18 +125,25 @@ function isStale(lastScanAt: string | null): boolean {
   return d === null || d >= STALE_THRESHOLD_DAYS
 }
 
-interface AvailableSystem {
-  SystemName?: string  // Only SystemName format (capital S, capital N)
-  resourceCount?: number
-  resource_count?: number
-  criticality?: number
-  environment?: string
-  owner?: string
+/** The resource count a Systems row reports (resourceCount / resource_count, else its resources list); null when none. */
+function reportedResourceCount(sys: { resourceCount?: unknown; resource_count?: unknown; resources?: unknown }): number | null {
+  for (const value of [sys.resourceCount, sys.resource_count]) {
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) return value
+  }
+  return Array.isArray(sys.resources) ? sys.resources.length : null
+}
+
+/** The identity a Systems row stands for (A7 B5): the v2 system KEY; else the v1 provisional identity (account + Region +
+ *  name); else the name (a v1 backend that merged by name). Rows of one identity are one system; rows of two never merge. */
+function systemIdentityKey(system: Pick<System, "name" | "rowKey" | "accountId" | "region">): string {
+  if (system.rowKey) return `row:${system.rowKey}`
+  if (system.accountId) return `acct:${system.accountId}:${system.region ?? ""}:${system.name}`
+  return `name:${system.name}`
 }
 
 interface SystemsViewProps {
   systems?: System[]
-  onSystemSelect?: (systemName: string) => void
+  onSystemSelect?: (systemName: string, systemKey?: string | null, accountId?: string | null) => void
   systemName?: string
 }
 
@@ -90,20 +153,20 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
   const [selectedSystem, setSelectedSystem] = useState<string | null>(null)
   const [isScanning, setIsScanning] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
-  const [newSystems, setNewSystems] = useState<Array<{ SystemName: string; resourceCount: number; resources?: any[] }>>(
-    [],
-  )
-  const [showNewSystemsModal, setShowNewSystemsModal] = useState(false)
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
-  const [availableSystems, setAvailableSystems] = useState<AvailableSystem[]>([])
-  const [isLoadingAvailable, setIsLoadingAvailable] = useState(false)
-  const [backendStatus, setBackendStatus] = useState<"connected" | "offline" | "checking">("checking")
   const [systemsError, setSystemsError] = useState<string | null>(null)
+  // The backend's own "not recorded" answer (NO_DATA_ACCOUNTS, REGION_NOT_SERVED, ...): a state,
+  // not an empty list. And what a served answer did NOT cover (held / unrecorded accounts,
+  // unserved Regions): the list is then partial and says so.
+  const [systemsHold, setSystemsHold] = useState<string | null>(null)
+  const [systemsGaps, setSystemsGaps] = useState<string[]>([])
   // Count of systems the organization has OUTSIDE the active narrowing
   // filters, probed only when the scoped list came back empty. Filtered-empty
   // must never masquerade as "no systems" (incident 2026-08-23: a stray
   // persisted region rendered a healthy org as data loss for hours).
   const [hiddenByScope, setHiddenByScope] = useState<number | null>(null)
+  // The range the systems list covers, from the systems response itself.
+  // undefined = no response yet; null = the backend recorded none.
+  const [observation, setObservation] = useState<Observation | null | undefined>(undefined)
   const [isLoadingData, setIsLoadingData] = useState(true)
   const [gapData, setGapData] = useState<{ allowed: number; used: number; unused: number }>({
     allowed: 0,
@@ -113,10 +176,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
   const [secondsUntilRefresh, setSecondsUntilRefresh] = useState(30)
   const [lastScanTime, setLastScanTime] = useState<Date | null>(null)
   const [isReingesting, setIsReingesting] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
-  const emptyDropdownRef = useRef<HTMLDivElement>(null)
-  const { toast } = useToast()
-  const systemsCacheKey = `cyntro-systems:${accountScope.customerId || "unresolved"}:${accountScope.groupId}:${accountScope.accountId}:${accountScope.region}`
+  const systemsCacheKey = `cyntro-systems:v2:${accountScope.customerId || "unresolved"}:${accountScope.groupId}:${accountScope.accountId}:${accountScope.region}`
 
   // Fetch gap-analysis from real CloudTrail data
   const fetchGapAnalysisFromFindings = useCallback(async () => {
@@ -184,9 +244,31 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
 
       if (systemsRes.ok) {
         const systemsData = await systemsRes.json()
-        const backendSystems = systemsData.systems || []
+        const hold = semanticStatusHold(systemsData)
+        setSystemsHold(hold ? semanticHoldMessage(hold) : null)
+        setSystemsGaps(systemsCoverageGaps(systemsData))
+        const listLevel = systemsListLevel(systemsData)
+        if (listLevel === null) {
+          // A Systems list contract newer than this page reads (B5): never read as the v1 shape.
+          setSystemsError(NEWER_SYSTEMS_LIST)
+          setLocalSystems([])
+          setObservation(readObservation(systemsData))
+          return
+        }
+        const servedSystems = Array.isArray(systemsData.systems) ? systemsData.systems : []
+        // A v2 row without a valid key / deployments could not be addressed: it is not listed, and the list says so.
+        const backendSystems = listLevel === 2
+          ? servedSystems.filter((sys: any) => systemRowIdentity(sys) !== null)
+          : servedSystems
+        const unreadable = servedSystems.length - backendSystems.length
+        if (unreadable > 0) {
+          setSystemsGaps((gaps) => [
+            ...gaps,
+            `${unreadable} system${unreadable === 1 ? "" : "s"} could not be read and ${unreadable === 1 ? "is" : "are"} not listed`,
+          ])
+        }
+        setObservation(readObservation(systemsData))
         setSystemsError(null)
-        setBackendStatus("connected")
         
         console.log("[systems-view] Loaded", backendSystems.length, "systems from backend")
 
@@ -194,45 +276,59 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
           // Transform backend systems to UI format - ONLY use SystemName (capital S, capital N)
           const transformedSystems: System[] = backendSystems.map((sys: any) => {
             const systemName = sys.SystemName || sys.name || "Unknown"  // Only SystemName format
-            const resourceCount = sys.resourceCount || sys.resource_count || sys.resources?.length || 0
+            const resourceCount = reportedResourceCount(sys)
             
-            // Use criticality and environment from backend (Neo4j source of truth)
-            const rawCriticality = sys.criticality || "STANDARD"
-            const criticalityMap: Record<string, { score: number; label: string }> = {
-              "MISSION CRITICAL": { score: 5, label: "MISSION CRITICAL" },
-              "CRITICAL": { score: 5, label: "MISSION CRITICAL" },
-              "BUSINESS CRITICAL": { score: 4, label: "BUSINESS CRITICAL" },
-              "HIGH": { score: 4, label: "BUSINESS CRITICAL" },
-              "IMPORTANT": { score: 3, label: "IMPORTANT" },
-              "MEDIUM": { score: 3, label: "IMPORTANT" },
-              "STANDARD": { score: 2, label: "STANDARD" },
-              "LOW": { score: 2, label: "STANDARD" },
+            // Use criticality and environment from backend (Neo4j source of truth).
+            // Absent = not classified: never a default tier.
+            // (S0 F31) The label is the tier as the backend sent it -- each of the seven authored tiers (and a legacy
+            // value) shown as itself, never renamed to another tier. Only ranking and colour use the shared buckets below.
+            const rawCriticality = sys.criticality || ""
+            const criticalityRank: Record<string, number> = {
+              "MISSION CRITICAL": 5, "CRITICAL": 5, "BUSINESS CRITICAL": 4, "HIGH": 4, "IMPORTANT": 3, "MEDIUM": 3,
+              "STANDARD": 2, "LOW": 2,
             }
-            const critInfo = criticalityMap[rawCriticality] || { score: 3, label: rawCriticality }
+            const critInfo = rawCriticality
+              ? { score: criticalityRank[rawCriticality] ?? 3, label: rawCriticality }
+              : { score: 0, label: "Not classified" }
 
             return {
               name: systemName,
               criticality: critInfo.score,
               criticalityLabel: critInfo.label,
-              environment: sys.environment || "Production",
-              // Use real data from backend, no hardcoded fallbacks
-              health: sys.health_score ?? sys.healthScore ?? 0,
-              critical: sys.critical_count ?? sys.criticalIssues ?? 0,
-              high: sys.high_count ?? sys.highIssues ?? 0,
-              total: resourceCount,
-              lastScan: sys.lastScan || "Just now",
+              // Real data only: an environment, owner or scan time the backend did
+              // not send is shown as unknown, never as a plausible default.
+              environment: sys.environment || "Unknown",
+              health: sys.health_score ?? sys.healthScore ?? null,
+              critical: sys.critical_count ?? sys.criticalIssues ?? null,
+              high: sys.high_count ?? sys.highIssues ?? null,
+              resourceCount,
+              lastScan: sys.lastScan || "Unknown",
               lastScanAt: sys.lastScanAt ?? null,
-              owner: sys.owner || "Platform Team",
+              owner: sys.owner || "Unassigned",
+              ...(() => {
+                const identity = listLevel === 2 ? systemRowIdentity(sys) : null
+                const provisional =
+                  sys.catalog_identity && typeof sys.catalog_identity === "object" ? sys.catalog_identity : null
+                return {
+                  systemKey: identity?.systemKey ?? null,
+                  rowKey: identity?.rowKey ?? null,
+                  identityAccountId: identity?.accountId ?? null,
+                  deployments: identity?.deployments ?? [],
+                  accountId: typeof provisional?.account_id === "string" ? provisional.account_id : null,
+                  region: typeof provisional?.region === "string" ? provisional.region : null,
+                }
+              })(),
             }
           })
 
-          // Deduplicate systems by name - keep the one with most resources
+          // One row per system IDENTITY (A7 B5): two systems that share a display name stay two rows. A repeated row of
+          // ONE identity keeps the one with most resources, as before.
           const deduplicatedSystems = transformedSystems.reduce((acc: typeof transformedSystems, sys) => {
-            const existing = acc.find(s => s.name === sys.name)
+            const existing = acc.find(s => systemIdentityKey(s) === systemIdentityKey(sys))
             if (existing) {
               // Keep the one with more resources/data
-              if (sys.total > existing.total) {
-                return acc.map(s => s.name === sys.name ? sys : s)
+              if ((sys.resourceCount ?? -1) > (existing.resourceCount ?? -1)) {
+                return acc.map(s => systemIdentityKey(s) === systemIdentityKey(sys) ? sys : s)
               }
               return acc
             }
@@ -276,8 +372,25 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
         }
       } else {
         console.warn(`[systems-view] Systems API returned ${systemsRes.status}`)
+        const refusal = await personRefusal(systemsRes)
+        if (refusal) {
+          // This session's person may not read this list: drop everything shown or kept for an earlier answer --
+          // rows, coverage, the browser's saved copy -- and say why. Other errors keep their behaviour.
+          setLocalSystems([])
+          setSystemsHold(null)
+          setSystemsGaps([])
+          setHiddenByScope(null)
+          setObservation(null)
+          try {
+            localStorage.removeItem(systemsCacheKey)
+          } catch {
+            // storage unavailable: nothing was saved there either
+          }
+          setSystemsError(refusal)
+          return
+        }
         setSystemsError(`Systems data is unavailable (${systemsRes.status})`)
-        setBackendStatus("offline")
+        setObservation((current) => current ?? null)
       }
     } catch (fetchErr: any) {
       // Ignore abort errors (timeout or unmount) - they're expected
@@ -287,7 +400,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
         console.error("[systems-view] Failed to fetch systems:", fetchErr.message)
       }
       setSystemsError("Systems data is temporarily unavailable")
-      setBackendStatus("offline")
+      setObservation((current) => current ?? null)
     } finally {
       setIsLoadingData(false)
       setIsScanning(false)
@@ -298,6 +411,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
     accountScope.groupId,
     accountScope.region,
     fetchGapAnalysisFromFindings,
+    systemsCacheKey,
   ])
 
 
@@ -307,11 +421,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
     if (!accountScope.customerId) {
       setLocalSystems([])
       setIsLoadingData(false)
-      setBackendStatus("offline")
       return
     }
     let hasCache = false
-    setBackendStatus("checking")
     setSystemsError(null)
 
     // Step 1: Try to load from cache immediately
@@ -361,165 +473,55 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
   useEffect(() => {
     if (propSystems.length > 0) {
       setLocalSystems((prev) => {
-        const existingNames = new Set(prev.map((s) => s.name))
-        const newOnes = propSystems.filter((s) => !existingNames.has(s.name))
+        const existing = new Set(prev.map(systemIdentityKey))
+        const newOnes = propSystems.filter((s) => !existing.has(systemIdentityKey(s)))
         return [...prev, ...newOnes]
       })
     }
   }, [propSystems])
 
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsDropdownOpen(false)
-      }
-      if (emptyDropdownRef.current && !emptyDropdownRef.current.contains(event.target as Node)) {
-        setIsDropdownOpen(false)
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside)
-    return () => document.removeEventListener("mousedown", handleClickOutside)
-  }, [])
-
-  const checkBackendStatus = async () => {
-    setBackendStatus("checking")
-    try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 10000)
-      
-      const response = await fetch("/api/proxy/test", {
-        signal: controller.signal,
-      })
-      
-      clearTimeout(timeoutId)
-      
-      if (response.ok) {
-        setBackendStatus("connected")
-        return true
-      } else {
-        setBackendStatus("offline")
-        return false
-      }
-    } catch {
-      setBackendStatus("offline")
-      return false
-    }
-  }
-
-  const fetchAvailableSystems = async () => {
-    setIsLoadingAvailable(true)
-    try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 25000)
-      
-      const response = await fetch(withAccountScope("/api/proxy/systems", accountScope), {
-        signal: controller.signal,
-      })
-      
-      clearTimeout(timeoutId)
-      
-      if (response.ok) {
-        const data = await response.json()
-        const systems = data.systems || data || []
-        const existingNames = new Set(localSystems.map((s) => s.name.toLowerCase()))
-        const filtered = systems.filter((sys: AvailableSystem) => {
-          const name = sys.SystemName || ""  // Only SystemName format (capital S, capital N)
-          return name && !existingNames.has(name.toLowerCase())
-        })
-        setAvailableSystems(filtered)
-        setBackendStatus("connected")
-      } else {
-        setBackendStatus("offline")
-      }
-    } catch (error) {
-      console.error("[systems-view] Failed to fetch available systems:", error)
-      setBackendStatus("offline")
-    } finally {
-      setIsLoadingAvailable(false)
-    }
-  }
-
   const handleInventoryRefreshed = useCallback(() => {
     void fetchSystemsData()
   }, [fetchSystemsData])
 
-  const handleAddSystemClick = async () => {
-    setIsDropdownOpen(!isDropdownOpen)
-    if (!isDropdownOpen) {
-      await fetchAvailableSystems()
-    }
-  }
-
-  const addSystemToTable = async (sys: AvailableSystem) => {
-    const systemName = sys.SystemName || "Unknown"  // Only SystemName format (capital S, capital N)
-    const newSystem: System = {
-      name: systemName,
-      criticality: sys.criticality || 5,
-      criticalityLabel: sys.criticality === 5 ? "5 - MISSION CRITICAL" : "4 - BUSINESS CRITICAL",
-      environment: sys.environment || "Production",
-      health: 0,
-      critical: 0,
-      high: 0,
-      total: 0,
-      lastScan: "Pending",
-      // Newly-added system has never been scanned — null means "stale by
-      // default" per isStale() semantics, which is the honest read.
-      lastScanAt: null,
-      owner: sys.owner || "Unassigned",
-    }
-
-    setLocalSystems((prev) => [...prev, newSystem])
-    setAvailableSystems((prev) =>
-      prev.filter((s) => s.SystemName !== sys.SystemName),  // Only SystemName format
-    )
-    setIsDropdownOpen(false)
-
-    toast({
-      title: "System Added",
-      description: `${systemName} has been added to your dashboard.`,
-    })
-
-    try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 25000)
-      
-      await fetch("/api/proxy/systems/add", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ systemName }),
-        signal: controller.signal,
-      })
-      
-      clearTimeout(timeoutId)
-    } catch (error) {
-      console.error("[systems-view] Failed to notify backend:", error)
-    }
-  }
-
-  const handleViewDashboard = (systemName: string) => {
+  const handleViewDashboard = (systemName: string, systemKey?: string | null, accountId?: string | null) => {
     if (onSystemSelect) {
-      onSystemSelect(systemName)
+      onSystemSelect(systemName, systemKey ?? null, accountId ?? null)
     }
   }
+
+  // B5: a name two listed systems share is shown with what tells them apart (the key / the account and Region).
+  const nameCounts = new Map<string, number>()
+  for (const system of localSystems) {
+    nameCounts.set(system.name.toLowerCase(), (nameCounts.get(system.name.toLowerCase()) ?? 0) + 1)
+  }
+  const nameRepeated = (name: string) => (nameCounts.get(name.toLowerCase()) ?? 0) > 1
 
 
   const filteredSystems = localSystems.filter((system) => system.name.toLowerCase().includes(searchQuery.toLowerCase()))
 
   const totalSystems = localSystems.length
-  const missionCriticalAtRisk = localSystems.filter((s) => s.criticality >= 5 && s.critical > 0).length
-  const totalCriticalIssues = localSystems.reduce((sum, s) => sum + s.critical, 0)
+  const missionCriticalAtRisk = localSystems.filter((s) => s.criticality >= 5 && (s.critical ?? 0) > 0).length
+  // Systems whose findings were not computed are excluded from the sums and the
+  // average, and counted, so the KPIs never present "0 findings" for them.
+  const systemsWithFindings = localSystems.filter((s) => s.critical !== null)
+  const systemsWithoutFindings = localSystems.length - systemsWithFindings.length
+  const totalCriticalIssues = systemsWithFindings.reduce((sum, s) => sum + (s.critical ?? 0), 0)
+  const scoredSystems = localSystems.filter((s) => s.health !== null)
   const avgHealthScore =
-    localSystems.length > 0
-      ? Math.round(localSystems.reduce((sum, s) => sum + (s.health || 0), 0) / localSystems.length)
-      : 0
+    scoredSystems.length > 0
+      ? Math.round(scoredSystems.reduce((sum, s) => sum + (s.health ?? 0), 0) / scoredSystems.length)
+      : null
 
   // ── Panels below KPIs ──
-  // Top at-risk: rank by (critical desc, high desc, health asc). Cap at 3.
+  // Top at-risk: rank by (critical desc, high desc, health asc); a system with no
+  // computed findings ranks after every measured one. Cap at 3.
+  const rank = (value: number | null, missing: number) => (value === null ? missing : value)
   const topAtRiskSystems = [...localSystems]
     .sort((a, b) => {
-      if (b.critical !== a.critical) return b.critical - a.critical
-      if (b.high !== a.high) return b.high - a.high
-      return (a.health || 0) - (b.health || 0)
+      if (rank(b.critical, -1) !== rank(a.critical, -1)) return rank(b.critical, -1) - rank(a.critical, -1)
+      if (rank(b.high, -1) !== rank(a.high, -1)) return rank(b.high, -1) - rank(a.high, -1)
+      return rank(a.health, 101) - rank(b.health, 101)
     })
     .slice(0, 3)
 
@@ -553,7 +555,8 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
     return "bg-[#22c55e]"
   }
 
-  const getHealthColor = (health: number) => {
+  const getHealthColor = (health: number | null) => {
+    if (health === null) return "text-[#6b7280]"
     if (health >= 90) return "text-[#22c55e]"
     if (health >= 70) return "text-yellow-600"
     if (health >= 50) return "text-orange-600"
@@ -561,27 +564,41 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
   }
 
   if (localSystems.length === 0 && !isLoadingData) {
-    const hasNoAccounts = !accountScope.loading && !accountScope.error && accountScope.options?.accounts.length === 0
+    const hasNoAccounts = noAccountsInScope(accountScope)
     // A filtered-empty (systems exist, the narrowing filters hide them) is a
     // different situation from a true empty and must say so — with the count
     // from the real unfiltered probe and a one-click way out.
     const hiddenByFilters = !accountScope.error && !systemsError && hiddenByScope !== null && hiddenByScope > 0
-    const title = accountScope.error || systemsError
+    const refusalGuidance = !accountScope.error && systemsError ? PERSON_REFUSALS[systemsError] : undefined
+    const title = refusalGuidance
+      ? systemsError
+      : accountScope.error || systemsError
       ? "Systems data unavailable"
       : hiddenByFilters
         ? "Systems hidden by scope filters"
         : hasNoAccounts
-          ? "No AWS accounts connected"
-          : "No Tagged Systems Found"
-    const description = accountScope.error
+          ? NO_ACCOUNTS_TITLE
+          : systemsHold
+            ? "Systems not recorded yet"
+            : "No systems in this scope yet"
+    const description = refusalGuidance
+      ? refusalGuidance
+      : accountScope.error
       ? "Cyntro could not verify the organization scope. Existing systems have not been deleted. Retry the scope metadata request."
+      : systemsError === NEWER_SYSTEMS_LIST
+        // B5: a retry cannot help -- the page must be updated to read the backend's list. Say exactly that.
+        ? `${NEWER_SYSTEMS_LIST}. Existing systems have not been deleted.`
       : systemsError
         ? "Cyntro could not verify the systems inventory. Existing systems have not been deleted. Retry the request."
         : hiddenByFilters
           ? `${hiddenByScope} ${hiddenByScope === 1 ? "system exists" : "systems exist"} in this organization outside the selected account group, account, or region filters. Nothing has been deleted.`
           : hasNoAccounts
-            ? `The ${accountScope.customerId || "selected"} organization has no AWS accounts in scope.`
-            : "No resources tagged with SystemName were found in the selected organization, account group, account, and region."
+            ? noAccountsDescription(accountScope.customerId)
+            : systemsHold
+              ? systemsHold
+              // A valid empty list says no system is listed here -- not that AWS holds no tags (systems are declared,
+              // v2): the way to add one is named instead.
+              : "No systems are listed for the selected organization, account group, account, and Region. Systems are declared from an account's inventory: choose Add System."
     const isUnavailable = Boolean(accountScope.error || systemsError)
     return (
       <div className="space-y-4">
@@ -616,64 +633,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
               <RefreshCw className="h-3.5 w-3.5" />
               Retry
             </button>
-          ) : !hasNoAccounts ? <div className="relative inline-block" ref={emptyDropdownRef}>
-            <button
-              onClick={handleAddSystemClick}
-              className="inline-flex items-center gap-1.5 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-90"
-              style={{ background: "#8b5cf6" }}
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Add System
-              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`} />
-            </button>
-
-            {isDropdownOpen && (
-              <div
-                className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-80 rounded-lg shadow-xl border z-50"
-                style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}
-              >
-                <div className="p-3 border-b" style={{ borderColor: "var(--border-subtle)" }}>
-                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                    {backendStatus === "checking"
-                      ? "Checking backend..."
-                      : backendStatus === "connected"
-                        ? "Available systems from AWS"
-                        : "Backend offline - using cached data"}
-                  </p>
-                </div>
-
-                <div className="max-h-64 overflow-y-auto">
-                  {isLoadingAvailable ? (
-                    <div className="p-4 text-center">
-                      <Loader2 className="w-6 h-6 animate-spin mx-auto" style={{ color: "#8b5cf6" }} />
-                      <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>Loading systems...</p>
-                    </div>
-                  ) : availableSystems.length === 0 ? (
-                    <div className="p-4 text-center" style={{ color: "var(--text-muted)" }}>
-                      <p className="text-xs">No new systems found</p>
-                    </div>
-                  ) : (
-                    availableSystems.map((sys, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => addSystemToTable(sys)}
-                        className="w-full p-3 text-left hover:bg-white/5 flex items-center justify-between border-b last:border-0 transition-colors"
-                        style={{ borderColor: "var(--border-subtle)" }}
-                      >
-                        <div>
-                          <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{sys.SystemName || ""}</p>
-                          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                            {sys.resourceCount || sys.resource_count || 0} resources
-                          </p>
-                        </div>
-                        <Plus className="w-3.5 h-3.5" style={{ color: "#8b5cf6" }} />
-                      </button>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-          </div> : null}
+          ) : !hasNoAccounts ? <AddSystemEntry menuAlign="center" /> : null}
         </div>
       </div>
       </div>
@@ -681,7 +641,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
   }
 
   return (
-    <div className="space-y-6">
+    // D50: inline-size containment keeps this view's widest content (the systems table, the action row) from setting the
+    // app shell's minimum width -- without it the page overflowed by 264 px at 1512 px and pushed "Add System" off-screen.
+    <div className="space-y-6 [contain:inline-size]">
       <div>
         <BackToDashboard />
       </div>
@@ -736,10 +698,34 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
         </div>
       )}
 
+      {/* A list that did not cover every selected account / Region says so (systems-coverage). */}
+      {systemsGaps.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900" data-testid="systems-coverage-gaps">
+          <span className="font-semibold">Partial list.</span> {systemsGaps.join(" · ")}
+        </div>
+      )}
+
       {/* Secondary action row — re-ingest + add-system dropdown. Kept
          separate from the PageHeader actions slot so the dropdown's
          absolute-positioned panel doesn't fight with header layout. */}
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+
+          {/* The exact range this list is observed over, and the per-source
+              record behind it. READY is "operational", not "complete history". */}
+          <div className="mr-auto flex flex-wrap items-center gap-2">
+            <ObservationChip
+              observation={observation}
+              pending={observation === undefined}
+              testId="systems-observation"
+            />
+            <Link
+              href={coveragePageHref()}
+              className="text-xs font-medium hover:underline"
+              style={{ color: "#8b5cf6" }}
+            >
+              Evidence coverage
+            </Link>
+          </div>
 
           {/* "Re-ingest Now" is retired. It POSTed /api/proxy/admin/reingest,
               which forwards to /api/v2/sync/start with NO `sources` -- so it
@@ -752,64 +738,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
               until inventory_reconcile is CONNECTED. */}
           <RefreshEvidenceButton surface="inventory" onRefreshed={handleInventoryRefreshed} />
 
-          <div className="relative" ref={dropdownRef}>
-            <button
-              onClick={handleAddSystemClick}
-              className="inline-flex items-center gap-1.5 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-90"
-              style={{ background: "#8b5cf6" }}
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Add System
-              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`} />
-            </button>
-
-            {isDropdownOpen && (
-              <div
-                className="absolute top-full right-0 mt-2 w-80 rounded-lg shadow-xl border z-50"
-                style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}
-              >
-                <div className="p-3 border-b" style={{ borderColor: "var(--border-subtle)" }}>
-                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                    {backendStatus === "checking"
-                      ? "Checking backend..."
-                      : backendStatus === "connected"
-                        ? "Available systems from AWS"
-                        : "Backend offline"}
-                  </p>
-                </div>
-
-                <div className="max-h-64 overflow-y-auto">
-                  {isLoadingAvailable ? (
-                    <div className="p-4 text-center">
-                      <Loader2 className="w-6 h-6 animate-spin mx-auto" style={{ color: "#8b5cf6" }} />
-                      <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>Loading systems...</p>
-                    </div>
-                  ) : availableSystems.length === 0 ? (
-                    <div className="p-4 text-center" style={{ color: "var(--text-muted)" }}>
-                      <p className="text-xs">No new systems found</p>
-                    </div>
-                  ) : (
-                    availableSystems.map((sys, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => addSystemToTable(sys)}
-                        className="w-full p-3 text-left hover:bg-white/5 flex items-center justify-between border-b last:border-0 transition-colors"
-                        style={{ borderColor: "var(--border-subtle)" }}
-                      >
-                        <div>
-                          <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{sys.SystemName || ""}</p>
-                          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                            {sys.resourceCount || sys.resource_count || 0} resources
-                          </p>
-                        </div>
-                        <Plus className="w-3.5 h-3.5" style={{ color: "#8b5cf6" }} />
-                      </button>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+          <AddSystemEntry />
 
           <button
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors hover:opacity-90"
@@ -849,7 +778,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
 
       {/* Systems Table */}
       <div
-        className="rounded-lg border overflow-hidden"
+        className="rounded-lg border overflow-x-auto"
         style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}
       >
         {isLoadingData ? (
@@ -888,9 +817,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
                 <th
                   className="text-center px-4 py-3 text-xs font-semibold uppercase tracking-wider"
                   style={{ color: "var(--text-secondary)" }}
-                  title="Total findings (all severities + all statuses) for this system."
+                  title="Resources the Systems list counts in this system. Not a findings count; — when the list did not report one."
                 >
-                  Total
+                  Resources
                 </th>
                 <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Last Scan</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Owner</th>
@@ -924,6 +853,30 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
                   >
                     <td className="px-4 py-3">
                       <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{system.name}</span>
+                      {nameRepeated(system.name) && (system.systemKey || system.accountId) && (
+                        <span className="ml-2 text-xs" style={{ color: "var(--text-secondary)" }} data-testid="system-identity-hint">
+                          {system.systemKey
+                            ? system.identityAccountId
+                              ? `account ${system.identityAccountId}`
+                              : system.systemKey
+                            : `account ${system.accountId}${system.region ? ` · ${system.region}` : ""}`}
+                        </span>
+                      )}
+                      {system.deployments && system.deployments.length > 0 && (
+                        <ul className="mt-1 space-y-0.5" data-testid="system-deployments">
+                          {system.deployments.map((deployment) => (
+                            <li key={deploymentIdentity(deployment)} className="text-xs" style={{ color: "var(--text-secondary)" }}
+                                data-part-kind={deployment.kind}>
+                              {deployment.kind === "deployment"
+                                ? `Deployment ${deployment.key}`
+                                : deployment.kind === "cell"
+                                  ? "Cell"
+                                  : "Not in a deployment"} · {deployment.accountId} ·{" "}
+                              {deployment.region} · {deployment.memberCount} member{deployment.memberCount === 1 ? "" : "s"}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span
@@ -951,35 +904,40 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
                             : undefined
                         }
                       >
-                        {system.health || "--"}
+                        {system.health ?? "--"}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center">
                       <span
                         className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-semibold"
                         style={
-                          system.critical > 0
+                          (system.critical ?? 0) > 0
                             ? { background: "#ef444420", color: "#ef4444" }
                             : { background: "var(--bg-primary)", color: "var(--text-muted)" }
                         }
+                        title={system.critical === null ? "Findings not computed for this system yet" : undefined}
                       >
-                        {system.critical}
+                        {system.critical ?? "—"}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center">
                       <span
                         className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-semibold"
                         style={
-                          system.high > 0
+                          (system.high ?? 0) > 0
                             ? { background: "#f9731620", color: "#f97316" }
                             : { background: "var(--bg-primary)", color: "var(--text-muted)" }
                         }
+                        title={system.high === null ? "Findings not computed for this system yet" : undefined}
                       >
-                        {system.high}
+                        {system.high ?? "—"}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{system.total}</span>
+                      <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}
+                        title={system.resourceCount === null ? "The Systems list did not report a resource count for this system" : undefined}>
+                        {system.resourceCount ?? "—"}
+                      </span>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5">
@@ -1005,7 +963,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
                     <td className="px-4 py-3 text-center">
                       <div className="flex items-center justify-center gap-1.5">
                         <button
-                          onClick={() => handleViewDashboard(system.name)}
+                          onClick={() => handleViewDashboard(system.name, system.systemKey, system.identityAccountId)}
                           className="inline-flex items-center gap-1 text-white px-3 py-1 rounded-lg text-xs font-medium transition-colors hover:opacity-90"
                           style={{ background: "#8b5cf6" }}
                         >
@@ -1060,7 +1018,14 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
             <AlertTriangle className="w-5 h-5" style={{ color: "#ef4444" }} />
             <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Total Critical Issues</span>
           </div>
-          <div className="text-2xl font-bold" style={{ color: "#ef4444" }}>{totalCriticalIssues}</div>
+          <div className="text-2xl font-bold" style={{ color: "#ef4444" }}>
+            {systemsWithFindings.length === 0 ? "—" : totalCriticalIssues}
+          </div>
+          {systemsWithoutFindings > 0 && (
+            <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+              {systemsWithoutFindings} of {localSystems.length} systems not computed yet
+            </div>
+          )}
         </div>
 
         <div
@@ -1153,7 +1118,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
               {topAtRiskSystems.map((sys, idx) => {
                 const healthColor = getHealthColor(sys.health).match(/#[0-9a-fA-F]+/)?.[0] || "#6b7280"
                 const critHex =
-                  sys.critical > 0 ? "#ef4444" : sys.high > 0 ? "#f97316" : "#22c55e"
+                  sys.critical === null ? "#6b7280" : sys.critical > 0 ? "#ef4444" : (sys.high ?? 0) > 0 ? "#f97316" : "#22c55e"
                 return (
                   <div
                     key={sys.name + idx}
@@ -1199,13 +1164,13 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
                     <div className="flex flex-col items-end shrink-0">
                       <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Health</span>
                       <span className="text-sm font-bold" style={{ color: healthColor }}>
-                        {sys.health || "--"}
+                        {sys.health ?? "--"}
                       </span>
                     </div>
 
                     {/* Critical/High pills */}
                     <div className="flex items-center gap-1.5 shrink-0">
-                      {sys.critical > 0 && (
+                      {(sys.critical ?? 0) > 0 && (
                         <span
                           className="px-1.5 py-0.5 rounded-full text-xs font-semibold"
                           style={{ background: "#ef444420", color: "#ef4444" }}
@@ -1214,7 +1179,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
                           {sys.critical}C
                         </span>
                       )}
-                      {sys.high > 0 && (
+                      {(sys.high ?? 0) > 0 && (
                         <span
                           className="px-1.5 py-0.5 rounded-full text-xs font-semibold"
                           style={{ background: "#f9731620", color: "#f97316" }}
@@ -1227,7 +1192,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
 
                     {/* View button */}
                     <button
-                      onClick={() => handleViewDashboard(sys.name)}
+                      onClick={() => handleViewDashboard(sys.name, sys.systemKey, sys.identityAccountId)}
                       className="inline-flex items-center gap-1 text-white px-2.5 py-1 rounded-lg text-xs font-medium transition-colors hover:opacity-90 shrink-0"
                       style={{ background: "#8b5cf6" }}
                     >
@@ -1316,21 +1281,6 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
         </div>
       </div>
 
-      {/* New Systems Modal — shape-mapped from local state (SystemName → systemName) */}
-      {showNewSystemsModal && (
-        <NewSystemsModal
-          newSystems={newSystems.map((s) => ({
-            systemName: s.SystemName,
-            resourceCount: s.resourceCount,
-            resources: s.resources,
-          }))}
-          onClose={() => setShowNewSystemsModal(false)}
-          onSuccess={() => {
-            // Refresh local state after tagging
-            fetchSystemsData()
-          }}
-        />
-      )}
     </div>
   )
 }

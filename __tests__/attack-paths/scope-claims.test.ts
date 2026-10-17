@@ -65,8 +65,8 @@ describe("the per-jewel read URLs carry the claims; without claims they are unch
 })
 
 describe("forwardScopeClaims (the proxies' shared helper)", () => {
-  it("copies exactly the two claim keys, verbatim, and returns the cache-key fragment", () => {
-    expect([...SCOPE_CLAIM_KEYS]).toEqual(["customer_id", "account_id"])
+  it("copies exactly the claim keys (+ the A7 B5 system key), verbatim, and returns the cache-key fragment", () => {
+    expect([...SCOPE_CLAIM_KEYS]).toEqual(["customer_id", "account_id", "system_key"])
     const to = new URLSearchParams({ cj_arn: "arn:aws:s3:::acme-data" })
     const key = forwardScopeClaims(new URLSearchParams("customer_id=acme&account_id=111111111111&region=eu-west-1&evil=1"), to)
     expect(key).toBe("customer_id=acme&account_id=111111111111")
@@ -78,5 +78,17 @@ describe("forwardScopeClaims (the proxies' shared helper)", () => {
     const to = new URLSearchParams()
     expect(forwardScopeClaims(new URLSearchParams("account_id=&x=1"), to)).toBe("")
     expect(to.toString()).toBe("")
+  })
+})
+
+describe("merge with A7 B5 (release/resident): one account_id, never two", () => {
+  it("a system key's own account replaces the selected-account claim; without a key the claim stands", async () => {
+    const { appendScopeClaims } = await import("@/lib/attack-paths/scope-claims")
+    expect(appendScopeClaims(new URLSearchParams(), { customerId: "acme", accountId: "111111111111", systemKey: "k1", systemAccountId: "222222222222" }).toString())
+      .toBe("customer_id=acme&account_id=222222222222&system_key=k1")
+    expect(appendScopeClaims(new URLSearchParams(), { customerId: null, accountId: "111111111111", systemKey: null, systemAccountId: "222222222222" }).toString())
+      .toBe("account_id=111111111111")
+    expect(appendScopeClaims(new URLSearchParams(), { customerId: null, accountId: null, systemKey: "k1", systemAccountId: null }).toString())
+      .toBe("system_key=k1")
   })
 })

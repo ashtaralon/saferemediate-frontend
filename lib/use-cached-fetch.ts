@@ -2,12 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
+  callerRefusalMessage,
   semanticHoldMessage,
   semanticStatusHold,
   typedServingRefusal,
+  type AccountSelection,
   type SemanticHold,
 } from "@/lib/semantic-hold"
 import { TRANSIENT_STATUSES } from "@/lib/transient-retry"
+import { ambiguousSystemCandidates, type SystemCandidate } from "@/lib/scoped-system-catalog"
 
 /**
  * useCachedFetch — fetch with localStorage stale-while-revalidate (SWR).
@@ -121,6 +124,12 @@ export interface UseCachedFetchOptions {
    * offline — nobody is reading it, and an offline retry cannot succeed.
    */
   autoRetryMs?: number
+  /**
+   * Only for a read whose URL carries the selected account (withAccountScope): how its
+   * ACCOUNT_SCOPE_REQUIRED refusal is worded -- "offer" when no account is selected, "diagnose" when one
+   * is. Unset (every other caller): the neutral wording, which never points at the scope bar.
+   */
+  accountSelection?: AccountSelection
 }
 
 export interface UseCachedFetchResult<T> {
@@ -155,6 +164,10 @@ export interface UseCachedFetchResult<T> {
   /** The server's typed refusal or hold for this read, verbatim (kind +
    *  reason). Null otherwise. When set, `data` is null and `error` is set. */
   hold: SemanticHold | null
+  /** A7 B5: the server answered 409 SYSTEM_NAME_AMBIGUOUS / SYSTEM_KEY_NEEDS_ACCOUNT -- the request stands for several
+   *  systems. The candidates to offer (components/system-name-choice); null otherwise. When set, `data` is null and this
+   *  key's cached reading was dropped: a reading of "the" system by that name is never shown over the choice. */
+  choice: SystemCandidate[] | null
   /** Manual re-fetch. */
   retry: () => void
 }
@@ -342,6 +355,7 @@ export function useCachedFetch<T = unknown>(
     isCacheable,
     failClosedOnError = false,
     autoRetryMs = 0,
+    accountSelection,
   } = options
 
   // Synchronous initial read so the first paint renders cached data
@@ -369,6 +383,16 @@ export function useCachedFetch<T = unknown>(
   const [isComputing, setIsComputing] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
   const [hold, setHold] = useState<SemanticHold | null>(null)
+  const [choice, setChoice] = useState<SystemCandidate[] | null>(null)
+  // The CURRENT accepted reading, read through refs: fetchFresh is memoized without `data` / `cachedAt`, so a closure
+  // would hand back the reading from when it was created (B5 review, 2026-10-08). And the ambiguity LATCH: once the
+  // server answered with a system choice, no earlier reading of this key comes back -- not on a later transport failure,
+  // a network error or a computing envelope -- until a fresh accepted (200) response or a new key.
+  const dataRef = useRef<T | null>(null)
+  dataRef.current = data
+  const cachedAtRef = useRef<number | null>(null)
+  cachedAtRef.current = cachedAt
+  const choiceLatchRef = useRef(false)
   const [staleReason, setStaleReason] = useState<string | null>(
     initial !== null && fresh === null ? STALE_AGED_OUT : null,
   )
@@ -445,6 +469,8 @@ export function useCachedFetch<T = unknown>(
     setIsComputing(false)
     setError(null)
     setHold(null)
+    setChoice(null)
+    choiceLatchRef.current = false
     // The new key is a different question; any retry pending for the old one
     // must not fire against it.
     clearAutoRetry()
@@ -481,7 +507,9 @@ export function useCachedFetch<T = unknown>(
       setStaleReason(null)
       setIsComputing(false)
       setHold(h)
-      setError(semanticHoldMessage(h))
+      setChoice(null)
+      choiceLatchRef.current = false
+      setError(semanticHoldMessage(h, { accountSelection }))
       setLoading(false)
       clearAutoRetry()
     }
@@ -510,6 +538,47 @@ export function useCachedFetch<T = unknown>(
           return
         }
         setHold(null)
+        // A7 B5: several systems answer to this request. An answer, not an outage: the key's cached reading (of "the"
+        // system by that name) is dropped and never re-presented; the caller offers the choice.
+        const candidates = ambiguousSystemCandidates(res.status, failBody)
+        if (candidates) {
+          clearCachedFetch(cacheKey)
+          setData(null)
+          setIsStale(false)
+          setCachedAt(null)
+          setStaleReason(null)
+          setIsComputing(false)
+          setChoice(candidates)
+          choiceLatchRef.current = true
+          setError("SYSTEM_NAME_AMBIGUOUS")
+          setLoading(false)
+          clearAutoRetry()
+          return
+        }
+        // A refusal of the CALLER (401 session / 403 permission) is never covered by data read
+        // earlier, for any caller: the key's cached reading is dropped, nothing is replayed. It is
+        // authoritative over an earlier system choice too (B5 review: access revoked after a 409 must
+        // not keep offering that 409's candidates).
+        if (res.status === 401 || res.status === 403) {
+          clearCachedFetch(cacheKey)
+          setData(null)
+          setIsStale(false)
+          setCachedAt(null)
+          setStaleReason(null)
+          setChoice(null)
+          choiceLatchRef.current = false
+          setError(callerRefusalMessage(res.status))
+          setLoading(false)
+          clearAutoRetry()
+          return
+        }
+        if (choiceLatchRef.current) {
+          // The ambiguity stays the answer: nothing earlier is restored by a failure that says nothing new about it.
+          setLoading(false)
+          if (TRANSIENT.has(res.status)) scheduleAutoRetry()
+          return
+        }
+        setChoice(null)
         // TRANSPORT vs SEMANTIC. A 502/504 says the backend is unreachable;
         // it says nothing about whether the cached reading is still true. A
         // 4xx is the backend answering authoritatively that it is not.
@@ -534,8 +603,9 @@ export function useCachedFetch<T = unknown>(
         if (transport) {
           // Keep the cache. Keep the data. Say why it's stale, and schedule a
           // retry so the page heals itself when the deploy finishes.
+          const current = dataRef.current
           const kept =
-            (data != null ? { data, ts: cachedAt ?? Date.now() } : null) ??
+            (current != null ? { data: current, ts: cachedAtRef.current ?? Date.now() } : null) ??
             readCacheAny<T>(cacheKey, isCacheable)
           if (kept) {
             setData(kept.data)
@@ -558,7 +628,7 @@ export function useCachedFetch<T = unknown>(
         // last-resort fallback. Better to show 6h-old data with a
         // clear "as of 6h ago, refreshing" pill than to block the
         // operator with a 504 error message.
-        if (data === null) {
+        if (dataRef.current === null) {
           const fallback = readCacheAny<T>(cacheKey, isCacheable)
           if (fallback) {
             setData(fallback.data)
@@ -604,12 +674,23 @@ export function useCachedFetch<T = unknown>(
       const isComputingEnvelope =
         envelope.status === "computing" &&
         (envelope.system_kpis == null || envelope.system_kpis === undefined)
+      if (choiceLatchRef.current && (isComputingEnvelope || proxyStale)) {
+        // B5 review: a PENDING (computing) or STALE (proxy fromStaleCache) 200 resolves no system -- the ambiguity stays
+        // the answer, nothing is shown in its place, and the page keeps asking.
+        setLoading(false)
+        scheduleAutoRetry()
+        return
+      }
+      // A FRESH accepted 200 answers for ONE system: the ambiguity, if any, is no longer the answer.
+      setChoice(null)
+      choiceLatchRef.current = false
       if (isComputingEnvelope) {
         // Keep last-good map on screen; only show the empty computing
         // envelope when we have nothing else to render.
+        const current = dataRef.current
         const fallback =
-          (data != null && (!isCacheable || isCacheable(data))
-            ? { data, ts: cachedAt ?? Date.now() }
+          (current != null && (!isCacheable || isCacheable(current))
+            ? { data: current, ts: cachedAtRef.current ?? Date.now() }
             : null) ?? readCacheAny<T>(cacheKey, isCacheable)
         if (fallback?.data) {
           setData(fallback.data)
@@ -661,7 +742,7 @@ export function useCachedFetch<T = unknown>(
       setIsComputing(false)
       if (proxyStale) {
         setIsStale(true)
-        setCachedAt(cachedAt ?? Date.now())
+        setCachedAt(cachedAtRef.current ?? Date.now())
       } else {
         setIsStale(false)
         setCachedAt(null)
@@ -682,13 +763,20 @@ export function useCachedFetch<T = unknown>(
       setLoading(false)
     } catch (err) {
       if (myEpoch !== epochRef.current) return
+      if (choiceLatchRef.current) {
+        // A network failure says nothing about the ambiguity: it stays the answer, nothing earlier is restored.
+        setLoading(false)
+        scheduleAutoRetry()
+        return
+      }
       // A thrown fetch is network/abort/timeout — TRANSPORT, by definition.
       // We never reached an origin that could tell us the data is wrong, so
       // this is the case that most clearly must not erase the last-known-good.
       // (A JSON parse failure also lands here; treating it as transport costs
       // one extra retry cycle, versus wiping a good reading if we guess wrong.)
+      const current = dataRef.current
       const kept =
-        (data != null ? { data, ts: cachedAt ?? Date.now() } : null) ??
+        (current != null ? { data: current, ts: cachedAtRef.current ?? Date.now() } : null) ??
         readCacheAny<T>(cacheKey, isCacheable)
       if (kept) {
         setData(kept.data)
@@ -710,7 +798,7 @@ export function useCachedFetch<T = unknown>(
         scheduleAutoRetry()
         return
       }
-      if (data === null) {
+      if (dataRef.current === null) {
         // Same fallback as the !res.ok path — try last-resort cache
         // first before erroring. Keeps the operator's screen populated
         // with usable data rather than a 504 message.
@@ -731,7 +819,7 @@ export function useCachedFetch<T = unknown>(
       // If we have cached data, swallow the error — keep showing stale.
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, cacheKey, fetchInit, transientRetries, isCacheable, failClosedOnError])
+  }, [url, cacheKey, fetchInit, transientRetries, isCacheable, failClosedOnError, accountSelection])
 
   // Keep the ref current so scheduleAutoRetry always fires the latest closure.
   fetchFreshRef.current = fetchFresh
@@ -755,5 +843,5 @@ export function useCachedFetch<T = unknown>(
     fetchFresh()
   }, [fetchFresh, clearAutoRetry])
 
-  return { data, isStale, cachedAt, staleReason, loading, isComputing, error, hold, retry }
+  return { data, isStale, cachedAt, staleReason, loading, isComputing, error, hold, choice, retry }
 }

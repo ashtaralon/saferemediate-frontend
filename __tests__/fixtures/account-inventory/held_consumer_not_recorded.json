@@ -1,0 +1,36 @@
+{
+  "_provenance": {
+    "route": "GET /api/accounts/{account_id}/inventory (api/account_inventory.py)",
+    "harness": "tests/cyntro_data/test_account_inventory_api.py::test_the_real_route_answers_are_exactly_the_producer_goldens",
+    "fixed_clock_epoch": 1800000000,
+    "fixed_attempts": {
+      "empty": "0000000000000000000000000000000e",
+      "first": "00000000000000000000000000000001",
+      "moved": "00000000000000000000000000000002"
+    },
+    "pinned": [
+      "time.time",
+      "uuid.uuid4 around each publish",
+      "LocalEvidenceStore.bucket (recorded identity only)",
+      "cyntro_data.projection.receipt clock"
+    ],
+    "note": "The real route's answer, captured by the harness; nothing removed. Not installed or live evidence.",
+    "backend_commit": "95dea3288a8b713b37be95114060c227ff5d0af8",
+    "backend_path": "tests/fixtures/account_inventory_api/held_consumer_not_recorded.json",
+    "copied_unchanged": "status, cache_control and body are byte-for-byte the backend golden's"
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "body": {
+    "contract": "account_inventory/v1",
+    "account_id": "111122223333",
+    "state": "held",
+    "reason_code": "111122223333:CONSUMER_NOT_READY:not_recorded",
+    "account_authority": null,
+    "publication": null,
+    "totals": null,
+    "rows": [],
+    "next_cursor": null,
+    "has_more": false
+  }
+}

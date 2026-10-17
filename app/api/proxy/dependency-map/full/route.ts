@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { backendError, fromCaughtError } from "@/lib/server/proxy-error";
+import { backendError, fromCaughtError, systemChoiceDetail } from "@/lib/server/proxy-error";
 import { getBackendBaseUrl } from "@/lib/server/backend-url";
+import { upstreamCachePolicy } from "@/lib/server/proxy-cache-hygiene";
 
 const BACKEND_URL = getBackendBaseUrl();
 
@@ -62,7 +63,13 @@ export async function GET(req: NextRequest) {
   }
   const includeUnused = url.searchParams.get("includeUnused") ?? "true";
   const maxNodes = url.searchParams.get("maxNodes") ?? url.searchParams.get("max_nodes") ?? "300";
-  const cacheKey = `dependency-map-full-${systemName}-${includeUnused}-${maxNodes}`;
+  // A7 B5: a page opened by key names ONE system (backend ?system_key=, with the account for a tag / source key).
+  // Absent, the request and its cache key are byte-identical to before.
+  const systemKey = url.searchParams.get("system_key");
+  const accountId = url.searchParams.get("account_id");
+  const cacheKey = systemKey
+    ? `dependency-map-full-${systemName}-${includeUnused}-${maxNodes}-key=${systemKey}-${accountId ?? ""}`
+    : `dependency-map-full-${systemName}-${includeUnused}-${maxNodes}`;
 
   // Check cache first
   const cached = cache[cacheKey];
@@ -90,6 +97,10 @@ export async function GET(req: NextRequest) {
       includeUnused: includeUnused,
       max_nodes: maxNodes
     });
+    if (systemKey) {
+      params.set("system_key", systemKey);
+      if (accountId) params.set("account_id", accountId);
+    }
     const backendUrl = BACKEND_URL + "/api/dependency-map/full?" + params.toString();
 
     console.log("[Dependency Map Full] Cache MISS - fetching from backend");
@@ -99,6 +110,11 @@ export async function GET(req: NextRequest) {
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
       console.error("[Dependency Map Full] Backend " + res.status + ": " + detail.slice(0, 200));
+      // A7 B5: the 409 system choice is relayed, typed, so the page can offer it (never cached).
+      const choice = res.status === 409 ? systemChoiceDetail(detail) : undefined;
+      if (choice) {
+        return NextResponse.json({ error: "Dependency-map backend returned 409", detail: choice }, { status: 409 });
+      }
       return backendError({
         status: res.status,
         message: "Dependency-map backend returned " + res.status,
@@ -107,6 +123,10 @@ export async function GET(req: NextRequest) {
     }
 
     const data = await res.json();
+    if (upstreamCachePolicy(res.headers.get("cache-control")) === "no-store") {
+      // B5 review (2026-10-08): a published / cohort Estate answer is decided per request -- never kept, never edge-cached.
+      return NextResponse.json(data, { headers: { "X-Cache": "BYPASS", "Cache-Control": "no-store" } });
+    }
     cache[cacheKey] = { data, timestamp: Date.now() };
     const upstreamDurationMs = Date.now() - startedAt;
 

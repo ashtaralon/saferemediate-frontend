@@ -8,6 +8,7 @@ import {
   TTL_SLOW,
 } from "@/lib/server/proxy-cache"
 import { forwardScopeClaims } from "@/lib/server/scope-claims"
+import { systemChoiceDetail } from "@/lib/server/proxy-error"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -37,7 +38,7 @@ export async function GET(
   // AP201 (R11): the tenant / account claims travel with the read and key the cache — never another account's list.
   const upstream = new URLSearchParams({ max_jewels: "12" })
   const claimsKey = forwardScopeClaims(req.nextUrl.searchParams, upstream)
-  const cacheKey = `iap-jewels:${systemName}:${claimsKey}`
+  const cacheKey = claimsKey ? `iap-jewels:${systemName}:${claimsKey}` : `iap-jewels:${systemName}`   // no claim: today's key
   const cached = getCached(cacheKey)
   // Never serve a cached empty list as a HIT — empty was often a cold
   // SERVE / freeze artifact and poisons the Attack Paths rail for TTL_SLOW.
@@ -79,8 +80,10 @@ export async function GET(
           )
         }
       }
+      // A7 B5: the 409 system choice is relayed (typed) so the page can offer it; every other refusal answers as before.
+      const choice = systemChoiceDetail(body)
       return NextResponse.json(
-        { error: `backend_${res.status}`, crown_jewels: [] },
+        { error: `backend_${res.status}`, crown_jewels: [], ...(choice ? { detail: choice } : {}) },
         { status: res.status },
       )
     }

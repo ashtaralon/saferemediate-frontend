@@ -81,6 +81,8 @@ import {
   type FlowMapDetailSelection,
 } from "./flow-map-detail-panel"
 import { DnsVisibilityBanner } from "./dns-visibility-banner"
+import { SystemNameChoice } from "@/components/system-name-choice"
+import { ambiguousSystemCandidates, systemScopeQuery, type SystemCandidate } from "@/lib/scoped-system-catalog"
 
 // ---- Backend response shape (api/egress_visibility.py) -----------------
 
@@ -3017,7 +3019,7 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                 {row.routeTable.recommendation.scope_workload_count === 1 ? "" : "s"} share
                 this route table. Removing the route affects all of them. Rare-use workloads
                 outside the observed window are the operator's call — this is "no observed
-                dependency," not "safe to remove."
+                dependency," a removal candidate, not proof the route is unneeded.
               </div>
               {/* Execute surface — moved here from the top-level callout
                   per user feedback ("put it in the relevant path
@@ -3892,10 +3894,21 @@ function PathCard({ row, index }: { row: PathRow; index: number }) {
 
 // ---- Component --------------------------------------------------------
 
-export function EgressFlowMap({ systemName }: { systemName: string }) {
+export function EgressFlowMap({
+  systemName,
+  systemKey = null,
+  systemAccountId = null,
+}: {
+  systemName: string
+  /** A7 B5: the system's KEY (+ a tag / source key's account) when the page was opened by key; absent on v1. */
+  systemKey?: string | null
+  systemAccountId?: string | null
+}) {
   const [data, setData] = useState<EgressResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // B5: the name stands for several systems (409) -- the person chooses one; nothing is drawn for any of them meanwhile.
+  const [ambiguous, setAmbiguous] = useState<SystemCandidate[] | null>(null)
   const [animate, setAnimate] = useState(true)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   // containerRef wraps the WHOLE map (header + stats + callout + path list)
@@ -3934,18 +3947,26 @@ export function EgressFlowMap({ systemName }: { systemName: string }) {
   const fetchData = (force = false) => {
     setLoading(true)
     setError(null)
+    setAmbiguous(null)
     fetch(
-      `/api/proxy/egress/system/${encodeURIComponent(systemName)}?days=30&top_n=20${force ? `&_=${Date.now()}` : ""}`,
+      `/api/proxy/egress/system/${encodeURIComponent(systemName)}?days=30&top_n=20${systemScopeQuery(
+        systemKey, systemAccountId)}${force ? `&_=${Date.now()}` : ""}`,
       { cache: "no-store" },
     )
       .then(async (r) => {
         if (!r.ok) {
           const j = await r.json().catch(() => ({}))
+          const candidates = ambiguousSystemCandidates(r.status, j)
+          if (candidates) {
+            setData(null)
+            setAmbiguous(candidates)
+            return null
+          }
           throw new Error(j.error || `HTTP ${r.status}`)
         }
         return r.json()
       })
-      .then((j) => setData(j))
+      .then((j) => { if (j !== null) setData(j) })
       .catch((e: any) => setError(e?.message ?? "Failed to load egress data"))
       .finally(() => setLoading(false))
   }
@@ -3954,7 +3975,7 @@ export function EgressFlowMap({ systemName }: { systemName: string }) {
     if (!systemName) return
     fetchData(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [systemName])
+  }, [systemName, systemKey, systemAccountId])
 
   const architecture = useMemo(() => buildArchitecture(data), [data])
 
@@ -4005,6 +4026,10 @@ export function EgressFlowMap({ systemName }: { systemName: string }) {
         </div>
       </div>
     )
+  }
+
+  if (ambiguous) {
+    return <SystemNameChoice systemName={systemName} candidates={ambiguous} purpose="traffic" />
   }
 
   if (error) {

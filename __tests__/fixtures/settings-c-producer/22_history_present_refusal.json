@@ -1,0 +1,108 @@
+{
+ "body": {
+  "accounts": [
+   {
+    "account_id": "222222222222",
+    "aws_account_name": null,
+    "aws_account_name_error": null,
+    "aws_account_name_read_at": null,
+    "collection_mode": "MEMBER_READ_ROLE",
+    "coverage": null,
+    "customer_id": "acme",
+    "display_name": "222222222222",
+    "environment": "UNCLASSIFIED",
+    "group_ids": [],
+    "install_method": "MEMBER_STACK",
+    "is_platform_account": false,
+    "last_validated_at": null,
+    "mutation_enabled": false,
+    "onboarding_status": "ACCESS_CONFIRMABLE",
+    "organization_id": "o-install",
+    "organizational_unit_ids": [],
+    "pending_request": null,
+    "read_enabled": false,
+    "regions": [
+     "eu-west-1"
+    ],
+    "registered_at": "2026-10-05T07:58:20.434176+00:00",
+    "registered_by": {
+     "identity": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
+     "verified": true
+    },
+    "registration": {
+     "access_check": {
+      "answered_account": "222222222222",
+      "check_id": "133654d4ab963dd3f479149e908f1c87",
+      "completed_at": "2026-10-05T07:58:20.540112+00:00",
+      "identity_observed_at": "2026-10-05T07:58:20.538706+00:00",
+      "name_in_aws": "prod-payments",
+      "name_unreadable": null,
+      "outcome": "REACHED",
+      "refusal": null,
+      "requested_by": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice"
+     },
+     "activating": false,
+     "activation": null,
+     "activation_last": null,
+     "checking": false,
+     "first_inventory": {
+      "counts": {},
+      "items": [],
+      "observed_at": "2026-10-05T07:58:20.594516Z",
+      "reason": null,
+      "registration_id": "26b6feb1e87624477b12ac048a6eae4c",
+      "scope": "INVENTORY_BOOTSTRAP",
+      "state": "NOT_ACTIVATED"
+     },
+     "first_inventory_dispatch": null,
+     "listed_evidence": {
+      "at": "2026-10-05T07:58:20.443490+00:00",
+      "basis": "TIMELY_COMMIT",
+      "kind": "ORGANIZATION_LIST"
+     },
+     "owner": null,
+     "registration_id": "26b6feb1e87624477b12ac048a6eae4c",
+     "registration_path": "LISTED",
+     "registration_version": 4
+    },
+    "sources": {},
+    "tags": {},
+    "updated_at": "2026-10-05T07:58:20.540128+00:00",
+    "validation_message": "Cyntro reached account 222222222222 through CyntroRead-acme, which trusts this installation.",
+    "verification_enabled": false
+   }
+  ],
+  "customer_id": "acme",
+  "failed_requests": [
+   {
+    "account_id": "222222222222",
+    "action": "activate",
+    "detail": "account 222222222222 already has collection history in this installation; it cannot be connected as a new account here. Nothing was changed.",
+    "finished_at": "2026-10-05T07:58:20.584461+00:00",
+    "outcome": "ACCOUNT_HISTORY_PRESENT"
+   }
+  ],
+  "member_trust": {
+   "organization_id": "o-install",
+   "platform_account_id": "111111111111",
+   "ready": true
+  },
+  "mode": "MEMBER_ACCOUNTS",
+  "registry_available": true,
+  "summary": {
+   "connected": 0,
+   "discovered": 0,
+   "mutation_enabled": 0,
+   "needs_attention": 0
+  },
+  "total": 1
+ },
+ "captured_at": "2026-10-05T07:58:20.595224+00:00",
+ "name": "22_history_present_refusal",
+ "note": "a confirmation refused: the account has collection history here",
+ "request": {
+  "method": "GET",
+  "path": "/api/admin/accounts?customer_id=acme"
+ },
+ "status": 200
+}

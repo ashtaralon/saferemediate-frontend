@@ -1,0 +1,35 @@
+{
+  "_provenance": {
+    "backend_sha": "be2aad8ce6612b56a5947e4c731a1d4c9b25a677",
+    "produced_by": "cyntro_data.semantic.estate_read.registry_consumer_readiness's provider, executed for every cyntro_data.consume.onboarding.OnboardingState on a record of that state; the hold as the route names it for one account (estate_read._ready_selection: '<account>:' + CONSUMER_NOT_READY + ':' + reason); cyntro_data.consume.semantic_onboarding.PASS_LAPSE_REASONS",
+    "note": "executed, not hand-written: the readiness holds the account inventory route can answer",
+    "generator": "agent-coordinator/claude-settings-inventory-captures-2026-10-06/capture_hold_reasons.py (run in the backend tree at backend_sha, PYTHONPATH=.)"
+  },
+  "lifecycle_holds": {
+    "INSTALLING": "111122223333:CONSUMER_NOT_READY:lifecycle_not_active:INSTALLING",
+    "PROVISIONING": "111122223333:CONSUMER_NOT_READY:lifecycle_not_active:PROVISIONING",
+    "BOOTSTRAPPING": "111122223333:CONSUMER_NOT_READY:lifecycle_not_active:BOOTSTRAPPING",
+    "BACKFILLING": "111122223333:CONSUMER_NOT_READY:lifecycle_not_active:BACKFILLING",
+    "SHADOW": "111122223333:CONSUMER_NOT_READY:lifecycle_not_active:SHADOW",
+    "VALIDATION_HELD": "111122223333:CONSUMER_NOT_READY:lifecycle_not_active:VALIDATION_HELD",
+    "READY": "111122223333:CONSUMER_NOT_READY:lifecycle_not_active:READY",
+    "OFFBOARDED": "111122223333:CONSUMER_NOT_READY:lifecycle_not_active:OFFBOARDED"
+  },
+  "pass_lapse_reasons": [
+    "generation_moved",
+    "not_recorded",
+    "stale",
+    "suite_version_mismatch"
+  ],
+  "lifecycle_states": [
+    "INSTALLING",
+    "PROVISIONING",
+    "BOOTSTRAPPING",
+    "BACKFILLING",
+    "SHADOW",
+    "VALIDATION_HELD",
+    "READY",
+    "ACTIVE",
+    "OFFBOARDED"
+  ]
+}

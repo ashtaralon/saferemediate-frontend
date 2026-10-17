@@ -1,0 +1,21 @@
+{
+ "body": {
+  "detail": {
+   "code": "OFFBOARD_CONFIRMATION_MISMATCH",
+   "reason": "the account id typed (333333333333) is not the account being removed (222222222222)"
+  }
+ },
+ "captured_at": "2026-10-06T13:46:44.031376+00:00",
+ "name": "42_offboard_refused_typed_mismatch",
+ "note": "POST /offboard with another account id typed (422, nothing queued)",
+ "request": {
+  "json": {
+   "confirm_account_id": "333333333333",
+   "registration_id": "5daa6f181736d7fe76e9d4a20f2a25ff",
+   "registration_version": 5
+  },
+  "method": "POST",
+  "path": "/api/admin/accounts/222222222222/offboard?customer_id=acme"
+ },
+ "status": 422
+}

@@ -144,6 +144,7 @@ describe("legacy backend (numbers): still renders, and an unobserved row is unkn
     const text = document.body.textContent || ""
     expect(text).not.toMatch(/remove:|remove \d|Never used \(/)
     expect(text).not.toContain("High-risk unused")
+    expect(text).not.toMatch(/Not observed in the recorded window \(/)  // the unobserved-permission list header
     expect(text).not.toMatch(/\(1\)/)          // the legacy backend's invented call_count
   })
 
@@ -152,7 +153,7 @@ describe("legacy backend (numbers): still renders, and an unobserved row is unkn
     perResourceTab()
     const text = document.body.textContent || ""
     expect(text).not.toContain("High-risk unused")
-    expect(text).not.toMatch(/remove:|remove \d|Never used \(/)
+    expect(text).not.toMatch(/remove:|remove \d|Never used \(|Not observed in the recorded window \(/)
   })
 })
 

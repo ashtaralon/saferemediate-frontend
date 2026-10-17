@@ -81,10 +81,13 @@ export function NewSystemsModal({ newSystems, onClose, onSuccess }: NewSystemsMo
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ systemName, resourceIds }),
       })
-      const data = await response.json()
-      const results =
-        data.results ||
-        resourceIds.map((id: string) => ({ resourceId: id, success: true }))
+      const data = await response.json().catch(() => ({}))
+      // A refusal or failure is not "tagged": show its message. Results come only from the
+      // backend's per-resource outcomes -- never synthesized as success from the request.
+      if (!response.ok || !Array.isArray(data.results)) {
+        throw new Error(data?.detail?.message || data?.error || `HTTP ${response.status}`)
+      }
+      const results = data.results
       setTaggingResults({
         open: true,
         results,

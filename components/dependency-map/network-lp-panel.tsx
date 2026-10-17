@@ -5,7 +5,7 @@
 // (/api/network-lp/findings), classifies every route into the five card types,
 // and lets the operator scan, filter (by finding type / subnet), toggle the
 // grain (subnet vs route table), and read the evidence. Candidate-grade
-// throughout — never "safe to remove".
+// throughout — never a claim that a removal is risk-free.
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Loader2, RefreshCw, Network } from "lucide-react"

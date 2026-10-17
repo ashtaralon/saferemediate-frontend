@@ -1,6 +1,16 @@
 /**
- * Official AWS Architecture Icons via theSVG CDN
- * (https://thesvg.org/collection/aws — CC BY-ND 2.0, unmodified).
+ * Official AWS Architecture Icons, served by THIS app from `public/aws-icons/`
+ * (vendored unchanged from theSVG's AWS collection, CC BY-ND, by `scripts/vendor-aws-icons.sh`;
+ * `public/aws-icons/ATTRIBUTION.txt` records the source and licence).
+ *
+ * SERVED FROM THE APP, NOT A CDN
+ * ------------------------------
+ * A customer-resident install runs in a VPC that reaches nothing outside the customer's
+ * account, so an icon fetched from a CDN never arrives there and every service card is a
+ * broken image. The catalog therefore names each icon by its slug only; `awsIconUrl` maps it to
+ * a same-origin path, `scripts/check-aws-icons-vendored.mjs` fails the customer image build when
+ * a slug has no file, and the renderer (`aws-frame.tsx` OfficialIcon) falls back to the in-app
+ * glyph when a file fails to load at runtime -- a card, never a broken-image square.
  *
  * ONE TABLE, NOT TWO
  * ------------------
@@ -70,8 +80,8 @@
  * ALB icon — AWS ships no Target Group icon). A type with no defensible icon
  * gets `slug: null` and renders as a labelled card with no glyph. We never
  * substitute a lookalike to fill a hole, and never invent a slug: every slug
- * below returned HTTP 200 from the CDN, and
- * `scripts/verify-aws-icon-slugs.sh` re-checks them on demand.
+ * below was fetched by `scripts/vendor-aws-icons.sh`, and
+ * `scripts/verify-aws-icon-slugs.sh` re-checks them against the source on demand.
  *
  * Containers are deliberately icon-less. Security Group, Subnet and Internet
  * have no icon in the official AWS set because in AWS's visual grammar they
@@ -79,7 +89,8 @@
  * absence is the convention, not a coverage gap.
  */
 
-const CDN = "https://thesvg.org/icons"
+/** Same-origin path the app serves the vendored icons from (Next `public/aws-icons/<slug>.svg`). */
+const ICON_PATH = "/aws-icons"
 
 /**
  * What AWS says a service IS, relative to the canonical Region > VPC > AZ >
@@ -823,7 +834,7 @@ export function awsIconSlug(type: string | null | undefined): string | null {
 
 export function awsIconUrl(type: string | null | undefined): string | null {
   const slug = awsIconSlug(type)
-  return slug ? `${CDN}/${slug}/default.svg` : null
+  return slug ? `${ICON_PATH}/${slug}.svg` : null
 }
 
 /**
@@ -868,4 +879,4 @@ export function awsServiceFullName(type: string): string {
 }
 
 /** Exported for the unit test and the catalog doc; not for rendering. */
-export const __catalogForTest = { CATALOG, ALIASES, CDN }
+export const __catalogForTest = { CATALOG, ALIASES, ICON_PATH }

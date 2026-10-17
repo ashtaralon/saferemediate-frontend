@@ -1,0 +1,29 @@
+{
+ "body": {
+  "cli": "aws cloudformation deploy --stack-name cyntro-account-connection --region eu-west-1 --template-file cyntro-account-connection.yaml --capabilities CAPABILITY_NAMED_IAM --parameter-overrides CustomerId=acme SecurityToolingAccountId=123456789012 ExternalId=c994b992bf166eadc54b69e47956c1c71936a9a162a11cb37a0ff7dff8887f1f OrganizationId=o-g2n05x2awl",
+  "console_url": "https://eu-west-1.console.aws.amazon.com/cloudformation/home?region=eu-west-1#/stacks/create",
+  "customer_id": "acme",
+  "parameters": {
+   "CustomerId": "acme",
+   "EksClusterName": "",
+   "ExistingFlowLogGroupArns": "",
+   "ExternalId": "c994b992bf166eadc54b69e47956c1c71936a9a162a11cb37a0ff7dff8887f1f",
+   "FlowLogVpcId": "",
+   "OrganizationId": "o-g2n05x2awl",
+   "SecurityToolingAccountId": "123456789012"
+  },
+  "read_role_name": "CyntroRead-acme",
+  "read_role_output": "ReadRoleArn",
+  "region": "eu-west-1",
+  "stack_name": "cyntro-account-connection",
+  "template_path": "/api/admin/accounts/connect/template"
+ },
+ "captured_at": "2026-10-05T19:04:22.303192+00:00",
+ "name": "36_connect_instructions",
+ "note": "GET /connect/instructions once the member trust exists",
+ "request": {
+  "method": "GET",
+  "path": "/api/admin/accounts/connect/instructions?customer_id=acme"
+ },
+ "status": 200
+}
